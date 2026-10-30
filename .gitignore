@@ -1,0 +1,15 @@
+# Segredos (senhas e chaves)
+.env
+.env.*
+!.env.example
+ 
+# Python: arquivos gerados automaticamente
+__pycache__/
+*.pyc
+ 
+# Python: ambiente virtual (bibliotecas instaladas localmente)
+.venv/
+venv/
+ 
+# Pytest: cache dos testes
+.pytest_cache/

@@ -1,0 +1,1 @@
+# Colocar todas as bibliotecas necessárias para rodar o código

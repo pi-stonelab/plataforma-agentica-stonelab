@@ -1,0 +1,32 @@
+name: CI
+ 
+on:
+  pull_request:
+    branches: [main]
+ 
+jobs:
+  seguranca:
+    name: seguranca
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+ 
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      # continue-on-error: modo "só avisa". Remova esta linha quando o time
+      # estiver acostumado, para o lint passar a bloquear o PR.
+      - run: ruff check .
+        continue-on-error: true
