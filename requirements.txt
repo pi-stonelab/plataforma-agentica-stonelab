@@ -1,1 +1,9 @@
-# Colocar todas as bibliotecas necessárias para rodar o código
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+alembic
+pydantic-settings
+pyjwt
+bcrypt
+httpx
