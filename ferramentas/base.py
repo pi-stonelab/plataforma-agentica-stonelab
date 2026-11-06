@@ -7,7 +7,6 @@ confere tudo antes de chamar e nunca deixa uma exceção sair.
 O usuário é qualquer objeto com os atributos id, nivel e area.
 """
 import logging
-import math
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -200,7 +199,7 @@ class Ferramenta:
             )
         except ErroDeFerramenta as erro:
             return retorno_erro(erro.tipo_erro, erro.mensagem)
-        except (Exception, SystemExit) as erro:  # noqa: BLE001
+        except Exception as erro:  # noqa: BLE001
             registrador.error("Erro inesperado na ferramenta %s: %s", self.nome, type(erro).__name__)
             return retorno_erro("erro_de_execucao", "A ferramenta falhou ao executar.")
         if not retorno_valido(retorno):
@@ -244,8 +243,6 @@ def problema_do_valor(nome, regras, valor):
     if isinstance(valor, bool) or not isinstance(valor, tipos_aceitos):
         descricao_do_tipo = "um número inteiro" if tipo == "inteiro" else "um número"
         return f"O parâmetro {nome} deve ser {descricao_do_tipo}."
-    if isinstance(valor, float) and not math.isfinite(valor):
-        return f"O parâmetro {nome} deve ser um número finito."
     minimo = regras.get("minimo")
     if minimo is not None and valor < minimo:
         return f"O parâmetro {nome} deve ser no mínimo {minimo}."
