@@ -1,7 +1,7 @@
-# A ficha de cada ferramenta é escrita como atributos da classe (decisão do grupo),
-# então parametros é um dicionário no corpo da classe. Ninguém o altera em execução.
-# src aponta para a raiz do repositório, onde ficam as pastas ferramentas e testes.
-src = [".."]
+# Vale só para ferramentas/. Mantém as regras padrão do ruff (as mesmas do CI) e muda só isto:
+line-length = 100
+target-version = "py311"
 
 [lint]
-ignore = ["RUF012"]
+# `parametros` é um dict de classe na ficha de cada ferramenta: é dado fixo, ninguém altera em execução.
+extend-ignore = ["RUF012"]
