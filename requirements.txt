@@ -1,3 +1,12 @@
 # Colocar todas as bibliotecas necessárias para rodar o código
 requests
 python-dotenv
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+alembic
+pydantic-settings
+pyjwt
+bcrypt
+httpx
