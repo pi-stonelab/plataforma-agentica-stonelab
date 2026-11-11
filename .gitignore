@@ -13,3 +13,6 @@ venv/
  
 # Pytest: cache dos testes
 .pytest_cache/
+Claude outputs/agentes_encaixe.md
+/Claude outputs
+/.vscode

@@ -1,11 +1,12 @@
-import importlib.util
 import json
 import os
 import re
-from pathlib import Path
+import uuid
 
 import requests
 from dotenv import load_dotenv
+
+from ferramentas import catalogo, governanca
 
 load_dotenv()
 
@@ -13,157 +14,118 @@ load_dotenv()
 BASE_URL = "https://llm.thiagomedeiros.dev"
 MODELO = "qwen3.8:27b"
 MAX_PASSOS = 8          # agora há mais etapas (índice -> ferramenta -> uso -> resposta)
-MAX_CHARS_MD = 6000     # limite de texto de cada markdown enviado ao modelo
+MAX_CHARS_MD = 6000     # limite de texto de cada leitura e de cada resultado enviado ao modelo
 
-NOME_EMPRESA = "[NOME DA EMPRESA]"  # [ALTERAR: nome da empresa que o agente representa]
+NOME_EMPRESA = "Stone"
+AGENTE_ID = "agente_atendimento"
 
-# Perfil de quem está conversando com o agente. Precisa bater com os perfis escritos
-# no campo "perfis_permitidos" de cada TOOL.md.
-# [ALTERAR: hoje vem de variável de ambiente; no produto real deve vir do login/SSO]
-PERFIL_USUARIO = os.environ.get("PERFIL_USUARIO", "cliente")
-
-FERRAMENTAS_DIR = Path(__file__).parent / "ferramentas"  # [ALTERAR se a pasta ficar em outro lugar]
-INDICE_MD = FERRAMENTAS_DIR / "INDEX.md"
-NOME_VALIDO = re.compile(r"^[a-z0-9_]+$")  # nome de pasta aceito (evita path traversal)
-
-HEADERS = {
-    "CF-Access-Client-Id": os.environ["CF_ACCESS_CLIENT_ID"],
-    "CF-Access-Client-Secret": os.environ["CF_ACCESS_CLIENT_SECRET"],
-    "Content-Type": "application/json",
-}
+# Ferramentas que este agente pode usar. O catálogo ainda confere o nível e a área do funcionário.
+# [aqui conectamos com agentes: lista vinda da configuração do agente, KAN-55]
+FERRAMENTAS_DO_AGENTE = (
+    "consultar_cliente",
+    "consultar_transacoes_cliente",
+    "calcular_multa_atraso",
+    "consultar_endereco_cep",
+    "solicitar_ferramenta_ausente",
+)
 
 # ---------- PROTOCOLO DO AGENTE ----------
-SISTEMA = """Você é um agente de atendimento ao cliente da {EMPRESA}. Seu objetivo é resolver o problema do cliente com educação, clareza e sem inventar informações.
+SISTEMA = """Você é um assistente interno da {EMPRESA}. Ajuda funcionários a consultar dados e fazer cálculos usando ferramentas, com educação, clareza e sem inventar informações.
 
 A cada passo, responda EXATAMENTE neste formato:
 
-PENSAMENTO: <uma ou duas frases explicando seu raciocínio ao cliente>
+PENSAMENTO: <uma ou duas frases explicando seu raciocínio>
 <UMA ação da lista abaixo>
 
 Ações disponíveis (use apenas UMA por resposta):
-LER_INDICE
-LER_FERRAMENTA: <nome_da_pasta>
-USAR: <nome_da_pasta> | <argumentos em JSON, em uma única linha>
-PERGUNTAR: <pergunta ao cliente>
-FINAL: <resposta final ao cliente>
+LER: <caminho>   (vazio lê o índice de áreas; uma área, como financeiro, lista as ferramentas dela; uma ferramenta, como financeiro/calcular_multa_atraso, mostra a descrição e os parâmetros)
+USAR: <nome_da_ferramenta> | <argumentos em JSON, em uma única linha>
+PERGUNTAR: <pergunta ao funcionário>
+FINAL: <resposta final ao funcionário>
 
 Regras de trabalho (siga esta ordem):
-1. Ao receber um problema, use LER_INDICE para ver quais ferramentas existem.
-2. Escolha a ferramenta mais adequada e use LER_FERRAMENTA para ler a descrição dela. Só assim você saberá como ela funciona e se você e o cliente têm acesso.
-3. Só use USAR se a ferramenta foi lida e o sistema informou acesso LIBERADO. Use exatamente os argumentos descritos na ferramenta.
-4. Se faltar um dado (ex.: número do pedido) ou algo estiver ambíguo, use PERGUNTAR. Nunca chute.
-5. Se nenhuma ferramenta serve ou o acesso foi NEGADO, explique isso com honestidade no FINAL e diga o próximo passo (ex.: encaminhar a um atendente humano). Nunca tente contornar o bloqueio.
-6. Nunca invente dados de clientes, pedidos, valores ou prazos. Use somente o que as ferramentas devolverem.
-7. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
+1. Ao receber um pedido, use LER com o caminho vazio para ver as áreas.
+2. Entre na área adequada e depois leia a ferramenta (LER: <area>/<ferramenta>). Só assim você saberá como ela funciona.
+3. Só use USAR em uma ferramenta que você já leu. Use exatamente os parâmetros descritos nela.
+4. Se faltar um dado (ex.: o código do cliente) ou algo estiver ambíguo, use PERGUNTAR. Nunca chute.
+5. Se nenhuma ferramenta servir ao pedido, diga isso no FINAL, cite só as ferramentas que você viu e sugira a mais próxima. Antes de encerrar, use PERGUNTAR para oferecer o registro de um pedido de ferramenta nova. Se o funcionário aceitar, leia e use plataforma/solicitar_ferramenta_ausente e informe só o código do pedido, sem prometer aviso, prazo ou resposta de ninguém.
+6. Se uma ferramenta devolver permissao_negada, ou se um caminho não for encontrado, diga no FINAL que você não tem acesso a isso. Não sugira outro jeito de obter o mesmo dado e nunca peça ao funcionário que adivinhe nomes de ferramentas.
+7. Se a ferramenta devolver erro de parâmetro ou "não encontrado" para um dado (ex.: cliente inexistente), corrija o que for seu ou use PERGUNTAR. Nunca invente dados de clientes, valores ou prazos; use somente o que as ferramentas devolverem.
+8. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
 SISTEMA = SISTEMA.replace("{EMPRESA}", NOME_EMPRESA)
 
 # Encontra a primeira ação escrita pelo modelo (ignora qualquer coisa inventada depois dela).
-ACAO_RE = re.compile(
-    r"^\s*(LER_INDICE|LER_FERRAMENTA|USAR|PERGUNTAR|FINAL)\b\s*:?\s*", flags=re.MULTILINE
-)
+ACAO_RE = re.compile(r"^\s*(LER|USAR|PERGUNTAR|FINAL)\b[ \t]*:?[ \t]*", flags=re.MULTILINE)
 
 
-# ---------- FUNÇÕES AUXILIARES DE ARQUIVOS ----------
-def ler_md(caminho: Path) -> str:
-    return caminho.read_text(encoding="utf-8")[:MAX_CHARS_MD]
+# ---------- QUEM ESTÁ USANDO O AGENTE ----------
+def usuario_do_ambiente(ambiente=os.environ):
+    """Monta o funcionário a partir do .env, só para teste no terminal.
 
-
-def ler_frontmatter(texto: str) -> dict:
-    """Lê o cabeçalho entre '---' no topo do TOOL.md (formato chave: valor)."""
-    m = re.match(r"^---\s*\n(.*?)\n---", texto, flags=re.DOTALL)
-    meta = {}
-    if m:
-        for linha in m.group(1).splitlines():
-            if ":" in linha:
-                chave, valor = linha.split(":", 1)
-                meta[chave.strip().lower()] = valor.strip()
-    return meta
-
-
-def verificar_acesso(meta: dict):
-    """Decisão de acesso feita pelo CÓDIGO, não pelo modelo."""
-    agente_ok = meta.get("acesso_agente", "nao").strip().lower() in ("sim", "s", "true", "yes")
-    perfis = [p.strip().lower() for p in meta.get("perfis_permitidos", "").split(",") if p.strip()]
-    usuario_ok = "*" in perfis or PERFIL_USUARIO.lower() in perfis
-    return agente_ok, usuario_ok
-
-
-def resolver_pasta(nome: str):
-    if not NOME_VALIDO.match(nome):
-        return None
-    pasta = FERRAMENTAS_DIR / nome
-    return pasta if pasta.is_dir() else None
+    No produto real, o back-end valida o login e entrega o Usuario já pronto ao agente.
+    Falta qualquer dado ou valor inválido: o agente não sobe.
+    """
+    id_usuario = ambiente.get("ID_USUARIO", "").strip()
+    nivel = ambiente.get("NIVEL", "").strip().upper()
+    area = ambiente.get("AREA", "").strip().lower()
+    if not id_usuario or nivel not in governanca.NIVEIS or area not in governanca.AREAS_USUARIO:
+        raise ValueError(
+            "Defina ID_USUARIO, NIVEL (N1 ou N2) e AREA "
+            f"({', '.join(governanca.AREAS_USUARIO)}) no .env."
+        )
+    carteira = tuple(c.strip() for c in ambiente.get("CARTEIRA", "").split(",") if c.strip())
+    return governanca.Usuario(id_usuario, nivel, area, carteira)
 
 
 # ---------- ESTADO DE UM ATENDIMENTO ----------
 class Atendimento:
-    def __init__(self):
+    def __init__(self, usuario):
+        self.usuario = usuario
+        self.execucao_id = uuid.uuid4().hex
         self.indice_lido = False
-        self.lidas = set()       # ferramentas cujo TOOL.md já foi lido
-        self.liberadas = set()   # ferramentas lidas E com acesso liberado
+        self.lidas = set()       # ferramentas cuja descrição já foi lida e estava liberada
 
-    def ler_indice(self):
-        if not INDICE_MD.exists():
-            return f"erro: índice não encontrado em {INDICE_MD}", "índice não encontrado"
-        self.indice_lido = True
-        pastas = sorted(
-            p.name for p in FERRAMENTAS_DIR.iterdir()
-            if p.is_dir() and not p.name.startswith(("_", "."))
-        )
-        obs = f"{ler_md(INDICE_MD)}\n\n[Pastas existentes: {', '.join(pastas)}]"
-        return obs, f"índice lido; pastas: {', '.join(pastas)}"
+    def ler(self, caminho):
+        caminho = caminho.strip()
+        if caminho and not self.indice_lido:
+            return "erro: leia primeiro o índice (LER com o caminho vazio).", "bloqueado: índice não lido"
+        texto = catalogo.ler(caminho, self.usuario, FERRAMENTAS_DO_AGENTE)[:MAX_CHARS_MD]
+        if texto == catalogo.MENSAGEM_INDISPONIVEL:
+            return texto, "caminho não encontrado ou não liberado"
+        if not caminho:
+            self.indice_lido = True
+            return texto, "índice lido"
+        nome = caminho.split("/")[-1]
+        if nome in catalogo.ferramentas_liberadas(self.usuario, FERRAMENTAS_DO_AGENTE):
+            self.lidas.add(nome)
+        return texto, f"'{caminho}' lido"
 
-    def ler_ferramenta(self, nome: str):
-        if not self.indice_lido:
-            return "erro: leia o índice (LER_INDICE) antes de escolher uma ferramenta.", "bloqueado: índice não lido"
-        pasta = resolver_pasta(nome)
-        if pasta is None:
-            return f"erro: a ferramenta '{nome}' não existe. Escolha uma pasta do índice.", f"'{nome}' não existe"
-        md = pasta / "TOOL.md"
-        if not md.exists():
-            return f"erro: '{nome}' não tem TOOL.md.", f"'{nome}' sem TOOL.md"
-
-        texto = ler_md(md)
-        agente_ok, usuario_ok = verificar_acesso(ler_frontmatter(texto))
-        self.lidas.add(nome)
-        if agente_ok and usuario_ok:
-            self.liberadas.add(nome)
-            status = "LIBERADO"
-        else:
-            self.liberadas.discard(nome)
-            status = "NEGADO"
-        verificacao = (
-            f"[VERIFICAÇÃO DE ACESSO feita pelo sistema] agente: {'sim' if agente_ok else 'não'} | "
-            f"usuário (perfil '{PERFIL_USUARIO}'): {'sim' if usuario_ok else 'não'} => {status}"
-        )
-        return f"{texto}\n\n{verificacao}", f"TOOL.md de '{nome}' lido. {verificacao}"
-
-    def usar(self, nome: str, argumentos_texto: str):
+    def usar(self, nome, argumentos_texto, passo):
         if nome not in self.lidas:
-            return "erro: leia a ferramenta (LER_FERRAMENTA) antes de usá-la.", "bloqueado: ferramenta não lida"
-        if nome not in self.liberadas:
-            return "erro: acesso NEGADO a esta ferramenta. Não a use; explique ao cliente.", "bloqueado: sem acesso"
+            return "erro: leia a ferramenta (LER: <area>/<ferramenta>) antes de usá-la.", "bloqueado: ferramenta não lida"
         try:
             args = json.loads(argumentos_texto)
             if not isinstance(args, dict):
-                raise ValueError("os argumentos devem ser um objeto JSON")
-        except Exception as e:
+                raise TypeError("os argumentos devem ser um objeto JSON")
+        except (ValueError, TypeError) as e:
             return f"erro: argumentos inválidos ({e}).", "argumentos inválidos"
 
-        arquivo = FERRAMENTAS_DIR / nome / "ferramenta.py"
-        if not arquivo.exists():
-            return f"erro: '{nome}' não tem ferramenta.py.", "sem ferramenta.py"
-        try:
-            spec = importlib.util.spec_from_file_location(f"ferramenta_{nome}", arquivo)
-            modulo = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(modulo)
-            resultado = str(modulo.executar(args))
-        except Exception as e:
-            resultado = f"erro ao executar a ferramenta: {e}"
-        return resultado, resultado
+        contexto = {"agente_id": AGENTE_ID, "execucao_id": self.execucao_id, "passo": passo}
+        resultado = catalogo.executar(nome, args, self.usuario, FERRAMENTAS_DO_AGENTE, contexto)
+        texto = json.dumps(resultado, ensure_ascii=False, default=str)[:MAX_CHARS_MD]
+        resumo = resultado["status"] if resultado["tipo_erro"] is None else resultado["tipo_erro"]
+        return texto, f"'{nome}' executada: {resumo}"
 
 
 # ---------- CHAMADA AO LLM ----------
+def montar_headers():
+    return {
+        "CF-Access-Client-Id": os.environ["CF_ACCESS_CLIENT_ID"],
+        "CF-Access-Client-Secret": os.environ["CF_ACCESS_CLIENT_SECRET"],
+        "Content-Type": "application/json",
+    }
+
+
 def chamar_llm(prompt: str) -> str:
     payload = {
         "model": MODELO,
@@ -176,7 +138,9 @@ def chamar_llm(prompt: str) -> str:
             "stop": ["Observação:"],  # impede o modelo de inventar o resultado
         },
     }
-    r = requests.post(f"{BASE_URL}/api/generate", headers=HEADERS, json=payload, timeout=120)
+    r = requests.post(
+        f"{BASE_URL}/api/generate", headers=montar_headers(), json=payload, timeout=120
+    )
     r.raise_for_status()
     texto = r.json()["response"]
     return re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
@@ -188,19 +152,19 @@ def mostrar(rotulo: str, texto: str):
 
 
 # ---------- O LOOP DO AGENTE ----------
-def agente(pergunta: str):
-    historico = f"Pergunta do cliente: {pergunta}"
-    atendimento = Atendimento()
+def agente(pergunta, usuario, chamar_modelo=chamar_llm):
+    historico = f"Pergunta do funcionário: {pergunta}"
+    atendimento = Atendimento(usuario)
     trajetoria = []
 
     for passo in range(1, MAX_PASSOS + 1):
         print(f"\n--- passo {passo} ---")
-        resposta = chamar_llm(historico)
+        resposta = chamar_modelo(historico)
         m = ACAO_RE.search(resposta)
 
         if not m:
             mostrar("PENSAMENTO", resposta or "(vazio)")
-            obs = "formato inválido: use PENSAMENTO + uma das ações (LER_INDICE, LER_FERRAMENTA, USAR, PERGUNTAR, FINAL)."
+            obs = "formato inválido: use PENSAMENTO + uma das ações (LER, USAR, PERGUNTAR, FINAL)."
             mostrar("SISTEMA", obs)
             trajetoria.append(f"Passo {passo}: resposta fora do formato")
             historico += f"\n{resposta}\nObservação: {obs}"
@@ -222,7 +186,7 @@ def agente(pergunta: str):
         if acao == "FINAL":
             final = resto.strip()
             if not atendimento.indice_lido:
-                obs = "erro: antes de responder, consulte as ferramentas com LER_INDICE."
+                obs = "erro: antes de responder, consulte as ferramentas com LER."
                 resumo = "bloqueado: FINAL sem consultar o índice"
                 mostrar("SISTEMA", obs)
             elif not final:
@@ -231,49 +195,48 @@ def agente(pergunta: str):
                 trajetoria.append(f"Passo {passo}: resposta final entregue")
                 return final, trajetoria
 
-        elif acao == "LER_INDICE":
-            mostrar("AÇÃO", "lendo o índice de ferramentas (ferramentas/INDEX.md)")
-            obs, resumo = atendimento.ler_indice()
-            mostrar("RESULTADO", resumo)
-
-        elif acao == "LER_FERRAMENTA":
-            nome = primeira_linha
-            mostrar("AÇÃO", f"lendo a descrição da ferramenta '{nome}'")
-            obs, resumo = atendimento.ler_ferramenta(nome)
+        elif acao == "LER":
+            mostrar("AÇÃO", f"lendo '{primeira_linha or 'índice'}'")
+            obs, resumo = atendimento.ler(primeira_linha)
             mostrar("RESULTADO", resumo)
 
         elif acao == "USAR":
-            partes = re.match(r"^([a-z0-9_]+)\s*\|\s*(.*)$", primeira_linha)
+            partes = re.match(r"^(?:[a-z0-9_]+/)?([a-z0-9_]+)\s*\|\s*(.*)$", primeira_linha)
             if not partes:
-                obs, resumo = "erro: use 'USAR: <pasta> | <json>'.", "USAR em formato inválido"
+                obs, resumo = "erro: use 'USAR: <ferramenta> | <json>'.", "USAR em formato inválido"
             else:
                 nome, args = partes.group(1), partes.group(2)
                 mostrar("AÇÃO", f"usando '{nome}' com {args}")
-                obs, resumo = atendimento.usar(nome, args)
+                obs, resumo = atendimento.usar(nome, args, passo)
             mostrar("RESULTADO", resumo)
 
         else:  # PERGUNTAR
-            mostrar("AÇÃO", "preciso de uma informação do cliente")
+            mostrar("AÇÃO", "preciso de uma informação do funcionário")
             print(f"\nAgente: {primeira_linha}")
             resp_usuario = input("Você: ").strip()
-            obs, resumo = f"resposta do cliente: {resp_usuario}", f"cliente respondeu: {resp_usuario}"
+            obs = f"resposta do funcionário: {resp_usuario}"
+            resumo = f"funcionário respondeu: {resp_usuario}"
 
         trajetoria.append(f"Passo {passo}: {acao} -> {resumo[:150]}")
         historico += f"\n{registro}\nObservação: {obs}"
 
-    return "Não consegui concluir o atendimento. Vou encaminhar você a um atendente humano.", trajetoria
+    return "Não consegui concluir a consulta. Tente reformular o pedido ou abra um chamado interno.", trajetoria
     # [ALTERAR: definir com o grupo o que acontece ao estourar o limite de passos]
 
 
 if __name__ == "__main__":
-    print(f"Atendimento {NOME_EMPRESA} (perfil: {PERFIL_USUARIO}). Digite 'sair' para encerrar.")
+    funcionario = usuario_do_ambiente()
+    print(
+        f"Assistente {NOME_EMPRESA} (funcionário {funcionario.id_usuario}, "
+        f"{funcionario.nivel}, {funcionario.area}). Digite 'sair' para encerrar."
+    )
     while True:
         pergunta = input("\nVocê: ").strip()
         if pergunta.lower() in ("sair", "exit"):
             break
         if not pergunta:
             continue
-        resposta_final, trajetoria = agente(pergunta)
+        resposta_final, trajetoria = agente(pergunta, funcionario)
         print("\n=== TRAJETÓRIA ===")
         for linha in trajetoria:
             print(" •", linha)
