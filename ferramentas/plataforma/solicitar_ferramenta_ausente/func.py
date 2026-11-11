@@ -4,7 +4,7 @@ from ferramentas.base import ErroFerramenta, Ferramenta
 
 PADRAO_NOME = re.compile(r"[a-z][a-z0-9_]{2,59}")
 LIMITE_PEDIDOS = 1000
-# [aqui conectamos com o back-end e o Jira: persistir pedidos, KAN-27]
+# [aqui conectamos com o back-end e o Jira: automação semanal que envia os pedidos acumulados a um card único, KAN-27]
 PEDIDOS = []
 
 
