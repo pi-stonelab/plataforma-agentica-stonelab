@@ -1,3 +1,6 @@
+# Colocar todas as bibliotecas necessárias para rodar o código
+requests
+python-dotenv
 fastapi
 uvicorn[standard]
 sqlalchemy
