@@ -14,7 +14,7 @@ Prazos: **Sprint 2 em 19/11/2026** (demo ponta a ponta) e **Sprint 3 em 10/12/20
 | 3 Agentes e IA | Christopher, Isack | `agentes/` — runtime do agente, roda no mesmo processo do back-end |
 | 4 Ferramentas e Integrações | Pedro Henrique | `ferramentas/` — catálogo, classe `Ferramenta`, executor e dados sintéticos |
 | 5 Back-end e Dados | Marcelo, Isabel | `backend/` (a criar) |
-| 6 Segurança e Permissões | Brenno | Níveis, áreas, guardrails e auditoria (KAN-62) |
+| 6 Segurança e Permissões | Brenno | `seguranca/` (PR #10) — perfis, acesso ao agente, guardrails e auditoria (KAN-62) |
 | 7 QA | Enrico | Testes, alertas, revisão de PR |
 
 ## Princípio central (arquitetura KAN-31)
@@ -46,16 +46,38 @@ Interface ──REST──► API e login ─► Permissões ─► Orquestrador
 
 ### Ajustes pedidos às outras frentes
 - **Frente 3 (agente):** (a) `PERGUNTAR` devolve a pergunta e encerra o turno, em vez de `input()`; (b) receber lista de ferramentas e histórico como parâmetros (hoje `FERRAMENTAS_DO_AGENTE` é fixo); (c) tirar `BASE_URL` e `MODELO` do código (usar `chamar_modelo`); (d) `print` vira log/callback.
-- **Frente 6:** confirmar níveis e áreas oficiais. Até lá vale o que está em `governanca.py`.
+- **Frente 6 (Brenno):** (a) gancho para a auditoria sair da memória, como o `governanca.adicionar_destino`; (b) fechar com o Pedro a correspondência entre perfis e níveis de ferramenta (seção abaixo).
 - **Frente 7:** testes do back-end ficam no repositório (`backend/tests/`) e o CI roda pytest.
 
-## Modelo de acesso (provisório, conforme `ferramentas/governanca.py`)
-- Níveis: **`N1`** e **`N2`** (N2 é o mais alto e vê qualquer cliente).
-- Áreas: `atendimento`, `financeiro`, `dados`, `tecnologia`.
+## Modelo de acesso: duas camadas
+Perfil do usuário **vem do token JWT + banco**, nunca do corpo da requisição nem do prompt.
+
+### Camada 1: acesso ao agente (`seguranca/`, Brenno, PR #10 ainda em revisão)
+| Perfil | Nível | Agentes |
+| --- | --- | --- |
+| `AdminGlobal` | 1 | todos |
+| `Supervisor` | 2 | todos da(s) sua(s) área(s) (`areas_extras`); fora delas, só se convidado (ver e executar) |
+| `Colaborador` | 3 | os que criou (controle total) ou para os quais foi convidado (ver e executar) |
+| `GestorDeAcessos` | 0 | nenhum; só atribui e remove perfis, nunca o próprio |
+- Áreas: `Financeiro`, `AtendimentoCliente`. Ações: `VER`, `EXECUTAR`, `EDITAR`, `CONVIDAR`, `DEPRECAR`.
+- **Não existe agente público**: só dono, convidados, supervisor da área e admin enxergam.
+- Uso: `@exige_permissao(Acao.EXECUTAR)` em funções com parâmetros `usuario` e `agente`. Negado → `AcessoNegado` (responder 403).
+- A `PLATAFORMA` (`seguranca.envelope`) guarda cadastro e auditoria **em memória**. O banco é a fonte: o back-end cadastra usuário e agente vindos do banco na `PLATAFORMA` antes de checar, e grava a auditoria na tabela `auditoria`.
+
+### Camada 2: acesso à ferramenta (`ferramentas/governanca.py`, Pedro)
+- Níveis **`N1`** e **`N2`** (N2 é o mais alto e vê qualquer cliente). Áreas `atendimento`, `financeiro`, `dados`, `tecnologia`.
 - **Carteira**: lista de clientes que um N1 pode consultar.
 - Ferramenta: `nivel_minimo` + `areas_permitidas` (`"todas"` libera todas).
-- Acesso ao agente (back-end): dono, área do agente, visibilidade pública/privada. Regra final com Brenno (KAN-62). Todo acesso liberado gera registro.
-- Perfil do usuário **vem do token JWT + banco**, nunca do corpo da requisição.
+
+### Correspondência entre as camadas (proposta, **a confirmar com Brenno e Pedro**)
+O back-end monta, para a mesma pessoa, um `seguranca.Usuario` e um `governanca.Usuario`.
+| Camada 1 | Camada 2 |
+| --- | --- |
+| `AdminGlobal`, `Supervisor` | `N2` |
+| `Colaborador` | `N1` (com carteira) |
+| `GestorDeAcessos` | sem acesso a ferramentas |
+| `Financeiro` / `AtendimentoCliente` | `financeiro` / `atendimento` |
+`dados` e `tecnologia` não existem na camada 1: decidir se entram como áreas novas ou saem da camada 2.
 
 ## Contrato de ferramenta (conforme `ferramentas/base.py`)
 Ficha (atributos de classe): `nome`, `area`, `acesso` (`leitura` / `escrita` / `calculo`), `integracoes`, `nivel_minimo`, `areas_permitidas`, `categorias_dados`, `sensibilidade` (`publica` / `interna` / `pessoal` / `sigilosa`), `conteudo_terceiros`, `status` (`ativa` / `inativa` / `planejada`), `parametros` (tipos `texto`, `inteiro`, `decimal`, `data`). Descrição para o modelo fica no `agents.md` de cada ferramenta.
@@ -90,15 +112,17 @@ Decisões tomadas:
 ## Banco (Sprint 2)
 | Tabela | Conteúdo |
 | --- | --- |
-| `usuarios` | id, nome, email, senha_hash, nivel, area, carteira (JSONB) |
-| `agentes` | id, nome, objetivo, area, visibilidade, dono, ferramentas (JSONB), status |
+| `usuarios` | id, nome, email, senha_hash, perfil (AdminGlobal/Supervisor/Colaborador/GestorDeAcessos), area, areas_extras (JSONB), carteira (JSONB) |
+| `agentes` | id, nome, objetivo, area, dono, ferramentas (JSONB), ativo |
+| `agente_convidados` | agente, usuario |
+| `auditoria` | quando, usuario, acao, alvo, permitido (eventos da `PLATAFORMA`) |
 | `conversas` | id, usuario, agente, criada_em |
 | `mensagens` | conversa, autor (usuario/agente), texto, tipo (final/pergunta), trajetoria (JSONB), criada_em |
 | `execucoes_ferramenta` | campos de `governanca.CAMPOS_REGISTRO` (nunca argumentos nem dados) |
 | `uso_modelo` | usuario, conversa, tokens de entrada e saída, latência, custo simulado |
 | `clientes`, `transacoes` | dados sintéticos vindos de `dados_sinteticos.py` (KAN-32, se der tempo) |
 
-Sprint 3: `agente_historico`, `auditoria`, `eventos_erro`, limite de gasto.
+Sprint 3: `agente_historico`, `eventos_erro`, limite de gasto.
 
 ## API (Sprint 2, KAN-60)
 ```
@@ -113,8 +137,8 @@ GET  /conversas/{id}             → histórico
 
 ## Caminho de uma mensagem
 1. Interface envia `POST /conversas/{id}/mensagens` com o token.
-2. API valida o token e busca o usuário no banco → `governanca.Usuario`.
-3. Permissões conferem acesso ao agente (primeira checagem).
+2. API valida o token e busca o usuário no banco → monta `seguranca.Usuario` (camada 1) e `governanca.Usuario` (camada 2).
+3. Permissões conferem acesso ao agente com `@exige_permissao(Acao.EXECUTAR)` (primeira checagem). Negado → 403.
 4. Orquestrador carrega o agente (ferramentas permitidas) e o histórico, chama `agente(...)` com `chamar_modelo = LLMClient`.
 5. O agente lê/usa ferramentas pelo catálogo, que reconfere permissão (segunda checagem). Máximo de 8 passos.
 6. Back-end grava mensagem, rastro, execuções e uso do modelo e responde.
@@ -138,10 +162,10 @@ backend/
     models.py        # tabelas
     seed.py          # usuários, agentes e dados sintéticos
     auth.py          # login, JWT, usuário atual
-    permissoes.py    # acesso ao agente
+    permissoes.py    # monta os dois Usuario e usa seguranca.exige_permissao
     llm_client.py    # Ollama + mock
     orquestrador.py  # chama o agente
-    registro.py      # destino do governanca + uso_modelo
+    registro.py      # destino do governanca, auditoria da PLATAFORMA e uso_modelo
     rotas/           # auth, agentes, conversas
   tests/
   requirements.txt
@@ -154,14 +178,14 @@ docker-compose.yml   # só o Postgres
 | Quando | Entrega | Dono sugerido |
 | --- | --- | --- |
 | 11–12/11 | Esqueleto: FastAPI, Postgres no Compose, `create_all`, `/health`, pytest | Marcelo |
-| 13/11 | `usuarios`, seed (N1/N2 e áreas do código), login JWT, `/me` | Isabel |
+| 13/11 | `usuarios`, seed (um usuário por perfil, nas duas áreas), login JWT, `/me` | Isabel |
 | 13–14/11 | `LLMClient` (Ollama + mock, timeout, semáforo, tokens) com testes | Marcelo |
 | 15–16/11 | KAN-60: conversas e mensagens chamando agente e ferramentas (mock, depois modelo real) | Marcelo |
 | 16–17/11 | Gravar mensagens, rastro, execuções e uso do modelo; dados sintéticos no banco se der | Isabel |
 | 18/11 | Demo ponta a ponta com a interface, back-end no Docker, README, medir RAM | os dois |
 
 ## Sprint 3 (até 10/12)
-SSE por passo, CRUD de agentes com `agente_historico`, limite de gasto (aviso em 80%, aprovação do gestor), confirmação de ferramentas de escrita, auditoria, `eventos_erro` e alertas para a QA, mascaramento, Alembic se necessário, teste no Raspberry Pi.
+SSE por passo, CRUD de agentes com `agente_historico` e convites, rotas do `GestorDeAcessos` (atribuir e remover perfis), limite de gasto (aviso em 80%, aprovação do gestor), confirmação de ferramentas de escrita, `eventos_erro` e alertas para a QA, mascaramento, Alembic se necessário, teste no Raspberry Pi.
 
 ## Convenções
 - Python 3.11+ (CI usa 3.11), rotas síncronas, pytest, ruff.
@@ -169,8 +193,9 @@ SSE por passo, CRUD de agentes com `agente_historico`, limite de gasto (aviso em
 - PRs pequenos, template do repositório (o que mudou + card do Jira), revisão do QA. Não aprovar código gerado por IA que não se entende.
 
 ## Em aberto
-- Níveis e áreas oficiais (Brenno, KAN-62).
-- Regra de acesso ao agente e limite de gasto (Milene, Brenno).
+- Correspondência entre perfis (`seguranca/`) e níveis de ferramenta (`governanca.py`), e destino das áreas `dados` e `tecnologia` (Brenno e Pedro).
+- Aprovação do PR #10 (`seguranca/`) e gancho para gravar a auditoria no banco (Brenno).
+- Limite de gasto por pessoa (Milene).
 - Ajustes no `agente.py` (Christopher): `PERGUNTAR` sem `input()`, ferramentas e histórico por parâmetro.
 - Eventos que a QA quer receber (Enrico).
 - Branch `misabelalbponte-crypto-patch-2` (Isabel): alinhar com a estrutura acima.
