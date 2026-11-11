@@ -13,3 +13,4 @@ venv/
  
 # Pytest: cache dos testes
 .pytest_cache/
+/Claude outputs
