@@ -1,34 +1,29 @@
 # Ferramentas
 
-Aqui estão as ações que você pode executar em nome do usuário.
-Leia só até o nível de que precisa. Este arquivo diz qual área resolve o
-pedido, o arquivo da área diz qual ferramenta usar, e o arquivo da
-ferramenta diz como chamá-la.
+Aqui estão as ações que você pode executar em nome do usuário. Escolha na lista
+abaixo, leia a ficha da ferramenta (`area/nome`) e só então peça a execução com
+o nome e os argumentos. Ler a área é opcional: serve para comparar ferramentas parecidas.
 
 ## Áreas
 
 [aqui conectamos com o catálogo: lista das áreas liberadas para o usuário,
 cada uma com a primeira frase do `agents.md` dela]
 
-## Como chamar uma ferramenta
+## Ferramentas liberadas para você
 
-Leia a área, depois a ferramenta, e só então peça a execução com o nome e os argumentos.
-
-[aqui conectamos com o catálogo: a lista de ferramentas chega já filtrada
-pelo nível de acesso do usuário. Não leia os arquivos desta pasta
-diretamente]
+[aqui conectamos com o catálogo: cada ferramenta liberada, como `area/nome`, com a
+primeira frase da ficha dela]
 
 ## O que toda ferramenta devolve
 
 Toda ferramenta responde com `status`, `dados`, `mensagem` e `tipo_erro`.
 
-- `parametro_invalido`: falta um argumento ou ele está fora do formato. Corrija e tente de novo.
-- `permissao_negada`: seu acesso não cobre esse dado ou esse cliente. Não insista e avise o usuário.
-- `nao_encontrado`: o registro pedido não existe. Confirme o identificador com o usuário.
-- `ferramenta_inexistente`: a ferramenta não existe ou não está liberada para você. Releia a área e escolha outra.
-- `ferramenta_inativa`: a ferramenta existe, mas ainda não pode ser usada. Escolha outra ou avise o usuário.
-- `integracao_indisponivel`: o sistema por trás da ferramenta não respondeu. Avise o usuário e não repita sem parar.
-- `erro_interno`: falha da plataforma. Avise o usuário sem inventar uma causa.
+- `parametro_invalido`: corrija o argumento e tente de novo.
+- `permissao_negada`: não insista e avise o usuário.
+- `nao_encontrado`: confirme o identificador com o usuário.
+- `ferramenta_inexistente` e `ferramenta_inativa`: escolha outra ou avise o usuário.
+- `integracao_indisponivel`: o sistema não respondeu; avise e não repita sem parar.
+- `erro_interno`: falha da plataforma; avise sem inventar uma causa.
 
 ## Regras gerais
 

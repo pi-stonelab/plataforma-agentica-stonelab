@@ -76,22 +76,28 @@ def _primeira_frase(pasta):
     return re.split(r"(?<=\.)\s", paragrafo)[0]
 
 
-def _lista(pasta, titulo, itens):
-    """Troca o corpo da seção `## titulo` pela lista dos itens liberados."""
+def _lista(texto, titulo, itens):
+    """Troca o corpo da seção `## titulo` de `texto` pela lista `- nome: primeira frase` dos itens."""
     linhas = "\n".join(f"- `{nome}`: {_primeira_frase(destino)}" for nome, destino in itens)
     padrao = re.compile(rf"(## {titulo}\n).*?(?=\n## |\Z)", re.DOTALL)
-    return padrao.sub(lambda m: f"{m.group(1)}\n{linhas}\n", _ler_arquivo(pasta))
+    return padrao.sub(lambda m: f"{m.group(1)}\n{linhas}\n", texto)
 
 
 def _texto_do_caminho(caminho, liberadas):
-    """Texto do nível pedido; ValueError se o caminho não existe ou não está liberado."""
+    """Texto do nível pedido; ValueError se o caminho não existe ou não está liberado.
+
+    A raiz já lista as ferramentas liberadas (`area/nome` e a primeira frase da ficha), para o
+    modelo poder ler a ficha direto, sem passar pelo texto da área (P1 da crítica B).
+    """
     ferramentas = carregar()
     areas = sorted({ferramentas[n].area for n in liberadas})
     if caminho == "":
-        return _lista(RAIZ, "Áreas", [(a, RAIZ / a) for a in areas])
+        texto = _lista(_ler_arquivo(RAIZ), "Áreas", [(a, RAIZ / a) for a in areas])
+        fichas = [(f"{ferramentas[n].area}/{n}", RAIZ / ferramentas[n].area / n) for n in liberadas]
+        return _lista(texto, "Ferramentas liberadas para você", sorted(fichas))
     if caminho in areas:
         itens = [(n, RAIZ / caminho / n) for n in liberadas if ferramentas[n].area == caminho]
-        return _lista(RAIZ / caminho, "Ferramentas", itens)
+        return _lista(_ler_arquivo(RAIZ / caminho), "Ferramentas", itens)
     nome = caminho.split("/")[-1]
     if nome in liberadas:
         area = ferramentas[nome].area
