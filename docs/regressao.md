@@ -57,7 +57,7 @@ Tudo junto, como o CI: `cd backend && python -m pytest -q`, mais `ruff check .` 
    roteiro em `apoio_regressao.py`, e diga no PR qual decisão justifica a mudança.
 5. `XPASS(strict)`: o defeito foi corrigido. Tire o `xfail` do teste e a linha do achado desta página.
 6. Teste do contrato de LGPD falhou: o arquivo e a linha aparecem. Troque o valor por um sintético (CPF com dígito
-   verificador errado, e-mail `.example`). Dado armadilha de propósito: ponha `armadilha-permitida` na mesma linha.
+   verificador errado, e-mail `.example`). Dado armadilha de propósito: só o 4111 e os CPFs inválidos do cenário 7 são aceitos; a marca `armadilha-permitida` não libera mais a linha inteira.
 
 ## Decisões e divergências que os testes seguem
 
