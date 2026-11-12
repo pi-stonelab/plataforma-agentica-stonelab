@@ -1,0 +1,21 @@
+# Por enquanto só o banco. O back-end roda com uvicorn direto (ver backend/README.md).
+services:
+  db:
+    image: postgres:16-alpine   # tem versão ARM64 (Raspberry Pi)
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-stonelab}
+      POSTGRES_USER: ${POSTGRES_USER:-stonelab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    ports:
+      - "127.0.0.1:5432:5432"   # só acessível da própria máquina
+    volumes:
+      - dados_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  dados_postgres:

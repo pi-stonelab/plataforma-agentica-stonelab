@@ -1,0 +1,10 @@
+# Configuração de ferramentas do back-end (não é um pacote instalável).
+
+[tool.pytest.ini_options]
+# "." deixa importar `app`; ".." deixa importar `ferramentas` e `agentes` da raiz.
+pythonpath = [".", ".."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
