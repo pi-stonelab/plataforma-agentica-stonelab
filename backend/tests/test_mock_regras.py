@@ -3,7 +3,7 @@
 import threading
 
 import pytest
-from mock.banco import apagar_tabelas, criar_engine, criar_tabelas, url_padrao
+from mock.banco import apagar_tabelas, criar_engine, criar_tabelas
 from mock.modelos import BaseMock, Lojista
 from mock.regras import (
     CARGOS,
@@ -138,18 +138,6 @@ def test_sqlite_em_memoria_usa_pool_unico_e_serve_outra_thread():
     thread.start()
     thread.join()
     assert resultado == [[]]  # a outra thread enxerga as tabelas (não dá "no such table")
-
-
-def test_url_padrao_usa_database_url_do_ambiente(monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///um/caminho.sqlite")
-    assert url_padrao() == "sqlite:///um/caminho.sqlite"
-
-
-def test_url_padrao_sem_ambiente_cria_pasta_local(monkeypatch, tmp_path):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.chdir(tmp_path)
-    assert url_padrao() == "sqlite:///dados_locais/mock.sqlite"
-    assert (tmp_path / "dados_locais").is_dir()
 
 
 def test_apagar_tabelas_nao_toca_tabela_que_nao_e_do_mock():

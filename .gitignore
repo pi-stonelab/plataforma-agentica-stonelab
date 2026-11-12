@@ -21,3 +21,6 @@ Claude outputs/agentes_encaixe.md
 dados_locais/
 *.sqlite
 *.sqlite3
+pessoas_teste*.csv
+*.db
+*.sql

@@ -15,9 +15,12 @@ Stone. Fonte das regras: DOC-MOCK (`§` nos comentários do código). Esta é a 
 - `falhas.py`: sistema "fora do ar" (`cadastro`, `core`, `cobranca`, `crm`, `diretorio`).
 
 ## Como recriar
-    python -m mock.gerar                     # usa DATABASE_URL, ou SQLite em dados_locais/mock.sqlite
+    python -m mock.gerar                     # SQLite em dados_locais/mock.sqlite (raiz do repo); ignora DATABASE_URL
+    python -m mock.gerar --sim               # idem, sem perguntar antes de apagar
     python -m mock.gerar --url sqlite://     # só confere que o mundo gera (memória)
-Recriar APAGA e refaz as tabelas do mock (as outras tabelas do banco ficam como estão).
+    python -m mock.gerar --url <outro banco> --permitir-banco-externo   # só de propósito
+Recriar APAGA e refaz as tabelas do mock (as outras tabelas do banco ficam como estão) e pede um "sim"
+antes, salvo com `--sim` ou em memória. URL que não é SQLite só com `--permitir-banco-externo`.
 Falha: `MOCK_FALHAS=core,crm` deixa esses sistemas fora do ar (testes usam `ligar` e `desligar`).
 
 ## Cenários plantados (códigos fixos)
@@ -44,7 +47,7 @@ Todos os dados de lojistas e de funcionários do mock são fictícios. Para test
 `F9xxx`; `cargo` um dos 10 do mock) e rode `python -m mock.gerar`, ou passe `--pessoas-teste CAMINHO`.
 - Colete só o mínimo e só com a ciência da pessoa. Prefira id neutro e apelido; o e-mail é obrigatório na
   coluna, mas nada impede usar um endereço de teste.
-- O arquivo e o banco local ficam fora do Git (`.gitignore`: `dados_locais/`, `*.sqlite`, `*.sqlite3`).
+- O arquivo e o banco local ficam fora do Git (`.gitignore`: `dados_locais/`, `pessoas_teste*.csv`, `*.sqlite`, `*.sqlite3`, `*.db`, `*.sql`).
   Nunca coloque o CSV em outra pasta nem no repositório.
 - Linha inválida recusa o arquivo inteiro; a mensagem diz a linha e o campo, sem repetir o valor.
 - Senha de login não fica no CSV (é definida por comando, na etapa do back-end). Recriar o mundo apaga as

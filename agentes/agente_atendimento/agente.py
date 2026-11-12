@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import requests
 from dotenv import load_dotenv
 
-from ferramentas import catalogo, governanca
+from ferramentas import catalogo
 
 load_dotenv()
 
@@ -23,12 +23,13 @@ logger = logging.getLogger("agente_atendimento")
 logger.addHandler(logging.NullHandler())  # quem usa o agente decide para onde vão os logs
 
 # ---------- CONFIGURAÇÃO ----------
-BASE_URL = os.environ.get("LLM_URL", "https://llm.thiagomedeiros.dev")
-MODELO = os.environ.get("LLM_MODELO", "qwen3.8:27b")
+LLM_URL = os.environ.get("LLM_URL", "")  # só do .env; sem valor padrão no código
+LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3.8:27b")
 MAX_PASSOS = 10         # KAN-38: mais de 10 etapas sem terminar interrompe o turno
 MAX_REPETICOES = 3      # KAN-38: mesma ferramenta e mesmos argumentos 3 vezes seguidas = loop
 MAX_CHARS_MD = 6000     # limite de texto de cada leitura e de cada resultado enviado ao modelo
 MAX_TURNOS_HISTORICO = 10  # quantos pares pergunta/resposta anteriores entram no prompt
+MAX_CHARS_PERGUNTA = 4000  # a pergunta do funcionário é cortada aqui (BAIXO-4 da auditoria A1-A3)
 
 NOME_EMPRESA = "Stone"
 AGENTE_ID = "agente_atendimento"
@@ -67,6 +68,9 @@ Regras de trabalho (siga esta ordem):
 7. Se a ferramenta devolver erro de parâmetro ou "não encontrado" para um dado (ex.: cliente inexistente), corrija o que for seu ou use PERGUNTAR. Nunca invente dados de clientes, valores ou prazos; use somente o que as ferramentas devolverem.
 8. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
 SISTEMA = SISTEMA.replace("{EMPRESA}", NOME_EMPRESA)
+# O modelo deve parar aqui, senão inventa o resultado da ferramenta. Todo `chamar_modelo` (inclusive o
+# `LLMClient` do back-end) precisa passar isto como "stop" ao Ollama.
+PARADA_DO_MODELO = "Observação:"
 
 MENSAGEM_LIMITE_PASSOS = (
     f"Não consegui concluir a consulta em {MAX_PASSOS} passos. "
@@ -82,23 +86,32 @@ ACAO_RE = re.compile(r"^\s*(LER|USAR|PERGUNTAR|FINAL)\b[ \t]*:?[ \t]*", flags=re
 
 
 # ---------- QUEM ESTÁ USANDO O AGENTE ----------
-# [etapa B/C: trocar por busca no diretório do mock pelo ID_USUARIO]
-def usuario_do_ambiente(ambiente=os.environ):
-    """Monta o funcionário a partir do .env, só para teste no terminal.
+def buscar_usuario_no_diretorio(id_usuario):
+    """PONTO ÚNICO de ligação do modo terminal com o diretório de funcionários do mock (O12).
 
-    No produto real, o back-end valida o login e entrega o Usuario já pronto ao agente.
-    Falta qualquer dado ou valor inválido: o agente não sobe.
+    Deve devolver o `governanca.Usuario` (nível, área e carteira vindos do cargo) ou None se o
+    id não existir. Ainda não há função que faça essa conversão: `mock.consultas.buscar_funcionario`
+    devolve só cargo, área e carteiras, e a governança ainda não traduz cargo em nível.
+    [etapa B: ligar aqui quando existir, sem ler NIVEL, AREA nem CARTEIRA do .env]
+    """
+    raise NotImplementedError(
+        "O modo terminal ainda não encontra o perfil no diretório do mock (pendente da etapa B)."
+    )
+
+
+def usuario_do_ambiente(ambiente=os.environ, buscar_no_diretorio=buscar_usuario_no_diretorio):
+    """Monta o funcionário do modo terminal só pelo ID_USUARIO do .env; o perfil vem do diretório.
+
+    Nível, área e carteira NÃO são lidos do ambiente (O12). No produto real, o back-end valida
+    o login e entrega o Usuario já pronto ao agente. ID ausente, inválido ou desconhecido: não sobe.
     """
     id_usuario = ambiente.get("ID_USUARIO", "").strip()
-    nivel = ambiente.get("NIVEL", "").strip().upper()
-    area = ambiente.get("AREA", "").strip().lower()
-    if not id_usuario or nivel not in governanca.NIVEIS or area not in governanca.AREAS_USUARIO:
-        raise ValueError(
-            "Defina ID_USUARIO, NIVEL (N1 ou N2) e AREA "
-            f"({', '.join(governanca.AREAS_USUARIO)}) no .env."
-        )
-    carteira = tuple(c.strip() for c in ambiente.get("CARTEIRA", "").split(",") if c.strip())
-    return governanca.Usuario(id_usuario, nivel, area, carteira)
+    if not IDENTIFICADOR_SEGURO_RE.match(id_usuario):
+        raise ValueError("Defina ID_USUARIO no .env (letras, dígitos, '_' ou '-').")
+    usuario = buscar_no_diretorio(id_usuario)
+    if usuario is None:
+        raise ValueError("ID_USUARIO não encontrado no diretório de funcionários.")
+    return usuario
 
 
 # ---------- RESULTADO DE UM TURNO ----------
@@ -119,8 +132,11 @@ class Turno:
     motivo: str | None = None
 
 
-# Caminho e nome só entram na trajetória e no log se tiverem a forma de um caminho do catálogo.
+# Forma de um caminho do catálogo ("area" ou "area/ferramenta"). É só o primeiro filtro: o que vai
+# para o log e a trajetória ainda precisa ser um nome que existe no catálogo (`_alvo_seguro`).
 CAMINHO_SEGURO_RE = re.compile(r"^[a-z0-9_]+(?:/[a-z0-9_]+)?$")
+# execucao_id e agente_id vêm de fora e vão para o log: só letras, dígitos, "_" e "-" (sem quebra de linha).
+IDENTIFICADOR_SEGURO_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 # ---------- ESTADO DE UM ATENDIMENTO ----------
@@ -178,7 +194,7 @@ class Atendimento:
             args = json.loads(argumentos_texto)
             if not isinstance(args, dict):
                 raise TypeError("os argumentos devem ser um objeto JSON")
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, RecursionError) as e:  # RecursionError: JSON aninhado demais
             return f"erro: argumentos inválidos ({e}).", "argumentos inválidos"
 
         contexto = {"agente_id": self.agente_id, "execucao_id": self.execucao_id, "passo": passo}
@@ -197,20 +213,20 @@ def montar_headers():
     }
 
 
-def chamar_llm(prompt: str) -> str:
+def chamar_llm(prompt_sistema: str, prompt: str) -> str:
+    """Chamada direta ao Ollama, para o terminal. No produto quem chama é o `LLMClient` do back-end."""
+    if not LLM_URL:
+        raise RuntimeError("Defina LLM_URL no .env para usar o modelo direto (modo terminal).")
     payload = {
-        "model": MODELO,
-        "system": SISTEMA,
+        "model": LLM_MODELO,
+        "system": prompt_sistema,
         "prompt": prompt,
         "stream": False,
         "think": False,
-        "options": {
-            "temperature": 0,
-            "stop": ["Observação:"],  # impede o modelo de inventar o resultado
-        },
+        "options": {"temperature": 0, "stop": [PARADA_DO_MODELO]},
     }
     r = requests.post(
-        f"{BASE_URL}/api/generate", headers=montar_headers(), json=payload, timeout=120
+        f"{LLM_URL}/api/generate", headers=montar_headers(), json=payload, timeout=120
     )
     r.raise_for_status()
     texto = r.json()["response"]
@@ -235,36 +251,151 @@ def montar_prompt(pergunta, historico, atendimento):
                 + "\n\n".join(atendimento.descricoes_retomadas)
             )
         partes.append(aviso)
-    partes.append(f"Pergunta do funcionário: {pergunta}")
+    texto = pergunta if isinstance(pergunta, str) else str(pergunta)
+    if len(texto) > MAX_CHARS_PERGUNTA:
+        logger.info("pergunta cortada tamanho=%d limite=%d", len(texto), MAX_CHARS_PERGUNTA)
+        texto = texto[:MAX_CHARS_PERGUNTA] + " [pergunta cortada pelo sistema]"
+    partes.append(f"Pergunta do funcionário: {texto}")
     return "\n\n".join(partes)
 
 
+def _nomes_do_catalogo():
+    """Áreas e ferramentas que existem no catálogo: os únicos nomes que podem ir para o log."""
+    ferramentas = catalogo.carregar()
+    return set(ferramentas) | {ferramenta.area for ferramenta in ferramentas.values()}
+
+
 def _alvo_seguro(texto):
-    """Caminho/nome para trajetória e log; qualquer outra coisa vira um marcador."""
-    return texto if CAMINHO_SEGURO_RE.match(texto) else "<fora do padrão>"
+    """Caminho/nome para trajetória e log. Só passa o que existe no catálogo; o resto, mesmo
+    parecido com um caminho (um CPF sem pontos, por exemplo), vira um marcador (MED-3)."""
+    nomes = _nomes_do_catalogo()
+    if CAMINHO_SEGURO_RE.match(texto) and all(parte in nomes for parte in texto.split("/")):
+        return texto
+    return "<desconhecido>"
+
+
+def _identificador_seguro(valor, padrao):
+    """`valor` se tem a forma de um identificador (ver IDENTIFICADOR_SEGURO_RE); senão `padrao`."""
+    texto = str(valor) if valor else ""
+    return texto if IDENTIFICADOR_SEGURO_RE.match(texto) else padrao
 
 
 def _assinatura(nome, argumentos_texto):
     """Identifica 'mesma ferramenta, mesmos argumentos' sem guardar nem logar o conteúdo."""
     try:
         argumentos = json.dumps(json.loads(argumentos_texto), sort_keys=True)
-    except ValueError:
+    except (ValueError, RecursionError):
         argumentos = argumentos_texto.strip()
     return nome, argumentos
 
 
 # ---------- O TURNO DO AGENTE ----------
+class Rodada:
+    """O que muda durante um turno: trajetória e contagem de repetições. Cada `tratar_*` roda
+    uma ação e devolve (observação, resumo, alvo) para o passo seguinte, ou um `Turno` que encerra."""
+
+    def __init__(self, atendimento, execucao_id, agente_id):
+        self.atendimento = atendimento
+        self.execucao_id = execucao_id
+        self.agente_id = agente_id
+        self.trajetoria = []
+        self.ultima_assinatura = None
+        self.repeticoes = 0
+
+    def terminar(self, resposta, tipo, motivo=None):
+        logger.info(
+            "turno encerrado execucao_id=%s agente_id=%s tipo=%s motivo=%s passos=%d",
+            self.execucao_id, self.agente_id, tipo, motivo, len(self.trajetoria),
+        )
+        return Turno(resposta, tipo, self.trajetoria, self.atendimento.estado(), motivo)
+
+    def tratar_formato_invalido(self, passo):
+        logger.info("passo=%d execucao_id=%s resposta fora do formato", passo, self.execucao_id)
+        self.trajetoria.append(f"Passo {passo}: resposta fora do formato")
+        return "formato inválido: use PENSAMENTO + uma das ações (LER, USAR, PERGUNTAR, FINAL)."
+
+    def tratar_final(self, passo, final):
+        if not self.atendimento.indice_lido:
+            obs = "erro: antes de responder, consulte as ferramentas com LER."
+            return obs, "bloqueado: FINAL sem consultar o índice", ""
+        if not final:
+            return "erro: FINAL vazio.", "FINAL vazio", ""
+        self.trajetoria.append(f"Passo {passo}: resposta final entregue")
+        logger.info("passo=%d execucao_id=%s acao=FINAL", passo, self.execucao_id)
+        return self.terminar(final, "final")
+
+    def tratar_ler(self, primeira_linha):
+        obs, resumo = self.atendimento.ler(primeira_linha)
+        alvo = _alvo_seguro(primeira_linha) if primeira_linha else "índice"
+        return obs, resumo, alvo
+
+    def tratar_usar(self, passo, primeira_linha):
+        partes = re.match(r"^(?:[a-z0-9_]+/)?([a-z0-9_]+)\s*\|\s*(.*)$", primeira_linha)
+        if not partes:
+            return "erro: use 'USAR: <ferramenta> | <json>'.", "USAR em formato inválido", ""
+        nome, args = partes.group(1), partes.group(2)
+        if self._repetiu(nome, args) >= MAX_REPETICOES:  # KAN-38: para antes de executar a 3ª vez
+            return self._parar_por_repeticao(passo, nome)
+        obs, resumo = self.atendimento.usar(nome, args, passo)
+        return obs, resumo, _alvo_seguro(nome)
+
+    def _repetiu(self, nome, args):
+        """Quantas vezes seguidas esta mesma ferramenta com os mesmos argumentos apareceu."""
+        assinatura = _assinatura(nome, args)
+        self.repeticoes = self.repeticoes + 1 if assinatura == self.ultima_assinatura else 1
+        self.ultima_assinatura = assinatura
+        return self.repeticoes
+
+    def _parar_por_repeticao(self, passo, nome):
+        self.trajetoria.append(
+            f"Passo {passo}: USAR -> limite: mesma ferramenta e mesmos argumentos "
+            f"{MAX_REPETICOES} vezes seguidas"
+        )
+        logger.warning(
+            "passo=%d execucao_id=%s acao=USAR ferramenta=%s repeticao=%d",
+            passo, self.execucao_id, _alvo_seguro(nome), self.repeticoes,
+        )
+        return self.terminar(MENSAGEM_REPETICAO, "limite", "repeticao")
+
+    def tratar_perguntar(self, passo, primeira_linha):
+        """Encerra o turno; o funcionário responde no turno seguinte."""
+        if not primeira_linha:
+            return "erro: PERGUNTAR vazio.", "PERGUNTAR vazio", ""
+        self.trajetoria.append(f"Passo {passo}: PERGUNTAR -> aguardando o funcionário")
+        logger.info("passo=%d execucao_id=%s acao=PERGUNTAR", passo, self.execucao_id)
+        return self.terminar(primeira_linha, "pergunta")
+
+    def tratar(self, passo, acao, resto, primeira_linha):
+        if acao == "FINAL":
+            return self.tratar_final(passo, resto.strip())
+        if acao == "LER":
+            return self.tratar_ler(primeira_linha)
+        if acao == "USAR":
+            return self.tratar_usar(passo, primeira_linha)
+        return self.tratar_perguntar(passo, primeira_linha)
+
+
+def _separar_acao(resposta, encontro):
+    """Da resposta do modelo tira (ação, resto depois dela, primeira linha do resto)."""
+    resto = resposta[encontro.end():]
+    primeira_linha = resto.splitlines()[0].strip() if resto.strip() else ""
+    return encontro.group(1), resto, primeira_linha
+
+
 def rodar_turno(
     pergunta: str,
     usuario,
     ferramentas_do_agente: Sequence[str],
-    chamar_modelo: Callable[[str], str],
+    chamar_modelo: Callable[[str, str], str],
     historico: Sequence[tuple[str, str]] = (),
     estado: dict | None = None,
     contexto: dict | None = None,
+    prompt_sistema: str = SISTEMA,
 ) -> Turno:
     """Roda um turno: até MAX_PASSOS chamadas ao modelo e devolve um `Turno`.
 
+    `chamar_modelo(prompt_sistema, prompt)` devolve o texto do modelo. O prompt de sistema (o
+    protocolo LER/USAR/PERGUNTAR/FINAL) vai a cada chamada; assim qualquer cliente de modelo serve.
     `historico`: pares (mensagem do funcionário, resposta do agente) dos turnos anteriores.
     `estado`: o `Turno.estado` do turno anterior, quando ele terminou em "pergunta"; sem ele
     (conversa nova) o agente precisa ler o índice e as ferramentas de novo.
@@ -272,100 +403,48 @@ def rodar_turno(
     Nenhum argumento de ferramenta, dado devolvido ou texto do funcionário vai para log ou trajetória.
     """
     contexto = contexto if isinstance(contexto, dict) else {}
-    execucao_id = str(contexto.get("execucao_id") or uuid.uuid4().hex)
-    agente_id = str(contexto.get("agente_id") or AGENTE_ID)
+    execucao_id = _identificador_seguro(contexto.get("execucao_id"), uuid.uuid4().hex)
+    agente_id = _identificador_seguro(contexto.get("agente_id"), AGENTE_ID)
     atendimento = Atendimento(usuario, ferramentas_do_agente, execucao_id, agente_id, estado)
+    rodada = Rodada(atendimento, execucao_id, agente_id)
     prompt = montar_prompt(pergunta, historico, atendimento)
-    trajetoria = []
-    ultima_assinatura, repeticoes = None, 0
-
-    def terminar(resposta, tipo, motivo=None):
-        logger.info(
-            "turno encerrado execucao_id=%s agente_id=%s tipo=%s motivo=%s passos=%d",
-            execucao_id, agente_id, tipo, motivo, len(trajetoria),
-        )
-        return Turno(resposta, tipo, trajetoria, atendimento.estado(), motivo)
 
     for passo in range(1, MAX_PASSOS + 1):
-        resposta = chamar_modelo(prompt)
-        m = ACAO_RE.search(resposta)
-
-        if not m:
-            obs = "formato inválido: use PENSAMENTO + uma das ações (LER, USAR, PERGUNTAR, FINAL)."
-            logger.info("passo=%d execucao_id=%s resposta fora do formato", passo, execucao_id)
-            trajetoria.append(f"Passo {passo}: resposta fora do formato")
+        resposta = chamar_modelo(prompt_sistema, prompt)
+        if not isinstance(resposta, str):  # contrato: texto; qualquer outra coisa é resposta inválida
+            resposta = ""
+        encontro = ACAO_RE.search(resposta)
+        if not encontro:
+            obs = rodada.tratar_formato_invalido(passo)
             prompt += f"\n{resposta}\nObservação: {obs}"
             continue
 
-        acao = m.group(1)
-        resto = resposta[m.end():]
-        primeira_linha = resto.splitlines()[0].strip() if resto.strip() else ""
-
-        # Guarda no prompt só até o fim da ação (descarta qualquer coisa inventada depois).
-        if acao == "FINAL":
-            registro = resposta[: m.end()] + resto
-        else:
-            registro = resposta[: m.end()] + primeira_linha
-
-        alvo = ""  # só caminho/nome já validado; é o que aparece no log
-        if acao == "FINAL":
-            final = resto.strip()
-            if not atendimento.indice_lido:
-                obs = "erro: antes de responder, consulte as ferramentas com LER."
-                resumo = "bloqueado: FINAL sem consultar o índice"
-            elif not final:
-                obs, resumo = "erro: FINAL vazio.", "FINAL vazio"
-            else:
-                trajetoria.append(f"Passo {passo}: resposta final entregue")
-                logger.info("passo=%d execucao_id=%s acao=FINAL", passo, execucao_id)
-                return terminar(final, "final")
-
-        elif acao == "LER":
-            obs, resumo = atendimento.ler(primeira_linha)
-            alvo = _alvo_seguro(primeira_linha) if primeira_linha else "índice"
-
-        elif acao == "USAR":
-            partes = re.match(r"^(?:[a-z0-9_]+/)?([a-z0-9_]+)\s*\|\s*(.*)$", primeira_linha)
-            if not partes:
-                obs, resumo = "erro: use 'USAR: <ferramenta> | <json>'.", "USAR em formato inválido"
-            else:
-                nome, args = partes.group(1), partes.group(2)
-                assinatura = _assinatura(nome, args)
-                repeticoes = repeticoes + 1 if assinatura == ultima_assinatura else 1
-                ultima_assinatura = assinatura
-                if repeticoes >= MAX_REPETICOES:  # KAN-38: para antes de executar a 3ª vez
-                    trajetoria.append(
-                        f"Passo {passo}: USAR -> limite: mesma ferramenta e mesmos argumentos "
-                        f"{MAX_REPETICOES} vezes seguidas"
-                    )
-                    logger.warning(
-                        "passo=%d execucao_id=%s acao=USAR ferramenta=%s repeticao=%d",
-                        passo, execucao_id, nome, repeticoes,
-                    )
-                    return terminar(MENSAGEM_REPETICAO, "limite", "repeticao")
-                alvo = nome
-                obs, resumo = atendimento.usar(nome, args, passo)
-
-        else:  # PERGUNTAR: encerra o turno; o funcionário responde no turno seguinte
-            if primeira_linha:
-                trajetoria.append(f"Passo {passo}: PERGUNTAR -> aguardando o funcionário")
-                logger.info("passo=%d execucao_id=%s acao=PERGUNTAR", passo, execucao_id)
-                return terminar(primeira_linha, "pergunta")
-            obs, resumo = "erro: PERGUNTAR vazio.", "PERGUNTAR vazio"
+        acao, resto, primeira_linha = _separar_acao(resposta, encontro)
+        saida = rodada.tratar(passo, acao, resto, primeira_linha)
+        if isinstance(saida, Turno):
+            return saida
+        obs, resumo, alvo = saida
 
         logger.info(
             "passo=%d execucao_id=%s acao=%s alvo=%s resultado=%s",
             passo, execucao_id, acao, alvo or "-", resumo,
         )
-        trajetoria.append(f"Passo {passo}: {acao} -> {resumo[:150]}")
+        rodada.trajetoria.append(f"Passo {passo}: {acao} -> {resumo[:150]}")
+        # Guarda no prompt só até o fim da ação (descarta qualquer coisa inventada depois).
+        registro = resposta[: encontro.end()] + (resto if acao == "FINAL" else primeira_linha)
         prompt += f"\n{registro}\nObservação: {obs}"
 
-    return terminar(MENSAGEM_LIMITE_PASSOS, "limite", "max_passos")
+    return rodada.terminar(MENSAGEM_LIMITE_PASSOS, "limite", "max_passos")
 
 
-def agente(pergunta, usuario, chamar_modelo=chamar_llm, ferramentas_do_agente=FERRAMENTAS_DO_AGENTE):
+def agente(
+    pergunta, usuario, chamar_modelo=chamar_llm, ferramentas_do_agente=FERRAMENTAS_DO_AGENTE,
+    prompt_sistema=SISTEMA,
+):
     """Um turno sem histórico, para o terminal e os testes. Devolve (resposta, trajetoria)."""
-    turno = rodar_turno(pergunta, usuario, ferramentas_do_agente, chamar_modelo)
+    turno = rodar_turno(
+        pergunta, usuario, ferramentas_do_agente, chamar_modelo, prompt_sistema=prompt_sistema
+    )
     return turno.resposta, turno.trajetoria
 
 
@@ -399,7 +478,10 @@ if __name__ == "__main__":
     if os.environ.get("MODO_TERMINAL") != "1":  # O12
         raise SystemExit("Modo terminal desligado. Defina MODO_TERMINAL=1 para usar.")
     logging.basicConfig(level=logging.INFO, format="  [%(levelname)s] %(message)s")
-    funcionario = usuario_do_ambiente()
+    try:
+        funcionario = usuario_do_ambiente()
+    except (ValueError, NotImplementedError) as erro:
+        raise SystemExit(str(erro)) from erro
     print(
         f"Assistente {NOME_EMPRESA} (funcionário {funcionario.id_usuario}, "
         f"{funcionario.nivel}, {funcionario.area}). Digite 'sair' para encerrar."

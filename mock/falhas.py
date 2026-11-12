@@ -16,8 +16,12 @@ SISTEMAS = ("cadastro", "core", "cobranca", "crm", "diretorio")
 _ligadas_por_codigo: set[str] = set()
 
 
-class SistemaIndisponivel(Exception):
-    """O sistema simulado está fora do ar. A mensagem não traz detalhe técnico."""
+class SistemaIndisponivel(ConnectionError):
+    """O sistema simulado está fora do ar. A mensagem não traz detalhe técnico.
+
+    É um `ConnectionError`, como uma queda de verdade: as ferramentas já tratam esse tipo
+    como `integracao_indisponivel` (MED-1 da auditoria A1-A3).
+    """
 
     def __init__(self, sistema: str) -> None:
         super().__init__(f"sistema indisponível: {sistema}")
