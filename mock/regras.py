@@ -178,6 +178,10 @@ CLASSIFICACAO_CAMPOS = {
     "resumo": "texto_livre",  # chamados.resumo
 }
 
+# Campos de texto com formato fixo que parecem número restrito: o valor inteiro precisa casar o
+# formato para passar sem a máscara de texto livre (protocolo do chamado: AAAAMMDD-NNNNNN).
+FORMATO_DE_IDENTIFICADORES = {"protocolo": r"\d{8}-\d{6}"}
+
 # Campos que as consultas devolvem e que não são restritos (público, interno ou confidencial).
 # Inclui os montados pela fachada das ferramentas (valores em reais).
 CAMPOS_NAO_RESTRITOS = frozenset(

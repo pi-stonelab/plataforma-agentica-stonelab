@@ -5,18 +5,38 @@ Contrato (uma fonte só, `mock/regras.py`):
 - `CAMPOS_NAO_RESTRITOS` lista os campos liberados;
 - numa ferramenta que lê dado de lojista, texto em campo fora das duas listas sai como "***"
   (negar por padrão);
-- CPF e cartão escritos no meio de qualquer texto também são mascarados.
+- CPF e cartão escritos no meio de qualquer texto também são mascarados (ver `_texto_livre`).
 Na Sprint 2 ninguém vê o dado restrito completo (O2). Quem chama é `Ferramenta.executar`, uma vez.
+
+Texto livre, o que vale (ALTO-1 da auditoria B):
+- o texto é normalizado antes (NFKC, dígitos de outros alfabetos viram 0-9, caracteres invisíveis
+  somem) e a saída sai normalizada;
+- sequência de dígitos com até 4 separadores entre dois dígitos (espaço, quebra de linha, ponto,
+  hífen, barra, traço longo, sublinhado) conta como um número só, sem depender de borda de palavra: letra colada
+  em dígito ("cpf52998224700") também é pega;
+- 11 dígitos viram CPF (`***.456.789-**`); 13 a 19, cartão (`**** **** **** 1111`); 12 dígitos ou
+  mais de 19 viram `***` (na dúvida, mascara). Luhn não é usado: nunca se libera um número;
+- falso positivo aceito: qualquer número de 11 dígitos (um celular, "0800 123 4567") vira CPF mascarado,
+  e dois números de 8 dígitos seguidos (duas datas) viram cartão;
+- o que NÃO é coberto de propósito: e-mail e telefone digitados em texto livre (DOC-MOCK §8.3 só diz
+  CPF e cartão; decisão de produto pendente) e número escrito por extenso ou com letra no meio.
 """
 
 import re
+import unicodedata
 
 from mock import regras
 
 MASCARADO = "***"
 LIMITE_PROFUNDIDADE = 8
-CPF_NO_TEXTO = re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")
-CARTAO_NO_TEXTO = re.compile(r"\b(?:\d{4}[ -]?){3}\d{4}\b")
+# Um dígito, depois (até 4 separadores + um dígito) quantas vezes houver. Separador e dígito não se
+# misturam, então a busca anda numa passada só (sem ReDoS), mesmo com 1 MB de dígitos e espaços.
+SEQUENCIA_DE_DIGITOS = re.compile(r"\d(?:[\s./\\_\-\u2010-\u2015\u2212\u00b7]{0,4}\d)*")
+CARACTERES_INVISIVEIS = re.compile(
+    "[\x00-\x08\x0e-\x1f\x7f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e"
+    "\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]"
+)
+DIGITO_NAO_ASCII = re.compile(r"(?![0-9])\d")
 # Forma de cada valor depois de mascarado: mascarar de novo devolve o mesmo valor.
 JA_MASCARADO = {
     "cpf": re.compile(r"\*\*\*\.\d{3}\.\d{3}-\*\*"),
@@ -68,9 +88,28 @@ def _nome(valor):
     return " ".join(f"{parte[0]}***" for parte in partes) if partes else MASCARADO
 
 
+def _normalizar(texto):
+    """NFKC, dígitos de outros alfabetos em 0-9 e sem caracteres invisíveis (zero-width e afins)."""
+    if not texto.isascii():
+        texto = unicodedata.normalize("NFKC", texto)
+        texto = DIGITO_NAO_ASCII.sub(lambda m: str(unicodedata.decimal(m.group())), texto)
+    return CARACTERES_INVISIVEIS.sub("", texto)
+
+
+def _numero_no_texto(trecho):
+    """Máscara de uma sequência de dígitos achada no texto, pela quantidade de dígitos."""
+    digitos = _digitos(trecho)
+    if len(digitos) == 11:
+        return _cpf(digitos)
+    if 13 <= len(digitos) <= 19:
+        return _cartao_com_4_ultimos(digitos)
+    if len(digitos) == 12 or len(digitos) > 19:
+        return MASCARADO
+    return trecho
+
+
 def _texto_livre(valor):
-    valor = CARTAO_NO_TEXTO.sub(lambda m: _cartao_com_4_ultimos(_digitos(m.group())), valor)
-    return CPF_NO_TEXTO.sub(lambda m: _cpf(m.group()), valor)
+    return SEQUENCIA_DE_DIGITOS.sub(lambda m: _numero_no_texto(m.group()), _normalizar(valor))
 
 
 MASCARAS = {
@@ -95,6 +134,12 @@ def mascarar_valor(tipo, valor):
     return MASCARAS[tipo](valor)
 
 
+def _e_identificador_de_formato_fixo(campo, valor):
+    """Protocolo AAAAMMDD-NNNNNN tem 14 dígitos e não é cartão: o valor inteiro tem de casar o formato."""
+    formato = regras.FORMATO_DE_IDENTIFICADORES.get(campo)
+    return formato is not None and re.fullmatch(formato, valor) is not None
+
+
 def _valor(campo, valor, estrito, nivel):
     """Máscara de um valor que está no campo `campo` (listas herdam o campo do dono)."""
     if nivel > LIMITE_PROFUNDIDADE:
@@ -109,6 +154,8 @@ def _valor(campo, valor, estrito, nivel):
     if tipo is not None:
         return mascarar_valor(tipo, valor)
     if isinstance(valor, str):
+        if _e_identificador_de_formato_fixo(campo, valor):
+            return valor
         liberado = campo in regras.CAMPOS_NAO_RESTRITOS
         return _texto_livre(valor) if liberado or not estrito else MASCARADO
     return valor
