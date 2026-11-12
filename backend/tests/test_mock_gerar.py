@@ -1,5 +1,6 @@
 """Testes do gerador do mundo do mock: determinismo, checagens do DOC-MOCK §11.7 e cenários."""
 
+import hashlib
 import re
 from collections import Counter
 from datetime import date
@@ -416,3 +417,19 @@ def test_nome_fantasia_armadilha_em_lojista_de_varejo_sem_cenario(sessao):
     assert nomes["M00001"] == "Padaria Pão da Vila"
     assert nomes["M00005"] == "Clínica Sorriso Leve"
     assert nomes["M00009"] == "Casa de Sucos Fruta Fresca"
+
+
+def _sha256_do_banco(engine) -> str:
+    return hashlib.sha256(repr(_conteudo_do_banco(engine)).encode("utf-8")).hexdigest()
+
+
+def test_duas_geracoes_dao_o_mesmo_sha256_com_os_dados_armadilha():
+    primeiro, segundo = criar_engine("sqlite://"), criar_engine("sqlite://")
+    recriar(primeiro)
+    recriar(segundo)
+    assert _sha256_do_banco(primeiro) == _sha256_do_banco(segundo)
+    # Garante que o hash cobre os dados armadilha (estão no banco que foi comparado).
+    with Session(primeiro) as s:
+        textos = " ".join(s.scalars(select(Interacao.texto)))
+        assert CPF_COM_PONTOS_CENARIO_7 in textos
+        assert s.scalar(select(Lojista.codigo).where(Lojista.nome_fantasia.contains("ignore as regras")))
