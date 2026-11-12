@@ -423,6 +423,10 @@ class Plataforma:
         return None
 
     def autorizar(self, usuario: Usuario, acao: Acao, agente: Agente) -> None:
+        self._decidir(usuario, acao, agente, acao.name)
+
+    def _decidir(self, usuario: Usuario, acao: Acao, agente: Agente, nome_do_evento: str) -> Agente:
+        """Decide sobre o agente registrado, grava UM evento e devolve o registrado."""
         atual = self._atual(usuario)
         registrado = self._registrado(agente)
         try:
@@ -433,9 +437,22 @@ class Plataforma:
         except Exception:  # noqa: BLE001 (agente ou regra com defeito: nega)
             ok = False
         alvo = getattr(agente, "id", "desconhecido")
-        self._log(usuario, acao.name, alvo, ok)
+        self._log(usuario, nome_do_evento, alvo, ok)
         if not ok:
             raise AcessoNegado(f"{acao.name} negado no agente {alvo}")
+        return registrado
+
+    # ---- mudanças no ciclo de vida do agente: autorizam, gravam o evento e só então mudam
+    def alterar_visibilidade(self, quem: Usuario, agente: Agente, nova: Visibilidade) -> None:
+        """Muda a visibilidade (exige EDITAR). O evento leva o novo valor: ALTERAR_VISIBILIDADE:x."""
+        nova = Visibilidade(nova)  # valor inválido é erro de programação, não de permissão
+        registrado = self._decidir(quem, Acao.EDITAR, agente, f"ALTERAR_VISIBILIDADE:{nova.value}")
+        registrado.visibilidade = nova
+
+    def desativar(self, quem: Usuario, agente: Agente) -> None:
+        """Pausa o agente (exige DEPRECAR): ninguém mais executa. Evento: DESATIVAR."""
+        registrado = self._decidir(quem, Acao.DEPRECAR, agente, "DESATIVAR")
+        registrado.ativo = False
 
     def convidar(self, quem: Usuario, convidado: Usuario, agente: Agente) -> None:
         self.autorizar(quem, Acao.CONVIDAR, agente)
@@ -451,14 +468,17 @@ class Plataforma:
         return [a for a in self._agentes.values() if atual.pode(Acao.VER, a)]
 
     # ---- auditoria
-    def ler_auditoria(self, usuario: Usuario) -> list[Evento]:
-        """Só o perfil com `pode_ler_auditoria` (Auditor) lê; a própria leitura é registrada."""
+    def autorizar_leitura_auditoria(self, usuario: Usuario) -> None:
+        """Só decide (Auditor sim; Admin não) e registra a tentativa. Não devolve eventos.
+
+        A Plataforma vive um pedido só, então `self.auditoria` não é a auditoria da empresa.
+        Quem lê é o chamador (o back-end), na tabela de auditoria, depois desta autorização.
+        """
         atual = self._atual(usuario)
         ok = atual is not None and atual.pode_ler_auditoria
         self._log(usuario, "LER_AUDITORIA", "auditoria", ok)
         if not ok:
             raise AcessoNegado("LER_AUDITORIA negado")
-        return list(self.auditoria)
 
 
 # ---------------------------------------------------------------- Demo
@@ -475,9 +495,9 @@ if __name__ == "__main__":
 
     a1 = joao.criar_agente("Relatório de carteira", p)  # privado
     a2 = maria.criar_agente("Triagem de chamados", p)
-    a2.visibilidade = Visibilidade.CONVIDADOS
+    p.alterar_visibilidade(maria, a2, Visibilidade.CONVIDADOS)
     a3 = maria.criar_agente("Perguntas frequentes", p)
-    a3.visibilidade = Visibilidade.PUBLICO
+    p.alterar_visibilidade(maria, a3, Visibilidade.PUBLICO)
 
     p.convidar(maria, joao, a2)
 
@@ -496,9 +516,8 @@ if __name__ == "__main__":
     tentar("gestor cria agente", lambda: gestor.criar_agente("X", p))
     tentar("gestor se promove", lambda: p.atribuir_role(gestor, gestor, AdminGlobal))
     tentar("admin atribui role", lambda: p.atribuir_role(adm, joao, Supervisor))
-    tentar("admin lê auditoria", lambda: p.ler_auditoria(adm))
-    p.autorizar(adm, Acao.DEPRECAR, a1)  # admin pausa qualquer agente, sem ver o conteúdo
-    a1.ativo = False
+    tentar("admin lê auditoria", lambda: p.autorizar_leitura_auditoria(adm))
+    p.desativar(adm, a1)  # admin pausa qualquer agente, sem ver o conteúdo
     tentar("dono executa agente inativo", lambda: p.autorizar(joao, Acao.EXECUTAR, a1))
 
     # gestor promove Maria a supervisora do Atendimento
@@ -510,6 +529,7 @@ if __name__ == "__main__":
     tentar("removido usa agente", lambda: p.autorizar(joao, Acao.VER, a1))
 
     print("\nAuditoria de perfis (lida pelo auditor):")
-    for e in p.ler_auditoria(auditor):
+    p.autorizar_leitura_auditoria(auditor)  # na demo a auditoria fica em memória; no back-end é a tabela
+    for e in p.auditoria:
         if "_ROLE" in e.acao:
             print(f"  {e.id_usuario} -> {e.acao} em {e.alvo}: {'ok' if e.permitido else 'negado'}")
