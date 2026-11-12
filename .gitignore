@@ -16,3 +16,8 @@ venv/
 Claude outputs/agentes_encaixe.md
 /Claude outputs
 /.vscode
+
+# Mock: banco local e pessoas reais de teste (nunca vão para o Git)
+dados_locais/
+*.sqlite
+*.sqlite3
