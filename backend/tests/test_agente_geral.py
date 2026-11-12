@@ -171,7 +171,7 @@ class TestSoOQueOCargoLibera(unittest.TestCase):
         resultado = turno_geral(linhas, apoio.analista_cobranca())
         self.assertIn("não encontrado", resultado.trajetoria[1])
         self.assertIn("ferramenta não lida", resultado.trajetoria[2])
-        self.assertEqual(governanca.REGISTROS, [])
+        self.assertTrue(apoio.so_recusas_do_agente())
         self.assertEqual(resultado.estado["ferramentas_lidas"], [])
 
     def test_o_mesmo_pedido_funciona_para_quem_tem_a_categoria(self):
@@ -205,7 +205,7 @@ class TestSoOQueOCargoLibera(unittest.TestCase):
                     [TRANSACOES, "FINAL: ok"], apoio.usuario_do_cargo(cargo), estado=estado
                 )
                 self.assertIn("ferramenta não lida", resultado.trajetoria[0])
-                self.assertEqual(governanca.REGISTROS, [])
+                self.assertTrue(apoio.so_recusas_do_agente())
 
 
 class TestPrazoDoTurno(unittest.TestCase):
@@ -252,7 +252,7 @@ class TestCargoSemFerramentas(unittest.TestCase):
         self.assertIn("não encontrado", resultado.trajetoria[1])
         self.assertIn("não encontrado", resultado.trajetoria[2])
         self.assertIn("ferramenta não lida", resultado.trajetoria[3])
-        self.assertEqual(governanca.REGISTROS, [])
+        self.assertTrue(apoio.so_recusas_do_agente())
 
     def test_cargo_desconhecido_ou_ausente_nao_executa_nada(self):
         for cargo in ("cargo_que_nao_existe", None, ""):

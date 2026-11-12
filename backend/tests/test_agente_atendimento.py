@@ -57,7 +57,32 @@ class TestLoopDoAgente(unittest.TestCase):
     def test_usar_sem_ler_a_ferramenta_e_bloqueado(self):
         _, trajetoria = rodar(["LER:", MULTA, "FINAL: ok"], apoio.coordenador_financeiro())
         self.assertIn("ferramenta não lida", trajetoria[1])
-        self.assertEqual(governanca.REGISTROS, [])
+        self.assertTrue(apoio.so_recusas_do_agente())
+
+    def test_usar_sem_ler_deixa_registro_da_recusa_sem_argumentos(self):
+        """MED-2 da auditoria B: a tentativa barrada pelo agente também fica no registro."""
+        _, trajetoria = rodar(
+            ["LER:", 'USAR: calcular_multa_atraso | {"valor_fatura": 987654}', "FINAL: ok"],
+            apoio.coordenador_financeiro(),
+        )
+        self.assertIn("ferramenta não lida", trajetoria[1])  # a resposta à pessoa não mudou
+        self.assertEqual(len(governanca.REGISTROS), 1)
+        registro = governanca.REGISTROS[0]
+        self.assertEqual(
+            (registro["ferramenta"], registro["status"], registro["camada_bloqueio"], registro["passo"]),
+            ("calcular_multa_atraso", "erro", "agente", 2),
+        )
+        self.assertEqual(registro["agente_id"], agente.AGENTE_ID)
+        self.assertNotIn("987654", json.dumps(governanca.REGISTROS))
+
+    def test_usar_nome_inexistente_sem_ler_registra_sem_expor_o_nome(self):
+        rodar(["LER:", "USAR: nome_inventado | {}", "FINAL: ok"], apoio.coordenador_financeiro())
+        self.assertEqual([r["ferramenta"] for r in governanca.REGISTROS], ["inexistente"])
+
+    def test_registro_indisponivel_nao_muda_a_recusa(self):
+        governanca.adicionar_destino(lambda registro: 1 / 0)
+        _, trajetoria = rodar(["LER:", MULTA, "FINAL: ok"], apoio.coordenador_financeiro())
+        self.assertIn("ferramenta não lida", trajetoria[1])
 
     def test_ler_caminho_antes_do_indice_e_bloqueado(self):
         _, trajetoria = rodar(["LER: financeiro", "LER:", "FINAL: ok"], apoio.coordenador_financeiro())
@@ -256,7 +281,7 @@ class TestTurno(unittest.TestCase):
             estado=estado,
         )
         self.assertIn("ferramenta não lida", resultado.trajetoria[0])
-        self.assertEqual(governanca.REGISTROS, [])
+        self.assertTrue(apoio.so_recusas_do_agente())
         for ruim in ("texto", 7, {"indice_lido": "sim"}, {"indice_lido": True, "ferramentas_lidas": 3}):
             turno(["FINAL: x", "LER:", "FINAL: ok"], apoio.coordenador_financeiro(), estado=ruim)
 
@@ -284,7 +309,7 @@ class TestTurno(unittest.TestCase):
         resultado = turno(linhas, apoio.coordenador_financeiro(), ferramentas=("consultar_endereco_cep",))
         self.assertIn("não encontrado", resultado.trajetoria[1])
         self.assertIn("ferramenta não lida", resultado.trajetoria[2])
-        self.assertEqual(governanca.REGISTROS, [])
+        self.assertTrue(apoio.so_recusas_do_agente())
 
 
 class TestLimitesKan38(unittest.TestCase):
@@ -501,7 +526,7 @@ class TestLimitacoesConhecidas(unittest.TestCase):
         resultado = turno(linhas, apoio.analista_cobranca(), estado=forjado)
         self.assertEqual(resultado.tipo, "final")  # pulou o índice
         self.assertIn("ferramenta não lida", resultado.trajetoria[0])
-        self.assertEqual(governanca.REGISTROS, [])
+        self.assertTrue(apoio.so_recusas_do_agente())
         self.assertEqual(resultado.estado["ferramentas_lidas"], [])
 
 
@@ -561,7 +586,7 @@ class TestEntradasHostis(RegistroDeLogs):
         resultado = turno(linhas, apoio.coordenador_financeiro())
         self.assertEqual((resultado.tipo, resultado.resposta), ("final", "ok"))
         self.assertIn("argumentos inválidos", resultado.trajetoria[2])
-        self.assertEqual(governanca.REGISTROS, [])
+        self.assertTrue(apoio.so_recusas_do_agente())
         self.assertIn("turno encerrado", self.mensagens[-1])
 
     def test_json_aninhado_demais_sem_ler_a_ferramenta_tambem_nao_derruba(self):

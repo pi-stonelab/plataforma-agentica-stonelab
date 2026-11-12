@@ -754,7 +754,15 @@ def test_a16_ferramenta_ativa_mas_fora_do_cargo_nao_aparece_nem_roda_pelo_agente
     execucao = reg.executar_roteiro(rodador, "o dinheiro caiu?", pessoa("analista_cobranca"), roteiro)
     turno = execucao.turnos[0]
     assert "não encontrado ou não liberado" in turno.trajetoria[1] and "ferramenta não lida" in turno.trajetoria[2]
-    assert execucao.espioes.nomes_chamados() == {} and governanca.REGISTROS == []
+    assert execucao.espioes.nomes_chamados() == {} and so_recusas_do_agente()
+
+
+def so_recusas_do_agente():
+    """Nenhuma ferramenta rodou: o que há no registro são só recusas do agente (MED-2), sem dado."""
+    return all(
+        r["status"] == "erro" and r["camada_bloqueio"] == "agente" and r["tipo_erro"] == "ferramenta_inexistente"
+        for r in governanca.REGISTROS
+    )
 
 
 CAMINHOS_ESTRANHOS = (
@@ -1259,7 +1267,7 @@ def test_estado_adulterado_nao_libera_ferramenta_fora_do_cargo(rodador, estado):
     execucao = reg.executar_roteiro(
         rodador, "oi", pessoa("analista_cobranca"), roteiro, estado=estado
     )
-    assert execucao.espioes.nomes_chamados() == {} and governanca.REGISTROS == []
+    assert execucao.espioes.nomes_chamados() == {} and so_recusas_do_agente()
     assert execucao.turnos[0].estado["ferramentas_lidas"] == []
 
 

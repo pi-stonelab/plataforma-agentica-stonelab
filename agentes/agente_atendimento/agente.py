@@ -176,7 +176,10 @@ class Atendimento:
         return texto, f"'{caminho}' lido"
 
     def usar(self, nome, argumentos_texto, passo):
+        contexto = {"agente_id": self.agente_id, "execucao_id": self.execucao_id, "passo": passo}
         if nome not in self.lidas:
+            # MED-2 da auditoria B: a recusa também deixa registro (sem argumentos nem dados).
+            catalogo.registrar_bloqueio(nome, self.usuario, contexto, "agente")
             return "erro: leia a ferramenta (LER: <area>/<ferramenta>) antes de usá-la.", "bloqueado: ferramenta não lida"
         try:
             args = json.loads(argumentos_texto)
@@ -185,7 +188,6 @@ class Atendimento:
         except (ValueError, TypeError, RecursionError) as e:  # RecursionError: JSON aninhado demais
             return f"erro: argumentos inválidos ({e}).", "argumentos inválidos"
 
-        contexto = {"agente_id": self.agente_id, "execucao_id": self.execucao_id, "passo": passo}
         resultado = catalogo.executar(nome, args, self.usuario, self.ferramentas_do_agente, contexto)
         texto = json.dumps(resultado, ensure_ascii=False, default=str)[:MAX_CHARS_MD]
         resumo = resultado["status"] if resultado["tipo_erro"] is None else resultado["tipo_erro"]
