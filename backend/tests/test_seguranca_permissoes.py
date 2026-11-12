@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from seguranca.permissoes import (
+    DONO_PLATAFORMA,
     Acao,
     AcessoNegado,
     AdminGlobal,
@@ -22,6 +23,7 @@ from seguranca.permissoes import (
     Supervisor,
     Visibilidade,
     area_do_slug,
+    execucao_id_valido,
 )
 
 TODAS = frozenset(Acao)
@@ -88,6 +90,7 @@ def montar_cenario(perfil: str, relacao: str, visibilidade: Visibilidade, ativo:
     convidados = {"pessoa"} if relacao.startswith("convidado") else set()
     agente = Agente("agente", area_do_agente, dono_id, convidados_ids=convidados,
                     visibilidade=visibilidade, ativo=ativo)
+    plataforma.carregar_agente(agente)  # a Plataforma só decide sobre agente registrado
     return plataforma, pessoa, agente
 
 
@@ -134,7 +137,7 @@ def test_para_convidar_o_dono_muda_para_convidados():
     with pytest.raises(AcessoNegado):
         plataforma.convidar(dono, amigo, agente)
     assert agente.convidados_ids == set()
-    agente.visibilidade = Visibilidade.CONVIDADOS
+    plataforma.alterar_visibilidade(dono, agente, Visibilidade.CONVIDADOS)
     plataforma.convidar(dono, amigo, agente)
     plataforma.autorizar(amigo, Acao.EXECUTAR, agente)
 
@@ -200,7 +203,7 @@ def test_admin_nao_cria_agente_nem_lista_privado():
     dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
     privado = dono.criar_agente("privado", plataforma)
     publico = dono.criar_agente("publico", plataforma)
-    publico.visibilidade = PUB
+    plataforma.alterar_visibilidade(dono, publico, PUB)
     with pytest.raises(AcessoNegado):
         admin.criar_agente("meu", plataforma)
     assert plataforma.agentes_visiveis(admin) == [publico]
@@ -215,10 +218,12 @@ def test_auditor_le_auditoria_e_admin_nao():
     dono = plataforma.cadastrar(Colaborador("c", Financeiro(), id="dono"))
     dono.criar_agente("x", plataforma)
 
-    eventos = plataforma.ler_auditoria(auditor)
-    assert [e.acao for e in eventos] == ["CRIAR", "LER_AUDITORIA"]  # a leitura também é registrada
+    # só autoriza: não devolve eventos (quem lê é o back-end, na tabela de auditoria)
+    assert plataforma.autorizar_leitura_auditoria(auditor) is None
+    assert [e.acao for e in plataforma.auditoria] == ["CRIAR", "LER_AUDITORIA"]
+    assert plataforma.auditoria[-1].permitido is True  # a leitura também é registrada
     with pytest.raises(AcessoNegado):
-        plataforma.ler_auditoria(admin)
+        plataforma.autorizar_leitura_auditoria(admin)
     assert plataforma.auditoria[-1].acao == "LER_AUDITORIA"  # a tentativa também fica registrada
     assert plataforma.auditoria[-1].permitido is False
 
@@ -241,7 +246,7 @@ def test_auditor_nao_cria_nem_ve_nem_executa():
 def test_pessoa_desconhecida_nao_le_auditoria():
     plataforma = Plataforma()
     with pytest.raises(AcessoNegado):
-        plataforma.ler_auditoria(Auditor("fantasma", id="nao-cadastrado"))
+        plataforma.autorizar_leitura_auditoria(Auditor("fantasma", id="nao-cadastrado"))
 
 
 # ---------------------------------------------------------------- usa_ferramentas
@@ -301,7 +306,7 @@ def test_acesso_negado_e_repr_nao_tem_nome():
         lambda: plataforma.atribuir_role(gestor, gestor, AdminGlobal),
         lambda: plataforma.atribuir_role(estranho, dono, AdminGlobal),
         lambda: plataforma.convidar(dono, fantasma, agente),
-        lambda: plataforma.ler_auditoria(estranho),
+        lambda: plataforma.autorizar_leitura_auditoria(estranho),
     ]
     mensagens = []
     for tentativa in tentativas:
@@ -383,7 +388,7 @@ def test_pessoa_rebaixada_perde_os_poderes_do_perfil_antigo():
     sup = plataforma.cadastrar(Supervisor("s", Financeiro(), id="sup"))
     dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
     agente = dono.criar_agente("x", plataforma)
-    agente.visibilidade = PUB
+    plataforma.alterar_visibilidade(dono, agente, PUB)
     plataforma.autorizar(sup, Acao.EDITAR, agente)  # supervisor da área edita aberto
     gestor.atribuir_role(sup, Colaborador, plataforma)
     with pytest.raises(AcessoNegado):
@@ -462,7 +467,7 @@ def test_convidar_exige_pessoa_cadastrada_e_permissao():
     dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
     outro = plataforma.cadastrar(Colaborador("o", Financeiro(), id="outro"))
     agente = dono.criar_agente("x", plataforma)
-    agente.visibilidade = Visibilidade.CONVIDADOS
+    plataforma.alterar_visibilidade(dono, agente, Visibilidade.CONVIDADOS)
     with pytest.raises(AcessoNegado):
         plataforma.convidar(outro, dono, agente)  # só o dono convida
     with pytest.raises(AcessoNegado):
@@ -491,6 +496,7 @@ def test_autorizar_nega_executar_em_inativo_mesmo_se_o_perfil_esquecer():
     plataforma = Plataforma()
     pessoa = plataforma.cadastrar(Esquecido("e", None, id="esq"))
     agente = Agente("a", Financeiro(), "dono", ativo=False)
+    plataforma.carregar_agente(agente)
     with pytest.raises(AcessoNegado):
         plataforma.autorizar(pessoa, Acao.EXECUTAR, agente)
 
@@ -512,3 +518,441 @@ def test_demo_roda_e_nao_imprime_nome(capsys):
     assert "Bloqueado" in saida
     for nome in ("Ana", "Bruno", "João", "Maria", "Carla", "Davi"):
         assert nome not in saida
+
+
+# ---------------------------------------------------------------- ALTO-1: decide o agente registrado
+def test_agente_forjado_com_mesmo_id_nao_ganha_acesso():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    atacante = plataforma.cadastrar(Colaborador("m", Financeiro(), id="atacante"))
+    real = dono.criar_agente("privado", plataforma)  # PRIVADO, do "dono"
+    forjado = Agente("privado", Financeiro(), "atacante", id=real.id, visibilidade=PUB)
+    for acao in Acao:
+        with pytest.raises(AcessoNegado):
+            plataforma.autorizar(atacante, acao, forjado)
+    assert plataforma.auditoria[-1].permitido is False
+    assert plataforma._agentes[real.id] is real  # o registrado não foi trocado
+
+
+def test_agente_nao_registrado_e_negado_ate_para_o_dono():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    solto = Agente("solto", Financeiro(), "dono")
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(dono, Acao.VER, solto)
+
+
+def test_copia_igual_ao_registrado_vale_e_copia_alterada_nao():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    real = dono.criar_agente("x", plataforma)
+    copia = Agente("x", Financeiro(), "dono", id=real.id)  # como se viesse de outra leitura do banco
+    plataforma.autorizar(dono, Acao.VER, copia)
+    copia.visibilidade = PUB  # a cópia agora difere do registrado
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(dono, Acao.VER, copia)
+
+
+def test_convidar_grava_no_agente_registrado():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    amigo = plataforma.cadastrar(Colaborador("a", Financeiro(), id="amigo"))
+    real = dono.criar_agente("x", plataforma)
+    real.visibilidade = Visibilidade.CONVIDADOS
+    plataforma.convidar(dono, amigo, real)
+    assert plataforma._agentes[real.id].convidados_ids == {"amigo"}
+
+
+# ---------------------------------------------------------------- MED-4: registrar
+def test_registrar_nao_sobrescreve_agente_com_id_existente():
+    plataforma = Plataforma()
+    ana = plataforma.cadastrar(Colaborador("a", Financeiro(), id="ana"))
+    bia = plataforma.cadastrar(Colaborador("b", Financeiro(), id="bia"))
+    original = ana.criar_agente("original", plataforma)
+    colide = Agente("colide", Financeiro(), "bia", id=original.id)
+    with pytest.raises(AcessoNegado):
+        plataforma.registrar(colide, bia)
+    assert plataforma._agentes[original.id] is original
+    assert plataforma.auditoria[-1].acao == "CRIAR" and plataforma.auditoria[-1].permitido is False
+
+
+def test_registrar_so_na_area_do_criador():
+    plataforma = Plataforma()
+    ana = plataforma.cadastrar(Colaborador("a", AtendimentoCliente(), id="ana"))
+    de_outra_area = Agente("x", Financeiro(), "ana")
+    with pytest.raises(AcessoNegado):
+        plataforma.registrar(de_outra_area, ana)
+    assert plataforma._agentes == {}
+    # a própria área é aceita
+    plataforma.registrar(Agente("y", AtendimentoCliente(), "ana"), ana)
+
+
+def test_supervisor_registra_nas_suas_areas_extras_e_so_nelas():
+    plataforma = Plataforma()
+    sup = plataforma.cadastrar(
+        Supervisor("s", Financeiro(), id="sup", areas_extras={AtendimentoCliente()})
+    )
+    plataforma.registrar(Agente("a", AtendimentoCliente(), "sup"), sup)
+    plataforma.registrar(Agente("f", Financeiro(), "sup"), sup)
+
+
+def test_agente_sem_area_so_existe_para_a_plataforma():
+    with pytest.raises(ValueError):
+        Agente("x", None, "ana")  # sem área e com dono pessoa
+    with pytest.raises(ValueError):
+        Agente("x", Financeiro(), DONO_PLATAFORMA)  # dono plataforma com área
+    with pytest.raises(ValueError):
+        Agente("x", "financeiro", "ana")  # área precisa ser uma Area
+
+
+def test_pessoa_nao_pode_ter_o_id_da_plataforma():
+    with pytest.raises(ValueError):
+        Colaborador("c", Financeiro(), id=DONO_PLATAFORMA)
+    with pytest.raises(ValueError):
+        AdminGlobal("a", id=DONO_PLATAFORMA)
+
+
+# ---------------------------------------------------------------- C2: carregar agente do banco
+def test_carregar_agente_nao_grava_evento_nem_exige_criador():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    do_banco = Agente("x", Financeiro(), "dono", id="ag-1")
+    plataforma.carregar_agente(do_banco)
+    assert plataforma.auditoria == []  # nenhum CRIAR falso
+    plataforma.autorizar(dono, Acao.EXECUTAR, do_banco)
+    assert plataforma.agentes_visiveis(dono) == [do_banco]
+    assert [e.acao for e in plataforma.auditoria] == ["EXECUTAR"]
+
+
+def test_carregar_agente_de_dono_ausente_do_cadastro_funciona_e_ninguem_mais_acessa():
+    plataforma = Plataforma()
+    estranho = plataforma.cadastrar(Colaborador("e", Financeiro(), id="estranho"))
+    plataforma.carregar_agente(Agente("x", Financeiro(), "dono-que-saiu", id="ag-1"))
+    assert plataforma.agentes_visiveis(estranho) == []  # privado de outra pessoa
+
+
+def test_carregar_agente_recusa_id_repetido_e_tipo_errado():
+    plataforma = Plataforma()
+    agente = Agente("x", Financeiro(), "dono", id="ag-1")
+    plataforma.carregar_agente(agente)
+    plataforma.carregar_agente(agente)  # o mesmo objeto de novo não muda nada
+    with pytest.raises(ValueError):
+        plataforma.carregar_agente(Agente("outro", Financeiro(), "dono", id="ag-1"))
+    assert plataforma._agentes["ag-1"] is agente
+    with pytest.raises(TypeError):
+        plataforma.carregar_agente({"id": "ag-2"})
+
+
+# ---------------------------------------------------------------- I1: auditoria só autoriza
+def test_plataforma_nao_tem_metodo_que_devolva_a_auditoria():
+    assert not hasattr(Plataforma, "ler_auditoria")
+
+
+# ---------------------------------------------------------------- I2: ciclo de vida com evento
+def test_alterar_visibilidade_autoriza_edita_e_grava_um_evento():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    outro = plataforma.cadastrar(Colaborador("o", Financeiro(), id="outro"))
+    agente = dono.criar_agente("x", plataforma)
+    antes = len(plataforma.auditoria)
+    plataforma.alterar_visibilidade(dono, agente, PUB)
+    assert agente.visibilidade is PUB
+    assert len(plataforma.auditoria) == antes + 1
+    assert plataforma.auditoria[-1].acao == "ALTERAR_VISIBILIDADE:publico"
+    assert plataforma.auditoria[-1].permitido is True
+    plataforma.autorizar(outro, Acao.VER, agente)  # agora o outro enxerga
+    plataforma.alterar_visibilidade(dono, agente, "privado")  # aceita o valor do banco
+    assert agente.visibilidade is PRIV
+
+
+def test_alterar_visibilidade_negada_nao_muda_nada():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    outro = plataforma.cadastrar(Colaborador("o", Financeiro(), id="outro"))
+    admin = plataforma.cadastrar(AdminGlobal("a", id="adm"))
+    agente = dono.criar_agente("x", plataforma)
+    plataforma.alterar_visibilidade(dono, agente, PUB)
+    for intruso in (outro, admin):
+        with pytest.raises(AcessoNegado):
+            plataforma.alterar_visibilidade(intruso, agente, PRIV)
+        assert plataforma.auditoria[-1].permitido is False
+    assert agente.visibilidade is PUB
+    with pytest.raises(ValueError):
+        plataforma.alterar_visibilidade(dono, agente, "qualquer")
+
+
+def test_supervisor_da_area_edita_visibilidade_de_agente_aberto_mas_nao_de_privado():
+    plataforma = Plataforma()
+    sup = plataforma.cadastrar(Supervisor("s", Financeiro(), id="sup"))
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    agente = dono.criar_agente("x", plataforma)
+    with pytest.raises(AcessoNegado):
+        plataforma.alterar_visibilidade(sup, agente, PUB)  # privado: o supervisor não vê
+    plataforma.alterar_visibilidade(dono, agente, CONV)
+    plataforma.alterar_visibilidade(sup, agente, PUB)
+    assert agente.visibilidade is PUB
+
+
+def test_desativar_pelo_dono_pelo_supervisor_e_pelo_admin():
+    plataforma = Plataforma()
+    sup = plataforma.cadastrar(Supervisor("s", Financeiro(), id="sup"))
+    admin = plataforma.cadastrar(AdminGlobal("a", id="adm"))
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    do_dono, do_supervisor, do_admin = (dono.criar_agente(f"x{i}", plataforma) for i in range(3))
+    plataforma.alterar_visibilidade(dono, do_supervisor, PUB)  # o supervisor só gerencia o aberto
+    plataforma.desativar(dono, do_dono)
+    plataforma.desativar(sup, do_supervisor)
+    plataforma.desativar(admin, do_admin)
+    assert [a.ativo for a in (do_dono, do_supervisor, do_admin)] == [False, False, False]
+    assert [e.acao for e in plataforma.auditoria[-3:]] == ["DESATIVAR"] * 3
+    assert all(e.permitido for e in plataforma.auditoria[-3:])
+
+
+def test_admin_desativa_agente_privado_que_nao_ve_pelo_id():
+    # README: o Admin pode DEPRECAR até o privado, sem enxergá-lo (nem na lista, nem o conteúdo)
+    plataforma = Plataforma()
+    admin = plataforma.cadastrar(AdminGlobal("a", id="adm"))
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    privado = dono.criar_agente("x", plataforma)
+    assert plataforma.agentes_visiveis(admin) == []
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(admin, Acao.VER, privado)
+    plataforma.desativar(admin, privado)
+    assert privado.ativo is False
+
+
+def test_desativar_negado_para_quem_so_usa_e_agente_inativo_nao_executa():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    outro = plataforma.cadastrar(Colaborador("o", Financeiro(), id="outro"))
+    auditor = plataforma.cadastrar(Auditor("u", id="aud"))
+    agente = dono.criar_agente("x", plataforma)
+    plataforma.alterar_visibilidade(dono, agente, PUB)
+    for intruso in (outro, auditor):
+        with pytest.raises(AcessoNegado):
+            plataforma.desativar(intruso, agente)
+    assert agente.ativo is True
+    plataforma.desativar(dono, agente)
+    for pessoa in (dono, outro):
+        with pytest.raises(AcessoNegado):
+            plataforma.autorizar(pessoa, Acao.EXECUTAR, agente)
+
+
+def test_mudanca_com_agente_forjado_ou_solto_e_negada():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    atacante = plataforma.cadastrar(Colaborador("a", Financeiro(), id="atacante"))
+    real = dono.criar_agente("x", plataforma)
+    forjado = Agente("x", Financeiro(), "atacante", id=real.id)
+    with pytest.raises(AcessoNegado):
+        plataforma.alterar_visibilidade(atacante, forjado, PUB)
+    with pytest.raises(AcessoNegado):
+        plataforma.desativar(atacante, forjado)
+    assert real.visibilidade is PRIV and real.ativo is True
+
+
+def test_gancho_que_falha_impede_a_mudanca_de_estado():
+    def gancho_quebrado(evento):
+        raise RuntimeError("falha")
+
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    agente = dono.criar_agente("x", plataforma)
+    plataforma._ao_registrar = gancho_quebrado
+    with pytest.raises(AcessoNegado):
+        plataforma.alterar_visibilidade(dono, agente, PUB)
+    with pytest.raises(AcessoNegado):
+        plataforma.desativar(dono, agente)
+    assert agente.visibilidade is PRIV and agente.ativo is True  # sem rastro, sem mudança
+
+
+# ---------------------------------------------------------------- agente geral (da plataforma)
+def montar_agente_geral():
+    """Plataforma com 2 pessoas por perfil de uso em cada área, o Admin e o agente geral."""
+    plataforma = Plataforma()
+    pessoas = {}
+    for area in (Financeiro(), AtendimentoCliente()):
+        pessoas[f"col-{area.slug}"] = Colaborador("c", area, id=f"col-{area.slug}")
+        pessoas[f"sup-{area.slug}"] = Supervisor("s", area, id=f"sup-{area.slug}")
+    pessoas["sup-extra"] = Supervisor(
+        "e", Financeiro(), id="sup-extra", areas_extras={AtendimentoCliente()}
+    )
+    pessoas["adm"] = AdminGlobal("a", id="adm")
+    for pessoa in pessoas.values():
+        plataforma.cadastrar(pessoa)
+    geral = Agente.da_plataforma("Assistente Stone", id="agente-geral")
+    plataforma.carregar_agente(geral)
+    return plataforma, pessoas, geral
+
+
+def test_agente_geral_tem_dono_plataforma_sem_area_e_publico():
+    geral = Agente.da_plataforma("Assistente Stone")
+    assert geral.dono_id == DONO_PLATAFORMA and geral.area is None
+    assert geral.visibilidade is PUB and geral.ativo is True
+
+
+def test_todo_funcionario_das_duas_areas_ve_e_executa_o_agente_geral_ativo():
+    plataforma, pessoas, geral = montar_agente_geral()
+    funcionarios = [p for chave, p in pessoas.items() if chave != "adm"]
+    assert len(funcionarios) == 5
+    for pessoa in funcionarios:
+        plataforma.autorizar(pessoa, Acao.VER, geral)
+        plataforma.autorizar(pessoa, Acao.EXECUTAR, geral)
+        assert geral in plataforma.agentes_visiveis(pessoa)
+
+
+def test_supervisor_de_area_nao_edita_nem_convida_nem_pausa_o_agente_geral():
+    plataforma, pessoas, geral = montar_agente_geral()
+    for chave in ("sup-financeiro", "sup-atendimento", "sup-extra", "col-financeiro"):
+        for acao in (Acao.EDITAR, Acao.CONVIDAR, Acao.DEPRECAR):
+            with pytest.raises(AcessoNegado):
+                plataforma.autorizar(pessoas[chave], acao, geral)
+        with pytest.raises(AcessoNegado):
+            plataforma.alterar_visibilidade(pessoas[chave], geral, PRIV)
+        with pytest.raises(AcessoNegado):
+            plataforma.desativar(pessoas[chave], geral)
+    assert geral.visibilidade is PUB and geral.ativo is True
+
+
+def test_ninguem_edita_o_agente_geral_nem_o_admin():
+    plataforma, pessoas, geral = montar_agente_geral()
+    for acao in (Acao.EDITAR, Acao.CONVIDAR, Acao.EXECUTAR):
+        with pytest.raises(AcessoNegado):
+            plataforma.autorizar(pessoas["adm"], acao, geral)
+    with pytest.raises(AcessoNegado):
+        plataforma.alterar_visibilidade(pessoas["adm"], geral, PRIV)
+
+
+def test_admin_pausa_o_agente_geral_e_depois_ninguem_executa():
+    plataforma, pessoas, geral = montar_agente_geral()
+    plataforma.autorizar(pessoas["adm"], Acao.VER, geral)  # é público, o Admin vê
+    plataforma.desativar(pessoas["adm"], geral)
+    assert geral.ativo is False
+    for pessoa in pessoas.values():
+        with pytest.raises(AcessoNegado):
+            plataforma.autorizar(pessoa, Acao.EXECUTAR, geral)
+    assert plataforma.auditoria[-1].permitido is False
+
+
+def test_agente_geral_inativo_ninguem_ve_exceto_quem_gerencia():
+    plataforma, pessoas, geral = montar_agente_geral()
+    plataforma.desativar(pessoas["adm"], geral)
+    for chave in ("col-financeiro", "sup-financeiro", "col-atendimento", "sup-atendimento"):
+        assert plataforma.agentes_visiveis(pessoas[chave]) == []  # quem só usa deixa de ver
+    assert plataforma.agentes_visiveis(pessoas["adm"]) == [geral]
+
+
+def test_auditor_e_gestor_nao_executam_o_agente_geral():
+    plataforma, _, geral = montar_agente_geral()
+    auditor = plataforma.cadastrar(Auditor("u", id="aud"))
+    gestor = plataforma.cadastrar(GestorDeAcessos("g", Financeiro(), id="ges"))
+    for pessoa in (auditor, gestor):
+        for acao in Acao:
+            with pytest.raises(AcessoNegado):
+                plataforma.autorizar(pessoa, acao, geral)
+
+
+def test_pessoa_nao_registra_agente_em_nome_da_plataforma():
+    plataforma, pessoas, _ = montar_agente_geral()
+    falso = Agente.da_plataforma("Falso", id="outro-geral")
+    for pessoa in pessoas.values():
+        with pytest.raises(AcessoNegado):
+            plataforma.registrar(falso, pessoa)
+    assert "outro-geral" not in plataforma._agentes
+
+
+# ---------------------------------------------------------------- baixos: tipo da área
+def test_area_precisa_ser_uma_area_e_nao_texto():
+    with pytest.raises(ValueError):
+        Colaborador("c", "financeiro")
+    with pytest.raises(ValueError):
+        Supervisor("s", "financeiro")
+    with pytest.raises(ValueError):
+        Supervisor("s", Financeiro(), areas_extras={"atendimento"})
+    with pytest.raises(ValueError):
+        AdminGlobal("a", area=1)
+
+
+def test_atribuir_role_com_area_em_texto_falha_e_e_registrado_e_o_repr_nao_quebra():
+    plataforma = Plataforma()
+    gestor = plataforma.cadastrar(GestorDeAcessos("g", Financeiro(), id="gestor"))
+    maria = plataforma.cadastrar(Colaborador("m", AtendimentoCliente(), id="maria"))
+    with pytest.raises(ValueError):
+        gestor.atribuir_role(maria, Supervisor, plataforma, area="financeiro")
+    assert type(plataforma.usuario("maria")) is Colaborador
+    assert plataforma.auditoria[-1].permitido is False
+    assert "maria" in repr(plataforma.usuario("maria"))
+
+
+# ---------------------------------------------------------------- baixos: Evento imutável
+def test_evento_e_imutavel_e_o_gancho_nao_o_altera():
+    from dataclasses import FrozenInstanceError
+
+    tentativas = []
+
+    def gancho_malicioso(evento):
+        try:
+            evento.permitido = True
+        except FrozenInstanceError:
+            tentativas.append("bloqueado")
+
+    plataforma = Plataforma(ao_registrar=gancho_malicioso)
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    outro = plataforma.cadastrar(Colaborador("o", Financeiro(), id="outro"))
+    agente = dono.criar_agente("x", plataforma)
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(outro, Acao.EDITAR, agente)
+    assert tentativas == ["bloqueado", "bloqueado"]  # CRIAR e EDITAR
+    assert plataforma.auditoria[-1].permitido is False
+    with pytest.raises(FrozenInstanceError):
+        plataforma.auditoria[-1].acao = "VER"
+
+
+def test_evento_de_gancho_que_falha_fica_negado_sem_alterar_o_original():
+    recebidos = []
+
+    def gancho(evento):
+        recebidos.append(evento)
+        raise RuntimeError("falha")
+
+    plataforma = Plataforma(ao_registrar=gancho)
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    plataforma.carregar_agente(Agente("x", Financeiro(), "dono", id="ag"))
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(dono, Acao.VER, plataforma._agentes["ag"])
+    assert recebidos[0].permitido is True  # o que o gancho viu não foi mexido
+    assert plataforma.auditoria[-1].permitido is False  # o que ficou registrado é negado
+
+
+# ---------------------------------------------------------------- baixos: execucao_id
+@pytest.mark.parametrize("valor", ["exec-0001", "a", "A_b-9", "x" * 64])
+def test_execucao_id_valido(valor):
+    assert execucao_id_valido(valor)
+
+
+@pytest.mark.parametrize(
+    "valor", ["", "x" * 65, "abc\nFAKE", "a b", "../x", "x;y", None, 5, b"abc", ["a"]]
+)
+def test_execucao_id_invalido(valor):
+    assert not execucao_id_valido(valor)
+
+
+def test_autorizar_grava_execucao_id_valido_e_nega_o_invalido_sem_gravar():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    agente = dono.criar_agente("x", plataforma)
+    plataforma.autorizar(dono, Acao.EXECUTAR, agente, execucao_id="exec-1")
+    assert plataforma.auditoria[-1].execucao_id == "exec-1"
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(dono, Acao.EXECUTAR, agente, execucao_id="abc\nFAKE LINHA")
+    assert plataforma.auditoria[-1].permitido is False
+    assert plataforma.auditoria[-1].execucao_id is None
+
+
+def test_evento_recusa_execucao_id_invalido():
+    from datetime import UTC, datetime
+
+    from seguranca.permissoes import Evento
+
+    with pytest.raises(ValueError):
+        Evento(datetime.now(UTC), "u", "VER", "a", True, execucao_id="a\nb")

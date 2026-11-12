@@ -25,6 +25,8 @@ Regras:
        se ele não for uma Plataforma (ou faltar), a chamada é negada;
     2. senão, vale a Plataforma fixada em `exige_permissao(acao, plataforma=...)`;
     3. senão, a global `PLATAFORMA` (só para a demo e testes simples).
+- Se a função declara um parâmetro `execucao_id`, ele vai junto para o evento de auditoria
+  (só letras, números, "_" e "-", até 64 caracteres; outro valor nega a chamada).
 - Antes de rodar, confere a permissão na Plataforma, que registra a tentativa
   na auditoria, permitida ou negada.
 - Se negar, levanta AcessoNegado e a função nem começa.
@@ -74,6 +76,7 @@ def exige_permissao(acao: Acao, plataforma: Plataforma | None = None):
                 chamada.apply_defaults()
                 usuario = chamada.arguments["usuario"]
                 agente = chamada.arguments["agente"]
+                execucao_id = chamada.arguments.get("execucao_id")  # opcional; inválido nega
                 if recebe_plataforma:
                     p = chamada.arguments["plataforma"]
                 else:
@@ -83,7 +86,7 @@ def exige_permissao(acao: Acao, plataforma: Plataforma | None = None):
             if not isinstance(p, Plataforma):
                 raise AcessoNegado(f"{funcao.__name__}: sem plataforma válida para checar")
             try:
-                p.autorizar(usuario, acao, agente)  # registra na auditoria
+                p.autorizar(usuario, acao, agente, execucao_id)  # registra na auditoria
             except AcessoNegado:
                 raise
             except Exception:  # noqa: BLE001 (falha fechada de propósito)

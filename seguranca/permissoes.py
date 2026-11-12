@@ -10,6 +10,9 @@ Perfis (cada um é uma subclasse de Usuario e decide em `pode()`):
   GestorDeAcessos:  só atribui e remove perfis; não vê nem cria agentes e não pode
                     alterar o próprio perfil (separação de funções).
 
+Negar por padrão: por isso há `try/except Exception` em `_log`, `autorizar` e no envelope
+(`# noqa: BLE001`). Qualquer erro inesperado na checagem vira AcessoNegado, nunca permissão.
+
 A tabela completa de regras está em seguranca/README.md. Pessoas são guardadas por id
 (nunca o objeto), e nenhuma mensagem de erro nem evento de auditoria leva nome.
 Adicionar um novo perfil = criar uma nova subclasse de Usuario.
@@ -19,10 +22,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import Enum, auto
 from itertools import count
+from re import fullmatch
 from uuid import uuid4
 
 
@@ -94,11 +98,15 @@ class AcessoNegado(Exception):
 # ---------------------------------------------------------------- Agente
 _ids = count(1)
 
+# Dono do agente geral. Não é id de pessoa: nenhum Usuario pode ter este id (ver Usuario.__init__),
+# então ninguém é "dono" desse agente e ninguém o edita.
+DONO_PLATAFORMA = "plataforma"
+
 
 @dataclass
 class Agente:
     nome: str
-    area: Area
+    area: Area | None  # None só para o agente da plataforma (dono_id == DONO_PLATAFORMA)
     dono_id: str
     id: int | str | None = None  # vem do banco; só sem valor usamos o contador (demo e testes)
     convidados_ids: set[str] = field(default_factory=set)
@@ -110,9 +118,18 @@ class Agente:
             self.id = next(_ids)
         if not isinstance(self.dono_id, str) or not self.dono_id:
             raise ValueError("Agente precisa do id do dono")
+        if (self.area is None) != (self.dono_id == DONO_PLATAFORMA):
+            raise ValueError("Só o agente da plataforma fica sem área, e ele nunca tem área")
+        if self.area is not None and not isinstance(self.area, Area):
+            raise ValueError("Área inválida")
         # aceita o valor guardado no banco ("privado") e recusa qualquer outro
         self.visibilidade = Visibilidade(self.visibilidade)
         self.convidados_ids = set(self.convidados_ids)
+
+    @classmethod
+    def da_plataforma(cls, nome: str, id: int | str | None = None) -> Agente:
+        """Agente geral: sem área, dono = plataforma, público. Ninguém o edita; o Admin o pausa."""
+        return cls(nome, None, DONO_PLATAFORMA, id=id, visibilidade=Visibilidade.PUBLICO)
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -128,7 +145,7 @@ def _gerencia(acao: Acao, agente: Agente) -> bool:
 
     - Agente inativo ninguém executa.
     - Convidar só vale com visibilidade CONVIDADOS: para convidar alguém, o dono
-      primeiro muda o agente para "convidados" (decisão do Pedro, 11/11).
+      primeiro muda o agente para "convidados" (decisão do grupo, ver README).
     """
     if acao is Acao.EXECUTAR:
         return agente.ativo
@@ -157,10 +174,17 @@ class Usuario(ABC):
     def __init__(self, nome: str, area: Area | None = None, id: str | None = None):
         # o id é a identidade da pessoa: continua o mesmo quando o perfil muda
         self.id = id or str(uuid4())
+        if self.id == DONO_PLATAFORMA:
+            raise ValueError("Este id é reservado ao agente da plataforma")
+        if area is not None and not isinstance(area, Area):
+            raise ValueError("Área inválida: use Financeiro() ou AtendimentoCliente()")
         self.nome = nome
         self.area = area
 
     def criar_agente(self, nome: str, plataforma: Plataforma) -> Agente:
+        if self.area is None:  # sem área não há agente para criar (Admin, Auditor...)
+            plataforma._log(self, "CRIAR", "novo", False)
+            raise AcessoNegado("CRIAR negado: perfil sem área")
         agente = Agente(nome=nome, area=self.area, dono_id=self.id)
         plataforma.registrar(agente, self)
         return agente
@@ -203,7 +227,10 @@ class Supervisor(Usuario):
         if area is None:
             raise ValueError("Supervisor precisa de área")
         super().__init__(nome, area, id)
-        self.areas = {area} | (areas_extras or set())
+        extras = set(areas_extras or ())
+        if not all(isinstance(extra, Area) for extra in extras):
+            raise ValueError("Área inválida em areas_extras")
+        self.areas = {area} | extras
 
     def pode(self, acao: Acao, agente: Agente) -> bool:
         if agente.dono_id == self.id:
@@ -259,19 +286,36 @@ ROLES: set[type[Usuario]] = {AdminGlobal, Supervisor, Colaborador, Auditor, Gest
 
 
 # ---------------------------------------------------------------- Plataforma
-@dataclass
+def execucao_id_valido(valor: object) -> bool:
+    """Id de execução seguro para auditoria e log: letras, números, '_' e '-', até 64 caracteres."""
+    return isinstance(valor, str) and fullmatch(r"[A-Za-z0-9_-]{1,64}", valor) is not None
+
+
+@dataclass(frozen=True)  # imutável: o gancho recebe o evento e não consegue alterá-lo
 class Evento:
     quando: datetime
     id_usuario: str  # só o id: o evento não carrega nome nem o objeto da pessoa
     acao: str
     alvo: str  # id do agente ou do usuário afetado
     permitido: bool
+    execucao_id: str | None = None  # liga o acesso ao registro de chamadas de ferramenta
+
+    def __post_init__(self) -> None:
+        if self.execucao_id is not None and not execucao_id_valido(self.execucao_id):
+            raise ValueError("execucao_id inválido")
 
 
 def _id_de(usuario: object) -> str:
     """Id textual de quem tentou a ação, sem nunca chamar repr/str em objeto desconhecido."""
     id_usuario = getattr(usuario, "id", None)
     return id_usuario if isinstance(id_usuario, str) else "desconhecido"
+
+
+def _areas_do_usuario(usuario: Usuario | None) -> set[Area]:
+    """Áreas em que a pessoa atua: as do Supervisor, ou a única área dos demais perfis."""
+    if usuario is None:
+        return set()
+    return set(getattr(usuario, "areas", None) or ({usuario.area} if usuario.area else set()))
 
 
 class Plataforma:
@@ -287,14 +331,15 @@ class Plataforma:
         self.auditoria: list[Evento] = []
         self._ao_registrar = ao_registrar
 
-    def _log(self, usuario: object, acao: str, alvo: object, ok: bool) -> None:
-        evento = Evento(datetime.now(UTC), _id_de(usuario), acao, str(alvo), ok)
+    def _log(self, usuario: object, acao: str, alvo: object, ok: bool,
+             execucao_id: str | None = None) -> None:
+        evento = Evento(datetime.now(UTC), _id_de(usuario), acao, str(alvo), ok, execucao_id)
         if self._ao_registrar is not None:
             try:
                 self._ao_registrar(evento)
             except Exception:  # noqa: BLE001 (falha fechada de propósito)
-                evento.permitido = False  # nunca fica como "permitido" um evento não gravado
-                self.auditoria.append(evento)
+                # nunca fica como "permitido" um evento não gravado
+                self.auditoria.append(replace(evento, permitido=False))
                 raise AcessoNegado(f"{acao} negado: auditoria indisponível") from None
         self.auditoria.append(evento)
 
@@ -356,33 +401,96 @@ class Plataforma:
 
     # ---- agentes
     def registrar(self, agente: Agente, criador: Usuario) -> None:
+        """Cria um agente NOVO em nome de quem tem perfil que cria (grava o evento CRIAR)."""
         atual = self._atual(criador)
-        # só cria quem tem perfil que cria, e só em nome de si mesmo
-        if atual is None or not atual.cria_agentes or agente.dono_id != atual.id:
-            self._log(criador, "CRIAR", agente.id, False)
+        # só cria quem tem perfil que cria, em nome de si mesmo, na própria área, com id novo
+        permitido = (
+            atual is not None
+            and atual.cria_agentes
+            and agente.dono_id == atual.id
+            and agente.area is not None
+            and agente.area in _areas_do_usuario(atual)
+            and agente.id not in self._agentes  # nunca sobrescreve um agente existente
+        )
+        self._log(criador, "CRIAR", agente.id, permitido)
+        if not permitido:
             raise AcessoNegado(f"CRIAR negado no agente {agente.id}")
-        self._log(criador, "CRIAR", agente.id, True)
         self._agentes[agente.id] = agente
 
-    def autorizar(self, usuario: Usuario, acao: Acao, agente: Agente) -> None:
-        atual = self._atual(usuario)
+    def carregar_agente(self, agente: Agente) -> None:
+        """Põe na Plataforma um agente que JÁ existe (lido do banco), sem evento CRIAR.
+
+        Só o back-end usa, com o que veio do banco: nunca com dado da requisição nem do prompt.
+        Não checa criador nem permissão (quem decide é `autorizar`). Serve também para o agente
+        da plataforma, que não tem pessoa dona. Id repetido com outro agente é erro.
+        """
+        if not isinstance(agente, Agente):
+            raise TypeError("carregar_agente precisa de um Agente")
+        existente = self._agentes.get(agente.id)
+        if existente is not None and existente is not agente:
+            raise ValueError(f"Já existe outro agente com o id {agente.id}")
+        self._agentes[agente.id] = agente
+
+    def _registrado(self, agente: object) -> Agente | None:
+        """O agente que a Plataforma conhece, se o recebido for igual a ele; senão None.
+
+        Quem decide é sempre o registrado. Um objeto forjado (mesmo id, mas dono ou
+        visibilidade diferentes) não é igual ao registrado, então não vale.
+        """
         try:
-            ok = atual is not None and atual.pode(acao, agente)
-            if acao is Acao.EXECUTAR and not agente.ativo:
+            registrado = self._agentes.get(getattr(agente, "id", None))
+        except TypeError:  # id que não é hashable
+            return None
+        if registrado is None:
+            return None
+        if agente is registrado or (type(agente) is Agente and registrado == agente):
+            return registrado
+        return None
+
+    def autorizar(self, usuario: Usuario, acao: Acao, agente: Agente,
+                  execucao_id: str | None = None) -> None:
+        """Decide e grava o evento. `execucao_id` (opcional) liga o evento à execução; inválido nega."""
+        self._decidir(usuario, acao, agente, acao.name, execucao_id)
+
+    def _decidir(self, usuario: Usuario, acao: Acao, agente: Agente, nome_do_evento: str,
+                 execucao_id: str | None = None) -> Agente:
+        """Decide sobre o agente registrado, grava UM evento e devolve o registrado."""
+        atual = self._atual(usuario)
+        registrado = self._registrado(agente)
+        id_ok = execucao_id is None or execucao_id_valido(execucao_id)
+        try:
+            # agente não registrado ou diferente do registrado: negado (falha fechada)
+            ok = registrado is not None and atual is not None and atual.pode(acao, registrado)
+            ok = ok and id_ok
+            if acao is Acao.EXECUTAR and (registrado is None or not registrado.ativo):
                 ok = False  # cinto de segurança: vale mesmo para um perfil novo que esqueça disso
         except Exception:  # noqa: BLE001 (agente ou regra com defeito: nega)
             ok = False
         alvo = getattr(agente, "id", "desconhecido")
-        self._log(usuario, acao.name, alvo, ok)
+        # id de execução inválido nunca vai para o evento (nem para o gancho): grava sem ele
+        self._log(usuario, nome_do_evento, alvo, ok, execucao_id if id_ok else None)
         if not ok:
             raise AcessoNegado(f"{acao.name} negado no agente {alvo}")
+        return registrado
+
+    # ---- mudanças no ciclo de vida do agente: autorizam, gravam o evento e só então mudam
+    def alterar_visibilidade(self, quem: Usuario, agente: Agente, nova: Visibilidade) -> None:
+        """Muda a visibilidade (exige EDITAR). O evento leva o novo valor: ALTERAR_VISIBILIDADE:x."""
+        nova = Visibilidade(nova)  # valor inválido é erro de programação, não de permissão
+        registrado = self._decidir(quem, Acao.EDITAR, agente, f"ALTERAR_VISIBILIDADE:{nova.value}")
+        registrado.visibilidade = nova
+
+    def desativar(self, quem: Usuario, agente: Agente) -> None:
+        """Pausa o agente (exige DEPRECAR): ninguém mais executa. Evento: DESATIVAR."""
+        registrado = self._decidir(quem, Acao.DEPRECAR, agente, "DESATIVAR")
+        registrado.ativo = False
 
     def convidar(self, quem: Usuario, convidado: Usuario, agente: Agente) -> None:
         self.autorizar(quem, Acao.CONVIDAR, agente)
         if self._atual(convidado) is None:
             self._log(quem, "CONVIDAR_PESSOA_DESCONHECIDA", agente.id, False)
             raise AcessoNegado(f"CONVIDAR negado: pessoa {_id_de(convidado)} não está cadastrada")
-        agente.convidados_ids.add(convidado.id)
+        self._registrado(agente).convidados_ids.add(convidado.id)  # no registrado, não na cópia
 
     def agentes_visiveis(self, usuario: Usuario) -> list[Agente]:
         atual = self._atual(usuario)
@@ -391,14 +499,17 @@ class Plataforma:
         return [a for a in self._agentes.values() if atual.pode(Acao.VER, a)]
 
     # ---- auditoria
-    def ler_auditoria(self, usuario: Usuario) -> list[Evento]:
-        """Só o perfil com `pode_ler_auditoria` (Auditor) lê; a própria leitura é registrada."""
+    def autorizar_leitura_auditoria(self, usuario: Usuario) -> None:
+        """Só decide (Auditor sim; Admin não) e registra a tentativa. Não devolve eventos.
+
+        A Plataforma vive um pedido só, então `self.auditoria` não é a auditoria da empresa.
+        Quem lê é o chamador (o back-end), na tabela de auditoria, depois desta autorização.
+        """
         atual = self._atual(usuario)
         ok = atual is not None and atual.pode_ler_auditoria
         self._log(usuario, "LER_AUDITORIA", "auditoria", ok)
         if not ok:
             raise AcessoNegado("LER_AUDITORIA negado")
-        return list(self.auditoria)
 
 
 # ---------------------------------------------------------------- Demo
@@ -415,9 +526,9 @@ if __name__ == "__main__":
 
     a1 = joao.criar_agente("Relatório de carteira", p)  # privado
     a2 = maria.criar_agente("Triagem de chamados", p)
-    a2.visibilidade = Visibilidade.CONVIDADOS
+    p.alterar_visibilidade(maria, a2, Visibilidade.CONVIDADOS)
     a3 = maria.criar_agente("Perguntas frequentes", p)
-    a3.visibilidade = Visibilidade.PUBLICO
+    p.alterar_visibilidade(maria, a3, Visibilidade.PUBLICO)
 
     p.convidar(maria, joao, a2)
 
@@ -436,9 +547,8 @@ if __name__ == "__main__":
     tentar("gestor cria agente", lambda: gestor.criar_agente("X", p))
     tentar("gestor se promove", lambda: p.atribuir_role(gestor, gestor, AdminGlobal))
     tentar("admin atribui role", lambda: p.atribuir_role(adm, joao, Supervisor))
-    tentar("admin lê auditoria", lambda: p.ler_auditoria(adm))
-    p.autorizar(adm, Acao.DEPRECAR, a1)  # admin pausa qualquer agente, sem ver o conteúdo
-    a1.ativo = False
+    tentar("admin lê auditoria", lambda: p.autorizar_leitura_auditoria(adm))
+    p.desativar(adm, a1)  # admin pausa qualquer agente, sem ver o conteúdo
     tentar("dono executa agente inativo", lambda: p.autorizar(joao, Acao.EXECUTAR, a1))
 
     # gestor promove Maria a supervisora do Atendimento
@@ -450,6 +560,7 @@ if __name__ == "__main__":
     tentar("removido usa agente", lambda: p.autorizar(joao, Acao.VER, a1))
 
     print("\nAuditoria de perfis (lida pelo auditor):")
-    for e in p.ler_auditoria(auditor):
+    p.autorizar_leitura_auditoria(auditor)  # na demo a auditoria fica em memória; no back-end é a tabela
+    for e in p.auditoria:
         if "_ROLE" in e.acao:
             print(f"  {e.id_usuario} -> {e.acao} em {e.alvo}: {'ok' if e.permitido else 'negado'}")

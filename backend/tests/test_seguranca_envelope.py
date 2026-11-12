@@ -150,7 +150,7 @@ def test_funcao_nao_roda_quando_a_permissao_e_negada():
 
 def test_erro_inesperado_na_checagem_vira_acesso_negado():
     class PlataformaQuebrada(Plataforma):
-        def autorizar(self, usuario, acao, agente):
+        def autorizar(self, usuario, acao, agente, execucao_id=None):
             raise RuntimeError("segredo interno")
 
     quebrada = PlataformaQuebrada()
@@ -170,7 +170,7 @@ def test_erro_inesperado_na_checagem_vira_acesso_negado():
 
 def test_erro_inesperado_com_auditoria_quebrada_ainda_nega():
     class TudoQuebrado(Plataforma):
-        def autorizar(self, usuario, acao, agente):
+        def autorizar(self, usuario, acao, agente, execucao_id=None):
             raise RuntimeError("x")
 
         def _log(self, *args, **kwargs):
@@ -220,3 +220,21 @@ def test_global_nao_e_tocada_por_quem_passa_plataforma():
     plataforma, dono, _, agente = montar()
     rodar_com_plataforma(plataforma, dono, agente)
     assert len(envelope.PLATAFORMA.auditoria) == antes
+
+
+def test_execucao_id_declarado_vai_para_o_evento_e_invalido_nega():
+    plataforma, dono, _, agente = montar()
+    chamadas = []
+
+    @exige_permissao(Acao.EXECUTAR)
+    def rodar(plataforma, usuario, agente, execucao_id=None):
+        chamadas.append(execucao_id)
+
+    rodar(plataforma, dono, agente, execucao_id="exec-0001")
+    assert plataforma.auditoria[-1].execucao_id == "exec-0001"
+    rodar(plataforma, dono, agente)  # sem id: segue valendo
+    assert plataforma.auditoria[-1].execucao_id is None
+    with pytest.raises(AcessoNegado):
+        rodar(plataforma, dono, agente, execucao_id="abc\nFAKE LINHA")
+    assert chamadas == ["exec-0001", None]
+    assert plataforma.auditoria[-1].execucao_id is None  # o valor ruim não chega ao evento
