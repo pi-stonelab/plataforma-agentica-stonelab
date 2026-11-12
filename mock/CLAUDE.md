@@ -75,6 +75,12 @@ ferramentas e o diretório de funcionários usam essa função.
 - Teste: `criar_engine("sqlite://")` cria um banco em memória compartilhado entre threads (`StaticPool`).
   O engine usa `hide_parameters=True`, então valores não aparecem em erros do SQLAlchemy.
 
+Postgres local: `mock/docker-compose.yml` sobe um Postgres 16 só do mock (porta 5433, banco `stonelab_mock`, volume
+próprio). O passo a passo está no `README.md`. O gerador lê `MOCK_DATABASE_URL` do ambiente do terminal, não do `.env`
+(só `agentes/terminal.py` carrega o `.env`). Testes contra ele: `MOCK_TESTE_POSTGRES_URL`, com o nome do banco contendo
+"mock" ou "teste" (`apoio_ferramentas.url_do_postgres_de_teste`); sem a variável, tudo roda em SQLite em memória.
+Diferença conhecida: o Postgres não guarda o byte NUL em texto, então o caso "nulo no meio" do A-13 é pulado nele.
+
 O back-end não cria as tabelas do mock. `Base.metadata.create_all()` dele só conhece a `Base` dele. São dois
 criadores, dois comandos.
 

@@ -16,7 +16,6 @@ from unittest.mock import patch
 from agentes.agente_atendimento import agente as motor
 from agentes.agente_geral import agente as geral
 from ferramentas import catalogo, dados_sinteticos, governanca
-from mock.banco import criar_engine
 from mock.gerar import recriar
 from mock.modelos import ContaRecebimento, ContatoLojista, Lojista
 from sqlalchemy import select
@@ -24,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from . import apoio_agente as apoio
 from . import gabaritos as gab
-from .apoio_ferramentas import FUNCIONARIO_DO_CARGO, usuario_do_diretorio
+from .apoio_ferramentas import FUNCIONARIO_DO_CARGO, novo_engine_do_mock, usuario_do_diretorio
 from .apoio_ferramentas_novas import AGENTE
 
 # ---------- o modelo roteirizado ----------
@@ -399,8 +398,8 @@ def usuario_do_cargo(cargo: str):
 
 @contextmanager
 def mundo_privado():
-    """Mock novo em memória ligado às ferramentas; ao sair, volta ao mock compartilhado dos testes."""
-    engine = criar_engine("sqlite://")
+    """Mock novo ligado às ferramentas; ao sair, volta ao mock compartilhado dos testes."""
+    engine = novo_engine_do_mock()
     recriar(engine)
     dados_sinteticos.configurar(engine)
     try:

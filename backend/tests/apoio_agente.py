@@ -3,13 +3,13 @@
 import importlib
 
 from ferramentas import dados_sinteticos, governanca
-from mock.banco import criar_engine
 from mock.gerar import recriar
 
 from .apoio_ferramentas import (
     FUNCIONARIO_DO_CARGO,
     TODAS_ATIVAS,
     limpar_estado,
+    novo_engine_do_mock,
     usuario_do_diretorio,
 )
 
@@ -20,7 +20,7 @@ _MUNDO = {}
 def mundo():
     """Mock em memória, criado uma vez e religado às ferramentas a cada chamada."""
     if "engine" not in _MUNDO:
-        _MUNDO["engine"] = criar_engine("sqlite://")
+        _MUNDO["engine"] = novo_engine_do_mock()
         recriar(_MUNDO["engine"])
     dados_sinteticos.configurar(_MUNDO["engine"])
     return _MUNDO["engine"]

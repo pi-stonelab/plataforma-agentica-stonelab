@@ -1,10 +1,16 @@
 """Apoio dos testes de ferramentas: mundo do mock em memória e usuários montados pelo diretório."""
 
+import os
+
 from ferramentas import catalogo, dados_sinteticos, governanca
 from mock.banco import criar_engine
 from mock.consultas import buscar_funcionario
 from mock.falhas import desligar_todas
 from mock.gerar import recriar
+from sqlalchemy import Engine
+from sqlalchemy.engine import make_url
+
+VARIAVEL_POSTGRES_DE_TESTE = "MOCK_TESTE_POSTGRES_URL"
 
 TODAS_ATIVAS = (
     "consultar_cliente",
@@ -44,9 +50,29 @@ NEGADO_PELO_CATALOGO = {
 }
 
 
+def url_do_postgres_de_teste() -> str | None:
+    """URL do Postgres de teste, se declarada. Recusa banco cujo nome não indique que é do mock.
+
+    Cada mundo novo APAGA as tabelas do mock nesse banco, então ele precisa ser um banco só
+    do mock (o nome tem de conter "mock" ou "teste"), nunca o da plataforma.
+    """
+    url = os.environ.get(VARIAVEL_POSTGRES_DE_TESTE, "").strip()
+    if not url:
+        return None
+    nome = (make_url(url).database or "").lower()
+    if not ("mock" in nome or "teste" in nome):
+        raise RuntimeError(f"{VARIAVEL_POSTGRES_DE_TESTE}: o nome do banco precisa conter 'mock' ou 'teste'.")
+    return url
+
+
+def novo_engine_do_mock() -> Engine:
+    """Engine do mock dos testes: SQLite em memória, ou o Postgres de teste se ele foi declarado."""
+    return criar_engine(url_do_postgres_de_teste() or "sqlite://")
+
+
 def mundo_do_mock():
-    """Cria o mock em memória e liga as ferramentas a ele. Devolve o engine."""
-    engine = criar_engine("sqlite://")
+    """Cria o mock e liga as ferramentas a ele. Devolve o engine."""
+    engine = novo_engine_do_mock()
     recriar(engine)
     dados_sinteticos.configurar(engine)
     return engine

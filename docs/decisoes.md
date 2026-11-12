@@ -161,6 +161,15 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - Motivo: o PR #10 já está na `main`; o código tem uma regra só.
 - No código: `Plataforma.autorizar`, `_decidir`, `_registrado`, `deprecar`, `seguranca/envelope.py`.
 
+### H9. Postgres local do mock, em compose separado
+- Decisão: oferecer um Postgres só do mock (opção B), em `mock/docker-compose.yml`, sem mexer no `docker-compose.yml` da
+  raiz (do Marcelo). O SQLite local continua o padrão, nos testes e no CI.
+- Quem e quando: Pedro, 12/11 ("pode começar").
+- Motivo: dar a todos um SQL de verdade com o mesmo conteúdo, sem arriscar o banco da plataforma.
+- No código: `mock/docker-compose.yml`, `tests/test_mock_postgres.py`, `MOCK_TESTE_POSTGRES_URL` em `apoio_ferramentas.py`.
+- Verificado: o gerador e a suíte inteira do back-end contra um Postgres 16 (servidor instalado, sem Docker): 2173 passam,
+  1 pulado (NUL). O arquivo do compose foi validado com `docker compose config`; o container em si não foi subido.
+
 ## Decisões do orquestrador (O1 a O13)
 
 Todas de 11/11, PLANO v2, escritas depois da crítica ao plano. "Para o Pedro ver" quer dizer que ele leu; só a O10

@@ -36,6 +36,37 @@ ferramentas (`ferramentas/dados_sinteticos.py`) e pelo diretório de funcionári
   caminho resolvido. Use um banco ou schema separado para o mock.
 - `--url` no gerador vence a variável. URL inválida nunca é repetida em mensagem de erro.
 
+## Postgres local do mock (opcional)
+O padrão continua o SQLite local. Quem tem Docker pode usar um Postgres só do mock, com o mesmo conteúdo
+(um teste compara os dois). Ele é separado do banco da plataforma: `mock/docker-compose.yml` tem outro container,
+outra porta (5433), outro volume, outro usuário e outro banco (`stonelab_mock`).
+
+1. No `.env` da raiz, escolha uma senha (só letras e números, para não quebrar a URL):
+
+        MOCK_POSTGRES_PASSWORD=<senha>
+
+2. Suba o container, da raiz do repositório (o `--env-file` é necessário porque o compose fica em `mock/`):
+
+        docker compose --env-file .env -f mock/docker-compose.yml up -d
+
+3. Aponte o mock para ele e gere o mundo. O gerador lê a variável do ambiente do terminal, não do `.env`
+   (no PowerShell, `$env:MOCK_DATABASE_URL = "..."`; no bash, `export MOCK_DATABASE_URL=...`):
+
+        postgresql+psycopg://mock:<senha>@127.0.0.1:5433/stonelab_mock
+        python -m mock.gerar --permitir-banco-externo
+
+   A porta 5433 é a do mock. A 5432 é a da plataforma e nunca deve ir em `MOCK_DATABASE_URL`.
+
+Para voltar ao SQLite, esvazie `MOCK_DATABASE_URL`. Para apagar o Postgres do mock:
+`docker compose --env-file .env -f mock/docker-compose.yml down -v`.
+
+Para rodar os testes do back-end contra ele (recria as tabelas do mock nesse banco, então o nome do banco precisa
+ter "mock" ou "teste"):
+
+        MOCK_TESTE_POSTGRES_URL=<a mesma URL> python -m pytest -q   # dentro de backend/
+
+Sem a variável, os testes usam SQLite em memória e `tests/test_mock_postgres.py` é pulado.
+
 ## Cenários plantados (códigos fixos)
 - 1 (M00001, Padaria Pão da Vila, ME, varejo): conta de recebimento `invalida`; liquidação de 14/10/2026 de
   R$ 1.842,30 com situação `falhou`; chamado `Recebimento`/`alta` aberto pelo sistema, ligado à liquidação.
