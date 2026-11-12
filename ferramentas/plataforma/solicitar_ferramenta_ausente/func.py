@@ -1,5 +1,6 @@
 import re
 
+from ferramentas import mascara
 from ferramentas.base import ErroFerramenta, Ferramenta
 
 PADRAO_NOME = re.compile(r"[a-z][a-z0-9_]{2,59}")
@@ -32,6 +33,7 @@ class SolicitarFerramentaAusente(Ferramenta):
             )
         if len(PEDIDOS) >= LIMITE_PEDIDOS:
             raise ErroFerramenta("integracao_indisponivel", "A fila de pedidos está cheia.")
+        descricao = mascara.mascarar_valor("texto_livre", descricao)  # MED-1: a fila vai ao Jira
         id_pedido = f"PED-{len(PEDIDOS) + 1:04d}"
         PEDIDOS.append(
             {"id_pedido": id_pedido, "nome_sugerido": nome_sugerido, "descricao": descricao}

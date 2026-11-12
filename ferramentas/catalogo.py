@@ -25,6 +25,16 @@ def carregar():
     return FERRAMENTAS
 
 
+def nomes():
+    """Nomes de todas as ferramentas do catálogo, sem entregar os objetos (e o `rodar` deles, MED-3)."""
+    return sorted(carregar())
+
+
+def nomes_e_areas():
+    """Conjunto com os nomes das ferramentas e das áreas (para o agente filtrar o que vai ao log)."""
+    return {nome for nome in carregar()} | {f.area for f in carregar().values()}
+
+
 def _buscar(nome):
     return carregar().get(nome) if isinstance(nome, str) else None
 
@@ -101,13 +111,24 @@ def ler(caminho, usuario, ferramentas_do_agente):
     return re.sub(r"\n{3,}", "\n\n", texto).strip()
 
 
+def registrar_bloqueio(nome, usuario, contexto, camada):
+    """Deixa o registro (sem argumentos nem dados) de uma tentativa que não chegou a rodar (MED-2).
+
+    `camada` diz quem barrou: "agente" (o agente não leu ou não tem a ferramenta), "usuario",
+    "inativa" ou "desconhecida". A pessoa nunca vê a camada: a resposta é a mesma para todas. Se o
+    destino do registro falhar, a negação continua valendo (a resposta já é uma recusa) e
+    `governanca.registrar` já deixou o erro no log.
+    """
+    resultado = resposta("erro", None, "Ferramenta não encontrada.", "ferramenta_inexistente")
+    registro = montar_registro(_buscar(nome), usuario, contexto, resultado, camada, monotonic())
+    with suppress(governanca.RegistroIndisponivel):
+        governanca.registrar(registro)
+    return resultado
+
+
 def executar(nome, argumentos, usuario, ferramentas_do_agente, contexto=None):
     """Roda a ferramenta se ela está liberada; senão responde como se não existisse."""
     camada = _camada_bloqueio(nome, usuario, ferramentas_do_agente)
     if camada is None:
         return carregar()[nome].executar(argumentos, usuario, contexto)
-    resultado = resposta("erro", None, "Ferramenta não encontrada.", "ferramenta_inexistente")
-    registro = montar_registro(_buscar(nome), usuario, contexto, resultado, camada, monotonic())
-    with suppress(governanca.RegistroIndisponivel):  # a resposta já é uma negação
-        governanca.registrar(registro)
-    return resultado
+    return registrar_bloqueio(nome, usuario, contexto, camada)
