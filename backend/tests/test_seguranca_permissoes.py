@@ -89,7 +89,7 @@ def montar_cenario(perfil: str, relacao: str, visibilidade: Visibilidade, ativo:
     convidados = {"pessoa"} if relacao.startswith("convidado") else set()
     agente = Agente("agente", area_do_agente, dono_id, convidados_ids=convidados,
                     visibilidade=visibilidade, ativo=ativo)
-    plataforma._agentes[agente.id] = agente  # a Plataforma só decide sobre agente registrado
+    plataforma.carregar_agente(agente)  # a Plataforma só decide sobre agente registrado
     return plataforma, pessoa, agente
 
 
@@ -493,7 +493,7 @@ def test_autorizar_nega_executar_em_inativo_mesmo_se_o_perfil_esquecer():
     plataforma = Plataforma()
     pessoa = plataforma.cadastrar(Esquecido("e", None, id="esq"))
     agente = Agente("a", Financeiro(), "dono", ativo=False)
-    plataforma._agentes[agente.id] = agente
+    plataforma.carregar_agente(agente)
     with pytest.raises(AcessoNegado):
         plataforma.autorizar(pessoa, Acao.EXECUTAR, agente)
 
@@ -607,3 +607,34 @@ def test_pessoa_nao_pode_ter_o_id_da_plataforma():
         Colaborador("c", Financeiro(), id=DONO_PLATAFORMA)
     with pytest.raises(ValueError):
         AdminGlobal("a", id=DONO_PLATAFORMA)
+
+
+# ---------------------------------------------------------------- C2: carregar agente do banco
+def test_carregar_agente_nao_grava_evento_nem_exige_criador():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    do_banco = Agente("x", Financeiro(), "dono", id="ag-1")
+    plataforma.carregar_agente(do_banco)
+    assert plataforma.auditoria == []  # nenhum CRIAR falso
+    plataforma.autorizar(dono, Acao.EXECUTAR, do_banco)
+    assert plataforma.agentes_visiveis(dono) == [do_banco]
+    assert [e.acao for e in plataforma.auditoria] == ["EXECUTAR"]
+
+
+def test_carregar_agente_de_dono_ausente_do_cadastro_funciona_e_ninguem_mais_acessa():
+    plataforma = Plataforma()
+    estranho = plataforma.cadastrar(Colaborador("e", Financeiro(), id="estranho"))
+    plataforma.carregar_agente(Agente("x", Financeiro(), "dono-que-saiu", id="ag-1"))
+    assert plataforma.agentes_visiveis(estranho) == []  # privado de outra pessoa
+
+
+def test_carregar_agente_recusa_id_repetido_e_tipo_errado():
+    plataforma = Plataforma()
+    agente = Agente("x", Financeiro(), "dono", id="ag-1")
+    plataforma.carregar_agente(agente)
+    plataforma.carregar_agente(agente)  # o mesmo objeto de novo não muda nada
+    with pytest.raises(ValueError):
+        plataforma.carregar_agente(Agente("outro", Financeiro(), "dono", id="ag-1"))
+    assert plataforma._agentes["ag-1"] is agente
+    with pytest.raises(TypeError):
+        plataforma.carregar_agente({"id": "ag-2"})

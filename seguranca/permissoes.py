@@ -392,6 +392,20 @@ class Plataforma:
             raise AcessoNegado(f"CRIAR negado no agente {agente.id}")
         self._agentes[agente.id] = agente
 
+    def carregar_agente(self, agente: Agente) -> None:
+        """Põe na Plataforma um agente que JÁ existe (lido do banco), sem evento CRIAR.
+
+        Só o back-end usa, com o que veio do banco: nunca com dado da requisição nem do prompt.
+        Não checa criador nem permissão (quem decide é `autorizar`). Serve também para o agente
+        da plataforma, que não tem pessoa dona. Id repetido com outro agente é erro.
+        """
+        if not isinstance(agente, Agente):
+            raise TypeError("carregar_agente precisa de um Agente")
+        existente = self._agentes.get(agente.id)
+        if existente is not None and existente is not agente:
+            raise ValueError(f"Já existe outro agente com o id {agente.id}")
+        self._agentes[agente.id] = agente
+
     def _registrado(self, agente: object) -> Agente | None:
         """O agente que a Plataforma conhece, se o recebido for igual a ele; senão None.
 
