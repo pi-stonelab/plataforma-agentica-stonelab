@@ -40,6 +40,22 @@ class TestConfiguracao(unittest.TestCase):
         self.assertNotEqual(ferramentas, tuple("todas"))
         self.assertTrue(all(isinstance(nome, str) and len(nome) > 1 for nome in ferramentas))
 
+    def test_prompt_manda_escolher_na_lista_do_indice_e_ler_a_ficha_direto(self):
+        for sistema in (geral.SISTEMA, motor.SISTEMA):
+            self.assertIn("lista do índice", sistema)
+            self.assertIn("sem passar pela área", sistema)
+            self.assertIn("area/nome: primeira frase", sistema)
+
+    def test_ler_a_ficha_direto_depois_do_indice_funciona_sem_ler_a_area(self):
+        apoio.limpar()
+        resultado = geral.rodar_turno_geral(
+            "p", apoio.atendente_n1(),
+            modelo_roteirizado(INDICE + ["LER: atendimento/consultar_cliente", CONSULTA, "FINAL: ok"]),
+        )
+        self.assertEqual(resultado.tipo, "final")
+        self.assertIn("'atendimento/consultar_cliente' lido", resultado.trajetoria[1])
+        self.assertIn("executada: ok", resultado.trajetoria[2])
+
     def test_prompt_tem_o_protocolo_do_motor(self):
         for acao in ("LER:", "USAR:", "PERGUNTAR:", "FINAL:", "PENSAMENTO:"):
             self.assertIn(acao, geral.SISTEMA)
