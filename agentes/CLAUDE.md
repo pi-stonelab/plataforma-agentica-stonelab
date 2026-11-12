@@ -28,6 +28,11 @@ roda um turno e devolve um `Turno(resposta, tipo, trajetoria, estado, motivo)`.
   (ferramenta + JSON), `PERGUNTAR` (devolve a pergunta e encerra o turno, sem `input()`) ou `FINAL`.
 - Travas do código, não do prompt: só se lê um caminho depois do índice; só se usa uma ferramenta que foi
   lida e estava liberada; `FINAL` antes de ler o índice é recusado.
+  `USAR` de ferramenta não lida não chega a executar, mas deixa registro de recusa (`catalogo.registrar_bloqueio`,
+  `camada_bloqueio="agente"`, sem argumentos nem dados); a resposta à pessoa é a mesma de antes (MED-2).
+- O índice lista as ferramentas liberadas como `area/nome: primeira frase`. Os prompts mandam escolher nessa
+  lista e ler a ficha (`LER: <area>/<ferramenta>`) direto; ler a área é opcional. Os nomes para log vêm de
+  `catalogo.nomes_e_areas()` e a lista do agente geral de `catalogo.nomes()`: o agente nunca pega a ferramenta.
 - `Turno.tipo`: `"final"`, `"pergunta"` ou `"limite"`. No limite, `motivo` é `"max_passos"`, `"repeticao"`,
   `"tempo"` ou `"modelo_indisponivel"`. Em todos a resposta é uma mensagem fixa, sem conteúdo.
 - Prazo do turno: `SEGUNDOS_POR_TURNO` (120 s). SEM FONTE: o valor não vem de requisito nem de medição, foi
