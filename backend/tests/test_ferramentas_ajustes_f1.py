@@ -61,7 +61,7 @@ def _abrir_chamados(engine, quantidade, lojista_codigo="M00001"):
                     codigo=f"CH9{i:05d}", protocolo=f"20260101-9{i:05d}", id_lojista=lojista_codigo,
                     categoria="Recebimento", prioridade="baixa", fila="atendimento",
                     id_responsavel=None, situacao="aberto", aberto_por="lojista",
-                    aberto_em=datetime(2026, 1, 1, 9, 0),  # noqa: DTZ001 (o mock usa datas sem fuso)
+                    aberto_em=datetime(2026, 1, 1, 9, 0),
                     resumo="teste",
                 )
             )

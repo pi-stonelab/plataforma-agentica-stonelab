@@ -14,6 +14,7 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from . import falhas, regras
+from .banco import trava_de_acesso
 from .modelos import (
     Chamado,
     ContaRecebimento,
@@ -37,7 +38,7 @@ def _sessao_de(origem: Session | Engine) -> Iterator[Session]:
     if isinstance(origem, Session):
         yield origem
     else:
-        with Session(origem) as sessao:
+        with trava_de_acesso(origem), Session(origem) as sessao:
             yield sessao
 
 

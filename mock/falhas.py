@@ -7,7 +7,7 @@ ou pelas funções `ligar` e `desligar` (para testes). Toda consulta do sistema 
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ def _validar(sistema: str) -> None:
 
 
 def _registrar(acao: str, sistema: str) -> None:
-    horario = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    horario = datetime.now(UTC).isoformat(timespec="seconds")
     logger.info("falha %s: sistema=%s horario=%s", acao, sistema, horario)
 
 

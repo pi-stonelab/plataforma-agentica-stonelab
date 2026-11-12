@@ -1,7 +1,10 @@
 """Engine e criação das tabelas do mock. Mexe só na metadata do mock (`BaseMock`)."""
 
 import os
+import threading
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
+from weakref import WeakKeyDictionary
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.engine import make_url
@@ -31,6 +34,23 @@ def criar_engine(url: str) -> Engine:
         opcoes["poolclass"] = StaticPool
         opcoes["connect_args"] = {"check_same_thread": False}
     return create_engine(url, **opcoes)
+
+
+_TRAVAS_EM_MEMORIA: WeakKeyDictionary[Engine, threading.RLock] = WeakKeyDictionary()
+_TRAVA_DO_CADASTRO = threading.Lock()
+
+
+def trava_de_acesso(engine: Engine) -> AbstractContextManager:
+    """Trava que serializa o uso de um banco SQLite em memória; os demais bancos não precisam.
+
+    O banco em memória tem uma única conexão (StaticPool) dividida entre as threads. Duas threads
+    usando essa conexão ao mesmo tempo corrompem o controle do pool (aviso "Double checkin") e
+    podem devolver consulta vazia ou erro. Quem abre sessão sobre o engine segura esta trava.
+    """
+    if not isinstance(engine.pool, StaticPool):
+        return nullcontext()
+    with _TRAVA_DO_CADASTRO:
+        return _TRAVAS_EM_MEMORIA.setdefault(engine, threading.RLock())
 
 
 PORTA_PADRAO = {"postgresql": 5432, "mysql": 3306, "mariadb": 3306, "mssql": 1433, "oracle": 1521}

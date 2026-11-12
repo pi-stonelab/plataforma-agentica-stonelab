@@ -143,6 +143,15 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - Motivo: os gabaritos da KAN-69 já usam `id_cliente`; renomear quebraria fichas, testes e gabaritos.
 - No código: `ferramentas/lojista.py` (docstring com os três nomes).
 
+### H7. O banco em memória do mock só é usado por uma thread por vez
+- Decisão: `mock/banco.py` ganhou `trava_de_acesso(engine)`; `mock/consultas.py` a segura ao abrir sessão sobre um
+  engine SQLite em memória. Bancos em arquivo ou Postgres não usam trava.
+- Motivo: o banco em memória tem uma conexão só (StaticPool) dividida entre threads. No PC do Pedro (Windows, Python
+  3.15) o teste a20 de dois funcionários ao mesmo tempo falhou uma vez; sob carga, no sandbox, apareceu o aviso
+  "Double checkin" do SQLAlchemy. Não muda nada para quem usa o mock em arquivo.
+- Teste: `test_banco_em_memoria_nunca_e_usado_por_duas_threads_ao_mesmo_tempo` (falha sem a trava).
+- Também: removidos os `noqa` sem efeito e `timezone.utc` virou `UTC` (o ruff mais novo, que o CI instala, acusava).
+
 ## Decisões do orquestrador (O1 a O13)
 
 Todas de 11/11, PLANO v2, escritas depois da crítica ao plano. "Para o Pedro ver" quer dizer que ele leu; só a O10

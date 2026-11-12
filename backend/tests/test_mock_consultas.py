@@ -1,12 +1,16 @@
 """Testes do conector do mock (consultas) e da falha "fora do ar"."""
 
 import logging
+from contextlib import nullcontext
 from datetime import date
+from threading import Barrier, Lock, Thread
+from time import sleep
 
 import pytest
-from mock.banco import criar_engine
+from mock.banco import criar_engine, trava_de_acesso
 from mock.consultas import (
     LIMITE_MAXIMO,
+    _sessao_de,
     buscar_chamados,
     buscar_conta_recebimento,
     buscar_contatos,
@@ -285,3 +289,39 @@ def test_todo_campo_devolvido_pelas_consultas_esta_classificado(sessao):
     nao_classificados = devolvidos - set(CLASSIFICACAO_CAMPOS) - CAMPOS_NAO_RESTRITOS
     assert not nao_classificados, sorted(nao_classificados)
     assert not set(CLASSIFICACAO_CAMPOS) & CAMPOS_NAO_RESTRITOS
+
+
+def test_banco_em_memoria_nunca_e_usado_por_duas_threads_ao_mesmo_tempo(engine):
+    """O banco em memória tem uma conexão só: duas sessões simultâneas corromperiam o pool.
+
+    A trava de acesso garante que as consultas de threads diferentes entram uma de cada vez.
+    """
+    em_uso, maximo, erros = [0], [0], []
+    contador, largada = Lock(), Barrier(4)
+
+    def consultar():
+        try:
+            largada.wait(timeout=10)
+            for _ in range(5):
+                with _sessao_de(engine):
+                    with contador:
+                        em_uso[0] += 1
+                        maximo[0] = max(maximo[0], em_uso[0])
+                    sleep(0.002)
+                    with contador:
+                        em_uso[0] -= 1
+        except Exception as erro:  # noqa: BLE001 (o teste só precisa do tipo do erro)
+            erros.append(type(erro).__name__)
+
+    fios = [Thread(target=consultar) for _ in range(4)]
+    for fio in fios:
+        fio.start()
+    for fio in fios:
+        fio.join(timeout=30)
+    assert erros == []
+    assert maximo[0] == 1
+
+
+def test_banco_em_arquivo_nao_leva_trava(tmp_path):
+    engine_em_arquivo = criar_engine(f"sqlite:///{tmp_path / 'mock.sqlite'}")
+    assert isinstance(trava_de_acesso(engine_em_arquivo), type(nullcontext()))

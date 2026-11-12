@@ -44,7 +44,7 @@ def _converter(tipo, valor):
         if decimal.is_finite():
             return decimal
     if tipo == "data" and isinstance(valor, str) and len(valor) == 10:
-        return datetime.strptime(valor, "%Y-%m-%d").date()  # noqa: DTZ007
+        return datetime.strptime(valor, "%Y-%m-%d").date()
     raise ValueError
 
 
