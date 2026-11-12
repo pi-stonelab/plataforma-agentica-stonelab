@@ -306,10 +306,10 @@ def varrer_repositorio():
 
 
 def test_o_detector_de_lgpd_acha_cada_tipo_e_respeita_o_que_e_permitido():
-    assert achados_de_lgpd("cpf 111.444.777-35") == {(1, "cpf válido")}
-    assert achados_de_lgpd("cpf 11144477735") == {(1, "cpf válido")}
-    assert achados_de_lgpd("cartão 4242 4242 4242 4242") == {(1, "cartão válido")}
-    assert achados_de_lgpd("fulano@gmail.com") == {(1, "e-mail fora de .example/.test")}
+    assert achados_de_lgpd("cpf 111.444.777-35") == {(1, "cpf válido")}  # armadilha-permitida
+    assert achados_de_lgpd("cpf 11144477735") == {(1, "cpf válido")}  # armadilha-permitida
+    assert achados_de_lgpd("cartão 4242 4242 4242 4242") == {(1, "cartão válido")}  # armadilha-permitida
+    assert achados_de_lgpd("fulano@gmail.com") == {(1, "e-mail fora de .example/.test")}  # armadilha-permitida
     permitidos = (
         "123.456.789-09",
         "4111 1111 1111 1111",
