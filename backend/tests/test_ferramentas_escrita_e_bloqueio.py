@@ -2,6 +2,8 @@
 
 import ast
 import json
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -75,6 +77,54 @@ def test_descricao_do_pedido_e_mascarada_antes_de_ser_guardada(ana):
     guardado = json.dumps(pedidos_func.PEDIDOS, ensure_ascii=False)
     assert "52998224700" not in guardado
     assert pedidos_func.PEDIDOS[-1]["descricao"] == "preciso do cpf ***.982.247-** do socio"
+
+
+@pytest.mark.parametrize(
+    "nome",
+    ["cpf_52998224700", "c4111111111111111", "cartao_4111111111111111", "x123456", "cpf_529_982_247_00", "CPF"],
+)
+def test_nome_sugerido_com_numero_longo_ou_fora_do_padrao_e_recusado_sem_gravar(ana, nome):
+    """MED-2 da auditoria C: o nome vai para a fila do Jira; nada de CPF ou cartão nele."""
+    resposta = executar("solicitar_ferramenta_ausente", {**PEDIDO, "nome_sugerido": nome}, ana)
+    assert resposta["tipo_erro"] == "parametro_invalido"
+    assert pedidos_func.PEDIDOS == []
+    assert nome not in json.dumps(resposta)
+
+
+def test_nome_sugerido_com_digitos_curtos_continua_valido(ana):
+    resposta = executar("solicitar_ferramenta_ausente", {**PEDIDO, "nome_sugerido": "listar_v2_5"}, ana)
+    assert resposta["status"] == "ok"
+    assert pedidos_func.PEDIDOS[-1]["nome_sugerido"] == "listar_v2_5"
+
+
+class ListaQueCedeAVez(list):
+    """Lista que passa a vez para outra thread antes de `append`: abre a janela da corrida de propósito."""
+
+    def append(self, item):
+        time.sleep(0.0005)
+        super().append(item)
+
+
+def test_pedidos_de_16_threads_nao_repetem_id_nem_passam_do_limite(ana, monkeypatch):
+    """BAIXO-6 da auditoria C: tamanho, id e inclusão na fila andam juntos sob a trava."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    monkeypatch.setattr(pedidos_func, "PEDIDOS", ListaQueCedeAVez())
+    intervalo_antigo = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)  # troca de thread o tempo todo: sem a trava, o id repetiria
+
+    def pedir(_):
+        return pedidos_func.FERRAMENTA.rodar(
+            {"nome_sugerido": "listar_algo", "descricao": "x"}, ana
+        )["id_pedido"]
+
+    try:
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            ids = list(pool.map(pedir, range(800)))
+    finally:
+        sys.setswitchinterval(intervalo_antigo)
+    assert len(set(ids)) == 800
+    assert [p["id_pedido"] for p in pedidos_func.PEDIDOS] == sorted(ids)
 
 
 def test_leitura_continua_com_um_registro_so(ana):

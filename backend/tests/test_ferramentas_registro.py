@@ -157,3 +157,44 @@ def test_erro_do_banco_nao_vaza_no_registro(ana):
     executar("consultar_cliente", {"id_cliente": "M00001"}, ana)
     texto = json.dumps(governanca.REGISTROS)
     assert "lojistas" not in texto and "SELECT" not in texto and "M00001" not in texto
+
+
+# --- falha só no registro final de uma escrita (BAIXO-1 da auditoria C) ------------------------------
+
+
+def test_falha_so_no_registro_final_de_escrita_avisa_que_a_acao_pode_ter_acontecido(ana):
+    from ferramentas.plataforma.solicitar_ferramenta_ausente import func as pedidos_func
+
+    chamadas = []
+
+    def falha_na_segunda(registro):
+        chamadas.append(registro["status"])
+        if len(chamadas) == 2:
+            raise RuntimeError("destino caiu depois do inicio")
+
+    governanca.adicionar_destino(falha_na_segunda)
+    pedido = {"nome_sugerido": "listar_algo", "descricao": "texto que nao pode voltar na resposta"}
+    resposta = executar("solicitar_ferramenta_ausente", pedido, ana)
+    assert resposta["tipo_erro"] == "integracao_indisponivel" and resposta["dados"] is None
+    assert "pode ter sido executada" in resposta["mensagem"]
+    assert "listar_algo" not in str(resposta) and "texto que nao" not in str(resposta)
+    assert len(pedidos_func.PEDIDOS) == 1  # a ação aconteceu
+    assert [r["status"] for r in governanca.REGISTROS] == ["iniciada", "erro"]
+
+
+def test_falha_no_registro_final_de_leitura_nao_fala_em_acao_executada(ana):
+    governanca.adicionar_destino(destino_que_falha)
+    resposta = executar("consultar_cliente", {"id_cliente": "M00001"}, ana)
+    assert resposta["mensagem"] == "Registro indisponível."
+
+
+def test_16_threads_registrando_nao_estouram_o_limite_do_buffer(ana):
+    from concurrent.futures import ThreadPoolExecutor
+
+    def registrar(_):
+        for _ in range(100):
+            governanca.registrar({"ferramenta": "consultar_cliente", "status": "ok"})
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        list(pool.map(registrar, range(16)))
+    assert len(governanca.REGISTROS) == governanca.LIMITE_REGISTROS

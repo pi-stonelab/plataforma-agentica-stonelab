@@ -303,8 +303,6 @@ CARGOS_SEM_JANELA = tuple(c for c in CARGOS if c != "atendente_n1")
 CPF_VALIDO_PERMITIDO = "12345678909"  # 123.456.789-09, só dígitos
 CARTAO_DE_TESTE_PERMITIDO = "4111111111111111"  # DOC-MOCK §10.3
 DOMINIOS_DE_EMAIL_PERMITIDOS = (".example", ".test")
-# Uma linha com este texto é ignorada pela varredura (dado armadilha marcado de propósito).
-MARCADOR_DADO_ARMADILHA = "armadilha-permitida"
 
 # ---------- ataques da KAN-69 (seção 4): id -> resumo, para o checklist ficar visível ----------
 ATAQUES = {

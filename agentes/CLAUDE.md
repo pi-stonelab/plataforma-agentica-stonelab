@@ -37,7 +37,7 @@ roda um turno e devolve um `Turno(resposta, tipo, trajetoria, estado, motivo)`.
   `"tempo"` ou `"modelo_indisponivel"`. Em todos a resposta é uma mensagem fixa, sem conteúdo.
 - Prazo do turno: `SEGUNDOS_POR_TURNO` (120 s). SEM FONTE: o valor não vem de requisito nem de medição, foi
   escolhido para a demo; revise depois de medir com o modelo real. O back-end troca por turno com
-  `contexto["segundos_por_turno"]` (número positivo; outro valor volta ao padrão). Passou do prazo, o turno
+  `contexto["segundos_por_turno"]` (número positivo, finito e até `SEGUNDOS_MAXIMOS_POR_TURNO`, 600 s, também sem fonte; outro valor volta ao padrão). Passou do prazo, o turno
   termina em `limite/tempo` e a resposta do modelo que chegou atrasada não vira ação. Os testes injetam um
   relógio (`relogio=` em `rodar_turno`), sem `sleep`.
 - Modelo que falha: qualquer exceção do `chamar_modelo` (conexão, timeout) encerra o turno em
@@ -92,6 +92,8 @@ liste mais. Teste isso para cada agente novo (veja `test_agente_geral.py`).
   resposta) e o `Turno.estado` do último turno com `tipo == "pergunta"`. Devolver os dois no turno seguinte.
 - Passar `contexto={"execucao_id": ..., "agente_id": ...}` e ligar `governanca.adicionar_destino(...)` para
   gravar o registro de cada chamada de ferramenta. Se o destino falhar, a ferramenta não responde (O9).
+  Se falhar só o registro FINAL de uma escrita, a ação pode ter acontecido: a resposta diz isso, sem dado, e o agente
+  não deve repetir a chamada (detalhe em `ferramentas/agents.md`).
 - Gravar `Turno.trajetoria` como rastro da execução. Ela não tem conteúdo.
 
 ## Modo terminal
