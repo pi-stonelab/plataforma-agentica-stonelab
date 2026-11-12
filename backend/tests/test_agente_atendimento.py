@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import unittest
+from pathlib import Path
 from unittest import mock
 from uuid import uuid4
 
@@ -210,7 +211,7 @@ class TestPromptDeSistema(unittest.TestCase):
         ambiente = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "segredo"}
         with (
             mock.patch.dict("os.environ", ambiente),
-            mock.patch.object(agente, "BASE_URL", "http://modelo.teste"),
+            mock.patch.object(agente, "LLM_URL", "http://modelo.teste"),
             mock.patch.object(agente.requests, "post", return_value=resposta) as post,
         ):
             texto = agente.chamar_llm("SISTEMA DE TESTE", "prompt de teste")
@@ -537,32 +538,49 @@ class TestModoTerminal(unittest.TestCase):
 
 
 class TestUsuarioDoAmbiente(unittest.TestCase):
-    def setUp(self):
-        self.base = {
-            "ID_USUARIO": "USR-9",
-            "NIVEL": "n1",
-            "AREA": "Atendimento",
-            "CARTEIRA": "CLI-1, CLI-2",
-        }
+    """O12: o modo terminal lê só ID_USUARIO; o perfil vem do diretório."""
 
-    def test_monta_o_usuario_e_normaliza_os_campos(self):
-        usuario = agente.usuario_do_ambiente(self.base)
+    def test_so_o_id_vai_para_a_busca_no_diretorio(self):
+        pedidos = []
+
+        def diretorio(id_usuario):
+            pedidos.append(id_usuario)
+            return apoio.n2_financeiro()
+
+        ambiente = {"ID_USUARIO": " USR-9 ", "NIVEL": "N2", "AREA": "dados", "CARTEIRA": "CLI-1"}
+        usuario = agente.usuario_do_ambiente(ambiente, diretorio)
+        self.assertEqual(pedidos, ["USR-9"])
+        self.assertEqual((usuario.nivel, usuario.area, usuario.carteira), ("N2", "financeiro", ()))
+
+    def test_nivel_area_e_carteira_do_ambiente_sao_ignorados(self):
+        apenas_id = agente.usuario_do_ambiente({"ID_USUARIO": "USR-9"}, lambda _: apoio.n1_atendimento())
+        com_extras = agente.usuario_do_ambiente(
+            {"ID_USUARIO": "USR-9", "NIVEL": "N2", "AREA": "financeiro", "CARTEIRA": "CLI-9"},
+            lambda _: apoio.n1_atendimento(),
+        )
         self.assertEqual(
-            (usuario.id_usuario, usuario.nivel, usuario.area, usuario.carteira),
-            ("USR-9", "N1", "atendimento", ("CLI-1", "CLI-2")),
+            (apenas_id.nivel, apenas_id.area, apenas_id.carteira),
+            (com_extras.nivel, com_extras.area, com_extras.carteira),
         )
 
-    def test_carteira_e_opcional(self):
-        base = {k: v for k, v in self.base.items() if k != "CARTEIRA"}
-        self.assertEqual(agente.usuario_do_ambiente(base).carteira, ())
-
-    def test_falta_de_dado_ou_valor_invalido_nao_sobe(self):
-        for campo, valor in (("ID_USUARIO", ""), ("NIVEL", "N9"), ("AREA", "rh")):
-            ambiente = dict(self.base, **{campo: valor})
+    def test_id_ausente_invalido_ou_desconhecido_nao_sobe(self):
+        for ambiente in ({}, {"ID_USUARIO": ""}, {"ID_USUARIO": "a b"}, {"ID_USUARIO": "x\ny"}):
             with self.assertRaises(ValueError):
-                agente.usuario_do_ambiente(ambiente)
+                agente.usuario_do_ambiente(ambiente, lambda _: apoio.n2_financeiro())
         with self.assertRaises(ValueError):
-            agente.usuario_do_ambiente({})
+            agente.usuario_do_ambiente({"ID_USUARIO": "USR-404"}, lambda _: None)
+
+    def test_ponto_de_ligacao_com_o_diretorio_ainda_nao_existe(self):
+        with self.assertRaises(NotImplementedError):
+            agente.usuario_do_ambiente({"ID_USUARIO": "USR-1"})
+
+
+class TestConfiguracaoDoModelo(unittest.TestCase):
+    def test_url_do_modelo_nao_tem_valor_no_codigo(self):
+        with mock.patch.object(agente, "LLM_URL", ""), self.assertRaises(RuntimeError):
+            agente.chamar_llm("sistema", "prompt")
+        codigo = Path(agente.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("https://", codigo)
 
 
 if __name__ == "__main__":

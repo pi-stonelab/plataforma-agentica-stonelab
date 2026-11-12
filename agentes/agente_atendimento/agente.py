@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import requests
 from dotenv import load_dotenv
 
-from ferramentas import catalogo, governanca
+from ferramentas import catalogo
 
 load_dotenv()
 
@@ -23,8 +23,8 @@ logger = logging.getLogger("agente_atendimento")
 logger.addHandler(logging.NullHandler())  # quem usa o agente decide para onde vão os logs
 
 # ---------- CONFIGURAÇÃO ----------
-BASE_URL = os.environ.get("LLM_URL", "https://llm.thiagomedeiros.dev")
-MODELO = os.environ.get("LLM_MODELO", "qwen3.8:27b")
+LLM_URL = os.environ.get("LLM_URL", "")  # só do .env; sem valor padrão no código
+LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3.8:27b")
 MAX_PASSOS = 10         # KAN-38: mais de 10 etapas sem terminar interrompe o turno
 MAX_REPETICOES = 3      # KAN-38: mesma ferramenta e mesmos argumentos 3 vezes seguidas = loop
 MAX_CHARS_MD = 6000     # limite de texto de cada leitura e de cada resultado enviado ao modelo
@@ -86,23 +86,32 @@ ACAO_RE = re.compile(r"^\s*(LER|USAR|PERGUNTAR|FINAL)\b[ \t]*:?[ \t]*", flags=re
 
 
 # ---------- QUEM ESTÁ USANDO O AGENTE ----------
-# [etapa B/C: trocar por busca no diretório do mock pelo ID_USUARIO]
-def usuario_do_ambiente(ambiente=os.environ):
-    """Monta o funcionário a partir do .env, só para teste no terminal.
+def buscar_usuario_no_diretorio(id_usuario):
+    """PONTO ÚNICO de ligação do modo terminal com o diretório de funcionários do mock (O12).
 
-    No produto real, o back-end valida o login e entrega o Usuario já pronto ao agente.
-    Falta qualquer dado ou valor inválido: o agente não sobe.
+    Deve devolver o `governanca.Usuario` (nível, área e carteira vindos do cargo) ou None se o
+    id não existir. Ainda não há função que faça essa conversão: `mock.consultas.buscar_funcionario`
+    devolve só cargo, área e carteiras, e a governança ainda não traduz cargo em nível.
+    [etapa B: ligar aqui quando existir, sem ler NIVEL, AREA nem CARTEIRA do .env]
+    """
+    raise NotImplementedError(
+        "O modo terminal ainda não encontra o perfil no diretório do mock (pendente da etapa B)."
+    )
+
+
+def usuario_do_ambiente(ambiente=os.environ, buscar_no_diretorio=buscar_usuario_no_diretorio):
+    """Monta o funcionário do modo terminal só pelo ID_USUARIO do .env; o perfil vem do diretório.
+
+    Nível, área e carteira NÃO são lidos do ambiente (O12). No produto real, o back-end valida
+    o login e entrega o Usuario já pronto ao agente. ID ausente, inválido ou desconhecido: não sobe.
     """
     id_usuario = ambiente.get("ID_USUARIO", "").strip()
-    nivel = ambiente.get("NIVEL", "").strip().upper()
-    area = ambiente.get("AREA", "").strip().lower()
-    if not id_usuario or nivel not in governanca.NIVEIS or area not in governanca.AREAS_USUARIO:
-        raise ValueError(
-            "Defina ID_USUARIO, NIVEL (N1 ou N2) e AREA "
-            f"({', '.join(governanca.AREAS_USUARIO)}) no .env."
-        )
-    carteira = tuple(c.strip() for c in ambiente.get("CARTEIRA", "").split(",") if c.strip())
-    return governanca.Usuario(id_usuario, nivel, area, carteira)
+    if not IDENTIFICADOR_SEGURO_RE.match(id_usuario):
+        raise ValueError("Defina ID_USUARIO no .env (letras, dígitos, '_' ou '-').")
+    usuario = buscar_no_diretorio(id_usuario)
+    if usuario is None:
+        raise ValueError("ID_USUARIO não encontrado no diretório de funcionários.")
+    return usuario
 
 
 # ---------- RESULTADO DE UM TURNO ----------
@@ -206,8 +215,10 @@ def montar_headers():
 
 def chamar_llm(prompt_sistema: str, prompt: str) -> str:
     """Chamada direta ao Ollama, para o terminal. No produto quem chama é o `LLMClient` do back-end."""
+    if not LLM_URL:
+        raise RuntimeError("Defina LLM_URL no .env para usar o modelo direto (modo terminal).")
     payload = {
-        "model": MODELO,
+        "model": LLM_MODELO,
         "system": prompt_sistema,
         "prompt": prompt,
         "stream": False,
@@ -215,7 +226,7 @@ def chamar_llm(prompt_sistema: str, prompt: str) -> str:
         "options": {"temperature": 0, "stop": [PARADA_DO_MODELO]},
     }
     r = requests.post(
-        f"{BASE_URL}/api/generate", headers=montar_headers(), json=payload, timeout=120
+        f"{LLM_URL}/api/generate", headers=montar_headers(), json=payload, timeout=120
     )
     r.raise_for_status()
     texto = r.json()["response"]
@@ -467,7 +478,10 @@ if __name__ == "__main__":
     if os.environ.get("MODO_TERMINAL") != "1":  # O12
         raise SystemExit("Modo terminal desligado. Defina MODO_TERMINAL=1 para usar.")
     logging.basicConfig(level=logging.INFO, format="  [%(levelname)s] %(message)s")
-    funcionario = usuario_do_ambiente()
+    try:
+        funcionario = usuario_do_ambiente()
+    except (ValueError, NotImplementedError) as erro:
+        raise SystemExit(str(erro)) from erro
     print(
         f"Assistente {NOME_EMPRESA} (funcionário {funcionario.id_usuario}, "
         f"{funcionario.nivel}, {funcionario.area}). Digite 'sair' para encerrar."
