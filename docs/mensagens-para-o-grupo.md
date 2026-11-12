@@ -29,6 +29,13 @@ O que mudou e te afeta:
 - Os dados do mock moram em outro banco (`MOCK_DATABASE_URL`, criado por `python -m mock.gerar`). Por isso as tabelas
   `clientes` e `transacoes` saíram do plano.
 - Entraram testes novos em `backend/tests/` (arquivos `test_*.py` e apoios). Rodam com `cd backend && python -m pytest -q`.
+- Sobre a sua branch `backend/llm-client`: o motor do agente agora aceita as duas formas de `chamar_modelo`, a de um
+  argumento, `(prompt)`, que o seu `como_chamar_modelo(sistema=...)` devolve, e a de dois, `(prompt_sistema, prompt)`.
+  Então o primeiro teste de `test_agente_com_llm_client.py` passa sem você mudar nada. O segundo precisa de três
+  ajustes nos dados do teste, porque a ferramenta e o usuário mudaram: usar o lojista `M00001` no lugar de `CLI-0001`,
+  montar o usuário com `governanca.usuario_do_cargo("F0011", "coordenador_financeiro", ())` e chamar
+  `apoio_agente.mundo()` antes, para ligar o mock às ferramentas. Para o modelo não inventar o resultado da ferramenta,
+  passe `opcoes={"temperature": 0, "stop": ["Observação:"]}` ao `como_chamar_modelo`.
 
 O que pode quebrar:
 

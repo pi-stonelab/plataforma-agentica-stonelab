@@ -375,6 +375,26 @@ def _aceita_tempo_limite(chamar_modelo):
         return False
 
 
+def _aceita_prompt_de_sistema(chamar_modelo):
+    """False se o `chamar_modelo` é do formato `(prompt)`, como o de `LLMClient.como_chamar_modelo`.
+
+    Esse formato já traz o prompt de sistema dentro dele. Sem como descobrir a assinatura, vale o
+    formato `(prompt_sistema, prompt)`.
+    """
+    try:
+        parametros = list(inspect.signature(chamar_modelo).parameters.values())
+    except (TypeError, ValueError):
+        return True
+    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parametros):
+        return True
+    posicionais = [
+        p for p in parametros
+        if p.name != "tempo_limite"
+        and p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    return len(posicionais) >= 2
+
+
 def _separar_acao(resposta, encontro):
     """Da resposta do modelo tira (ação, resto depois dela, primeira linha do resto)."""
     resto = resposta[encontro.end():]
@@ -386,7 +406,7 @@ def rodar_turno(
     pergunta: str,
     usuario,
     ferramentas_do_agente: Sequence[str],
-    chamar_modelo: Callable[[str, str], str],
+    chamar_modelo: Callable[..., str],
     historico: Sequence[tuple[str, str]] = (),
     estado: dict | None = None,
     contexto: dict | None = None,
@@ -397,6 +417,8 @@ def rodar_turno(
 
     `chamar_modelo(prompt_sistema, prompt)` devolve o texto do modelo. O prompt de sistema (o
     protocolo LER/USAR/PERGUNTAR/FINAL) vai a cada chamada; assim qualquer cliente de modelo serve.
+    Também vale `chamar_modelo(prompt)`, o formato de `LLMClient.como_chamar_modelo(sistema=SISTEMA)`:
+    o prompt de sistema já está dentro dele e o motor não o repete.
     `historico`: pares (mensagem do funcionário, resposta do agente) dos turnos anteriores.
     `estado`: o `Turno.estado` do turno anterior, quando ele terminou em "pergunta"; sem ele
     (conversa nova) o agente precisa ler o índice e as ferramentas de novo.
@@ -415,16 +437,16 @@ def rodar_turno(
     prompt = montar_prompt(pergunta, historico, atendimento)
     prazo = relogio() + _segundos_do_turno(contexto)
     informar_tempo = _aceita_tempo_limite(chamar_modelo)
+    com_sistema = _aceita_prompt_de_sistema(chamar_modelo)
 
     for passo in range(1, MAX_PASSOS + 1):
         restante = prazo - relogio()
         if restante <= 0:
             return rodada.parar_por_tempo(passo)
         try:
-            if informar_tempo:
-                resposta = chamar_modelo(prompt_sistema, prompt, tempo_limite=restante)
-            else:
-                resposta = chamar_modelo(prompt_sistema, prompt)
+            argumentos = (prompt_sistema, prompt) if com_sistema else (prompt,)
+            opcoes = {"tempo_limite": restante} if informar_tempo else {}
+            resposta = chamar_modelo(*argumentos, **opcoes)
         except Exception as erro:  # noqa: BLE001 - qualquer falha do modelo encerra o turno
             if relogio() >= prazo:  # o timeout que demos ao modelo foi o do prazo do turno
                 return rodada.parar_por_tempo(passo)
