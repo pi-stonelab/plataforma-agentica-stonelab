@@ -1,16 +1,11 @@
-import contextlib
-import io
 import json
 import logging
 import unittest
-from pathlib import Path
-from unittest import mock
 from uuid import uuid4
 
+import requests
 from agentes.agente_atendimento import agente
 from ferramentas import governanca
-from mock.banco import criar_engine
-from mock.falhas import desligar_todas, ligar
 
 from . import apoio_agente as apoio
 from .apoio_agente import modelo_roteirizado
@@ -196,23 +191,6 @@ class TestPromptDeSistema(unittest.TestCase):
         )
         self.assertEqual(set(recebidos), {"outro"})
 
-    def test_chamar_llm_envia_o_sistema_e_a_parada(self):
-        resposta = mock.Mock()
-        resposta.json.return_value = {"response": "<think>x</think>FINAL: ok"}
-        ambiente = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "segredo"}
-        with (
-            mock.patch.dict("os.environ", ambiente),
-            mock.patch.object(agente, "LLM_URL", "http://modelo.teste"),
-            mock.patch.object(agente.requests, "post", return_value=resposta) as post,
-        ):
-            texto = agente.chamar_llm("SISTEMA DE TESTE", "prompt de teste")
-        enviado = post.call_args.kwargs["json"]
-        self.assertEqual(texto, "FINAL: ok")
-        self.assertEqual(enviado["system"], "SISTEMA DE TESTE")
-        self.assertEqual(enviado["prompt"], "prompt de teste")
-        self.assertEqual(enviado["options"]["stop"], [agente.PARADA_DO_MODELO])
-
-
 class TestTurno(unittest.TestCase):
     def setUp(self):
         apoio.limpar()
@@ -368,19 +346,6 @@ class RegistroDeLogs(unittest.TestCase):
         self.addCleanup(agente.logger.setLevel, self.nivel_antigo)
 
 
-class RelogioFalso:
-    """Relógio que só anda quando o teste manda: nenhum teste espera tempo de verdade."""
-
-    def __init__(self):
-        self.agora = 1000.0
-
-    def __call__(self):
-        return self.agora
-
-    def passar(self, segundos):
-        self.agora += segundos
-
-
 def modelo_lento(linhas, relogio, segundos_por_chamada, tempos=None):
     """Modelo roteirizado que gasta `segundos_por_chamada` do relógio falso e anota o `tempo_limite`."""
     respostas = iter(linhas)
@@ -399,7 +364,7 @@ class TestLimiteDeTempo(RegistroDeLogs):
 
     def setUp(self):
         super().setUp()
-        self.relogio = RelogioFalso()
+        self.relogio = apoio.RelogioFalso()
 
     def rodar(self, linhas, segundos_por_chamada, contexto=None, pergunta="pergunta de teste", tempos=None):
         modelo = modelo_lento(linhas, self.relogio, segundos_por_chamada, tempos)
@@ -487,7 +452,7 @@ class TestModeloIndisponivel(RegistroDeLogs):
         for erro in (
             ConnectionError(f"falha ao conectar em {URL_DO_MODELO}/api/generate"),
             TimeoutError(URL_DO_MODELO),
-            agente.requests.exceptions.ReadTimeout(f"{URL_DO_MODELO} demorou"),
+            requests.exceptions.ReadTimeout(f"{URL_DO_MODELO} demorou"),
             RuntimeError("qualquer outra falha"),
         ):
             with self.subTest(erro=type(erro).__name__):
@@ -505,7 +470,7 @@ class TestModeloIndisponivel(RegistroDeLogs):
         self.assertTrue(any("tipo_erro=ConnectionError" in linha for linha in self.mensagens))
 
     def test_falha_depois_do_prazo_conta_como_tempo(self):
-        relogio = RelogioFalso()
+        relogio = apoio.RelogioFalso()
 
         def modelo(prompt_sistema, prompt):
             relogio.passar(130)
@@ -515,76 +480,6 @@ class TestModeloIndisponivel(RegistroDeLogs):
             "p", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, modelo, relogio=relogio
         )
         self.assertEqual(resultado.motivo, "tempo")
-
-    def resposta_http(self, **atributos):
-        resposta = mock.Mock()
-        resposta.raise_for_status.side_effect = atributos.get("erro_http")
-        resposta.json.side_effect = atributos.get("erro_json")
-        if "corpo" in atributos:
-            resposta.json.return_value = atributos["corpo"]
-        return resposta
-
-    def chamar_llm_com(self, **configuracao):
-        ambiente = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "segredo"}
-        with (
-            mock.patch.dict("os.environ", ambiente),
-            mock.patch.object(agente, "LLM_URL", URL_DO_MODELO),
-            mock.patch.object(agente.requests, "post", **configuracao),
-        ):
-            return agente.chamar_llm("sistema", "prompt")
-
-    def test_chamar_llm_troca_o_erro_de_rede_por_mensagem_generica(self):
-        rede = agente.requests.exceptions
-        falhas = (
-            {"side_effect": rede.ConnectionError(f"HTTPSConnectionPool(host='{URL_DO_MODELO}')")},
-            {"side_effect": rede.ReadTimeout(f"{URL_DO_MODELO} Read timed out")},
-            {"return_value": self.resposta_http(erro_http=rede.HTTPError(f"502 para url: {URL_DO_MODELO}"))},
-            {"return_value": self.resposta_http(erro_json=ValueError(URL_DO_MODELO))},
-            {"return_value": self.resposta_http(corpo={"sem_resposta": 1})},
-            {"return_value": self.resposta_http(corpo={"response": 123})},
-        )
-        for configuracao in falhas:
-            with self.subTest(configuracao=list(configuracao)):
-                with self.assertRaises(agente.ModeloIndisponivel) as contexto:
-                    self.chamar_llm_com(**configuracao)
-                self.assertNotIn("modelo-secreto", str(contexto.exception))
-                self.assertIsNone(contexto.exception.__cause__)
-                erro = contexto.exception
-                self.assertTrue(erro.__suppress_context__ or erro.__context__ is None)
-
-    def test_chamar_llm_usa_o_tempo_recebido_como_timeout(self):
-        resposta = self.resposta_http(corpo={"response": "FINAL: ok"})
-        ambiente = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "segredo"}
-        with (
-            mock.patch.dict("os.environ", ambiente),
-            mock.patch.object(agente, "LLM_URL", URL_DO_MODELO),
-            mock.patch.object(agente.requests, "post", return_value=resposta) as post,
-        ):
-            agente.chamar_llm("sistema", "prompt", tempo_limite=17.5)
-        self.assertEqual(post.call_args.kwargs["timeout"], 17.5)
-
-    def test_turno_com_chamar_llm_reaproveita_o_tempo_que_sobra(self):
-        relogio = RelogioFalso()
-        tempos = []
-
-        def post(*_, **kwargs):
-            tempos.append(kwargs["timeout"])
-            relogio.passar(40)
-            return self.resposta_http(corpo={"response": "LER:"})
-
-        ambiente = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "segredo"}
-        with (
-            mock.patch.dict("os.environ", ambiente),
-            mock.patch.object(agente, "LLM_URL", URL_DO_MODELO),
-            mock.patch.object(agente.requests, "post", side_effect=post),
-        ):
-            resultado = agente.rodar_turno(
-                "p", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, agente.chamar_llm,
-                relogio=relogio,
-            )
-        self.assertEqual(tempos, [120, 80, 40])
-        self.assertEqual(resultado.motivo, "tempo")
-
 
 class TestLimitacoesConhecidas(unittest.TestCase):
     def setUp(self):
@@ -749,144 +644,6 @@ class TestEntradasHostis(RegistroDeLogs):
             self.assertEqual(agente._identificador_seguro(valor, "padrao"), valor)
         for valor in (None, "", "a b", "a\nb", "x" * 65):
             self.assertEqual(agente._identificador_seguro(valor, "padrao"), "padrao")
-
-
-class TestModoTerminal(unittest.TestCase):
-    def test_pergunta_vira_input_e_o_turno_seguinte_continua(self):
-        apoio.limpar()
-        modelo = modelo_roteirizado(
-            INDICE + [LER_MULTA, "PERGUNTAR: Qual a fatura?", MULTA, "FINAL: R$ 1030,00."]
-        )
-        digitado = iter(["quanto fica a multa?", "1000 e 30 dias", "sair"])
-        saida = io.StringIO()
-        with (
-            mock.patch.object(agente, "chamar_llm", modelo),
-            mock.patch("builtins.input", lambda *_: next(digitado)),
-            contextlib.redirect_stdout(saida),
-        ):
-            agente.conversar_no_terminal(apoio.coordenador_financeiro())
-        self.assertIn("Agente: Qual a fatura?", saida.getvalue())
-        self.assertIn("Agente: R$ 1030,00.", saida.getvalue())
-        self.assertIn("PERGUNTAR -> aguardando o funcionário", saida.getvalue())
-
-
-class TestUsuarioDoAmbiente(unittest.TestCase):
-    """O12: o modo terminal lê só ID_USUARIO; o perfil vem do diretório."""
-
-    def setUp(self):
-        apoio.limpar()
-
-    def test_so_o_id_vai_para_a_busca_no_diretorio(self):
-        pedidos = []
-
-        def diretorio(id_usuario):
-            pedidos.append(id_usuario)
-            return apoio.coordenador_financeiro()
-
-        ambiente = {"ID_USUARIO": " USR-9 ", "NIVEL": "N2", "AREA": "tecnologia", "CARTEIRA": "CLI-1"}
-        usuario = agente.usuario_do_ambiente(ambiente, diretorio)
-        self.assertEqual(pedidos, ["USR-9"])
-        self.assertEqual((usuario.nivel, usuario.area, usuario.carteiras), ("N2", "financeiro", ()))
-
-    def test_nivel_area_e_carteira_do_ambiente_sao_ignorados(self):
-        apenas_id = agente.usuario_do_ambiente({"ID_USUARIO": "USR-9"}, lambda _: apoio.atendente_n1())
-        com_extras = agente.usuario_do_ambiente(
-            {"ID_USUARIO": "USR-9", "NIVEL": "N2", "AREA": "financeiro", "CARTEIRA": "CLI-9"},
-            lambda _: apoio.atendente_n1(),
-        )
-        self.assertEqual(
-            (apenas_id.nivel, apenas_id.area, apenas_id.carteiras),
-            (com_extras.nivel, com_extras.area, com_extras.carteiras),
-        )
-
-    def test_id_ausente_invalido_ou_desconhecido_nao_sobe(self):
-        for ambiente in ({}, {"ID_USUARIO": ""}, {"ID_USUARIO": "a b"}, {"ID_USUARIO": "x\ny"}):
-            with self.assertRaises(ValueError):
-                agente.usuario_do_ambiente(ambiente, lambda _: apoio.coordenador_financeiro())
-        with self.assertRaises(ValueError):
-            agente.usuario_do_ambiente({"ID_USUARIO": "USR-404"}, lambda _: None)
-
-
-class TestDiretorioDoMock(unittest.TestCase):
-    """O ponto único de ligação com o diretório (DOC-MOCK §8.4): ativo entra; o resto, não."""
-
-    def setUp(self):
-        apoio.limpar()
-        self.engine = apoio.mundo()
-
-    def buscar(self, id_usuario):
-        return agente.buscar_usuario_no_diretorio(id_usuario, self.engine)
-
-    def usuario(self, id_usuario, ambiente_extra=None):
-        ambiente = {"ID_USUARIO": id_usuario, **(ambiente_extra or {})}
-        return agente.usuario_do_ambiente(ambiente, self.buscar)
-
-    def test_ana_vira_atendente_n1_com_a_carteira_do_time(self):
-        ana = self.usuario("F0001")
-        self.assertEqual(
-            (ana.id_usuario, ana.cargo, ana.nivel, ana.area, ana.carteiras),
-            ("F0001", "atendente_n1", "N1", "atendimento", ("varejo",)),
-        )
-
-    def test_o_perfil_vem_do_cargo_e_nao_do_ambiente(self):
-        extras = {"NIVEL": "N1", "AREA": "atendimento", "CARTEIRA": "varejo"}
-        renata = self.usuario("F0011", extras)
-        self.assertEqual(
-            (renata.cargo, renata.nivel, renata.area, renata.carteiras),
-            ("coordenador_financeiro", "N2", "financeiro", ()),
-        )
-
-    def test_funcionario_desligado_ou_afastado_e_usuario_invalido(self):
-        for id_usuario in ("F0014", "F0015"):  # desligado, afastado
-            self.assertIsNone(self.buscar(id_usuario))
-            with self.assertRaises(ValueError):
-                self.usuario(id_usuario)
-
-    def test_id_bem_formado_que_nao_existe_e_usuario_invalido(self):
-        self.assertIsNone(self.buscar("F9999"))
-        with self.assertRaises(ValueError):
-            self.usuario("F9999")
-
-    def test_diretorio_fora_do_ar_nao_sobe_e_nao_vira_nao_encontrado(self):
-        ligar("diretorio")
-        self.addCleanup(desligar_todas)
-        with self.assertRaisesRegex(ValueError, "indisponível"):
-            self.usuario("F0001")
-
-    def test_banco_sem_as_tabelas_do_mock_nao_sobe(self):
-        vazio = criar_engine("sqlite://")
-        with self.assertRaisesRegex(ValueError, "indisponível"):
-            agente.buscar_usuario_no_diretorio("F0001", vazio)
-
-    def test_usuario_do_diretorio_so_usa_o_que_o_catalogo_libera_para_o_cargo(self):
-        ana = self.usuario("F0001")
-        linhas = INDICE + [
-            "LER: atendimento/consultar_cliente",
-            'USAR: consultar_cliente | {"id_cliente": "M00002"}',
-            "FINAL: sem acesso",
-        ]
-        resultado = turno(linhas, ana)
-        self.assertIn("permissao_negada", resultado.trajetoria[2])  # M00002 é da carteira pme
-
-
-class TestEnvExample(unittest.TestCase):
-    def test_env_example_sem_perfil_do_funcionario_e_com_url_do_modelo(self):
-        raiz = Path(__file__).resolve().parents[2]
-        chaves = {
-            linha.split("=")[0].strip()
-            for linha in (raiz / ".env.example").read_text(encoding="utf-8").splitlines()
-            if "=" in linha and not linha.lstrip().startswith("#")
-        }
-        self.assertTrue({"ID_USUARIO", "LLM_URL", "LLM_MODELO"} <= chaves)
-        self.assertFalse(chaves & {"NIVEL", "AREA", "CARTEIRA"})
-
-
-class TestConfiguracaoDoModelo(unittest.TestCase):
-    def test_url_do_modelo_nao_tem_valor_no_codigo(self):
-        with mock.patch.object(agente, "LLM_URL", ""), self.assertRaises(RuntimeError):
-            agente.chamar_llm("sistema", "prompt")
-        codigo = Path(agente.__file__).read_text(encoding="utf-8")
-        self.assertNotIn("https://", codigo)
 
 
 if __name__ == "__main__":

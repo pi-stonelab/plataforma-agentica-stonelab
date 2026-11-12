@@ -1,36 +1,26 @@
 """Agente de atendimento: um turno de conversa por chamada de `rodar_turno`.
 
 O back-end entrega o funcionário já validado, a lista de ferramentas do agente e o `chamar_modelo`.
-O agente não conhece banco, login nem a camada de acesso ao agente (`seguranca/`).
+O agente não conhece banco, login nem a camada de acesso ao agente (`seguranca/`). O modo terminal
+(modelo direto e diretório de funcionários do mock) fica em `agentes/terminal.py`, fora do motor.
 """
 
 import inspect
 import json
 import logging
 import math
-import os
 import re
 import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
-import requests
-from dotenv import load_dotenv
-from sqlalchemy.exc import SQLAlchemyError
-
-from ferramentas import catalogo, governanca
-from mock.banco import criar_engine, url_padrao
-from mock.consultas import buscar_funcionario
-
-load_dotenv()
+from ferramentas import catalogo
 
 logger = logging.getLogger("agente_atendimento")
 logger.addHandler(logging.NullHandler())  # quem usa o agente decide para onde vão os logs
 
 # ---------- CONFIGURAÇÃO ----------
-LLM_URL = os.environ.get("LLM_URL", "")  # só do .env; sem valor padrão no código
-LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3.8:27b")
 MAX_PASSOS = 10         # KAN-38: mais de 10 etapas sem terminar interrompe o turno
 MAX_REPETICOES = 3      # KAN-38: mesma ferramenta e mesmos argumentos 3 vezes seguidas = loop
 MAX_CHARS_MD = 6000     # limite de texto de cada leitura e de cada resultado enviado ao modelo
@@ -43,7 +33,6 @@ SEGUNDOS_POR_TURNO = 120
 
 NOME_EMPRESA = "Stone"
 AGENTE_ID = "agente_atendimento"
-SITUACAO_ATIVA = "ativo"  # DOC-MOCK §8.4: desligado e afastado não usam a plataforma
 
 # Ferramentas que este agente pode usar. O catálogo ainda confere o nível e a área do funcionário.
 # [aqui conectamos com agentes: lista vinda da configuração do agente, KAN-55]
@@ -80,7 +69,7 @@ Regras de trabalho (siga esta ordem):
 8. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
 SISTEMA = SISTEMA.replace("{EMPRESA}", NOME_EMPRESA)
 # O modelo deve parar aqui, senão inventa o resultado da ferramenta. Todo `chamar_modelo` (inclusive o
-# `LLMClient` do back-end) precisa passar isto como "stop" ao Ollama.
+# `LLMClient` do back-end e o `chamar_llm` do terminal) precisa passar isto como "stop" ao Ollama.
 PARADA_DO_MODELO = "Observação:"
 
 MENSAGEM_LIMITE_PASSOS = (
@@ -101,41 +90,6 @@ MENSAGEM_LIMITE_TEMPO = (
 
 # Encontra a primeira ação escrita pelo modelo (ignora qualquer coisa inventada depois dela).
 ACAO_RE = re.compile(r"^\s*(LER|USAR|PERGUNTAR|FINAL)\b[ \t]*:?[ \t]*", flags=re.MULTILINE)
-
-
-# ---------- QUEM ESTÁ USANDO O AGENTE ----------
-def buscar_usuario_no_diretorio(id_usuario, engine=None):
-    """PONTO ÚNICO de ligação do modo terminal com o diretório de funcionários do mock (O12).
-
-    Devolve o `governanca.Usuario` montado pelo cargo (nível, área e carteiras vêm do cargo e do
-    time do diretório) ou None se o id não existe ou o funcionário não está ativo (desligado,
-    afastado ou qualquer outra situação): negar por padrão. Sem `engine`, usa o SQLite local do mock.
-    Diretório fora do ar não vira "não encontrado": levanta ValueError.
-    """
-    try:
-        funcionario = buscar_funcionario(engine or criar_engine(url_padrao()), id_usuario)
-    except (ConnectionError, SQLAlchemyError):
-        raise ValueError("Diretório de funcionários indisponível.") from None
-    if funcionario is None or funcionario["situacao"] != SITUACAO_ATIVA:
-        return None
-    return governanca.usuario_do_cargo(
-        funcionario["id"], funcionario["cargo"], tuple(funcionario["carteiras"])
-    )
-
-
-def usuario_do_ambiente(ambiente=os.environ, buscar_no_diretorio=buscar_usuario_no_diretorio):
-    """Monta o funcionário do modo terminal só pelo ID_USUARIO do .env; o perfil vem do diretório.
-
-    Nível, área e carteira NÃO são lidos do ambiente (O12). No produto real, o back-end valida
-    o login e entrega o Usuario já pronto ao agente. ID ausente, inválido ou desconhecido: não sobe.
-    """
-    id_usuario = ambiente.get("ID_USUARIO", "").strip()
-    if not IDENTIFICADOR_SEGURO_RE.match(id_usuario):
-        raise ValueError("Defina ID_USUARIO no .env (letras, dígitos, '_' ou '-').")
-    usuario = buscar_no_diretorio(id_usuario)
-    if usuario is None:
-        raise ValueError("ID_USUARIO não encontrado no diretório de funcionários.")
-    return usuario
 
 
 class ModeloIndisponivel(Exception):
@@ -236,46 +190,6 @@ class Atendimento:
         texto = json.dumps(resultado, ensure_ascii=False, default=str)[:MAX_CHARS_MD]
         resumo = resultado["status"] if resultado["tipo_erro"] is None else resultado["tipo_erro"]
         return texto, f"'{nome}' executada: {resumo}"
-
-
-# ---------- CHAMADA AO LLM ----------
-def montar_headers():
-    return {
-        "CF-Access-Client-Id": os.environ["CF_ACCESS_CLIENT_ID"],
-        "CF-Access-Client-Secret": os.environ["CF_ACCESS_CLIENT_SECRET"],
-        "Content-Type": "application/json",
-    }
-
-
-def chamar_llm(prompt_sistema: str, prompt: str, tempo_limite: float = 120) -> str:
-    """Chamada direta ao Ollama, para o terminal. No produto quem chama é o `LLMClient` do back-end.
-
-    `tempo_limite` (segundos) é o timeout da chamada; o motor passa o que sobra do turno. Falha de
-    rede ou resposta ilegível vira `ModeloIndisponivel` com mensagem genérica: a do `requests`
-    traria a URL do modelo.
-    """
-    if not LLM_URL:
-        raise RuntimeError("Defina LLM_URL no .env para usar o modelo direto (modo terminal).")
-    payload = {
-        "model": LLM_MODELO,
-        "system": prompt_sistema,
-        "prompt": prompt,
-        "stream": False,
-        "think": False,
-        "options": {"temperature": 0, "stop": [PARADA_DO_MODELO]},
-    }
-    headers = montar_headers()  # fora do try: credencial ausente é erro de configuração
-    try:
-        r = requests.post(
-            f"{LLM_URL}/api/generate", headers=headers, json=payload, timeout=tempo_limite
-        )
-        r.raise_for_status()
-        texto = r.json()["response"]
-    except (requests.RequestException, ValueError, KeyError):
-        raise ModeloIndisponivel("Modelo indisponível.") from None
-    if not isinstance(texto, str):
-        raise ModeloIndisponivel("Modelo indisponível.")
-    return re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
 
 
 # ---------- O PROMPT DO TURNO ----------
@@ -539,52 +453,17 @@ def rodar_turno(
 
 
 def agente(
-    pergunta, usuario, chamar_modelo=chamar_llm, ferramentas_do_agente=FERRAMENTAS_DO_AGENTE,
+    pergunta, usuario, chamar_modelo, ferramentas_do_agente=FERRAMENTAS_DO_AGENTE,
     prompt_sistema=SISTEMA,
 ):
-    """Um turno sem histórico, para o terminal e os testes. Devolve (resposta, trajetoria)."""
+    """Um turno sem histórico, para os testes e o terminal. Devolve (resposta, trajetoria)."""
     turno = rodar_turno(
         pergunta, usuario, ferramentas_do_agente, chamar_modelo, prompt_sistema=prompt_sistema
     )
     return turno.resposta, turno.trajetoria
 
 
-# ---------- MODO TERMINAL ----------
-def conversar_no_terminal(funcionario):
-    """Conversa de teste: aqui sim se usa input(); a resposta do funcionário vira o próximo turno."""
-    historico = []
-    while True:
-        mensagem = input("\nVocê: ").strip()
-        if mensagem.lower() in ("sair", "exit"):
-            break
-        if not mensagem:
-            continue
-        estado, contexto = None, {"execucao_id": uuid.uuid4().hex}
-        while True:
-            turno = rodar_turno(
-                mensagem, funcionario, FERRAMENTAS_DO_AGENTE, chamar_llm, historico, estado, contexto
-            )
-            print("\n=== TRAJETÓRIA ===")
-            for linha in turno.trajetoria:
-                print(" •", linha)
-            print("\nAgente:", turno.resposta)
-            historico.append((mensagem, turno.resposta))
-            if turno.tipo != "pergunta":
-                break
-            mensagem, estado = input("\nVocê: ").strip(), turno.estado
-            contexto = {"execucao_id": uuid.uuid4().hex}
+if __name__ == "__main__":  # mantém `python -m agentes.agente_atendimento.agente` funcionando
+    from agentes.terminal import principal
 
-
-if __name__ == "__main__":
-    if os.environ.get("MODO_TERMINAL") != "1":  # O12
-        raise SystemExit("Modo terminal desligado. Defina MODO_TERMINAL=1 para usar.")
-    logging.basicConfig(level=logging.INFO, format="  [%(levelname)s] %(message)s")
-    try:
-        funcionario = usuario_do_ambiente()
-    except ValueError as erro:
-        raise SystemExit(str(erro)) from erro
-    print(
-        f"Assistente {NOME_EMPRESA} (funcionário {funcionario.id_usuario}, "
-        f"{funcionario.nivel}, {funcionario.area}). Digite 'sair' para encerrar."
-    )
-    conversar_no_terminal(funcionario)
+    principal(["atendimento"])
