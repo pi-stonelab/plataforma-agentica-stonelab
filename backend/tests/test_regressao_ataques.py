@@ -19,6 +19,7 @@ import unicodedata
 from pathlib import Path
 
 import pytest
+from agentes import terminal
 from agentes.agente_atendimento import agente as motor
 from agentes.agente_geral import agente as geral
 from ferramentas import catalogo, governanca, mascara
@@ -117,9 +118,9 @@ def test_a02_id_de_outro_funcionario_no_corpo_e_ignorado():
 
 def test_a03_diretorio_nao_entrega_funcionario_desligado_ou_afastado():
     engine = apoio.mundo()
-    assert motor.buscar_usuario_no_diretorio(gab.ANA, engine) is not None
+    assert terminal.buscar_usuario_no_diretorio(gab.ANA, engine) is not None
     for id_funcionario in (gab.DESLIGADO, gab.AFASTADO, "F9999", "", "F0001' OR '1'='1"):
-        assert motor.buscar_usuario_no_diretorio(id_funcionario, engine) is None, id_funcionario
+        assert terminal.buscar_usuario_no_diretorio(id_funcionario, engine) is None, id_funcionario
 
 
 @pytest.mark.skip(reason=PRECISA_DO_BACKEND)
@@ -1084,10 +1085,10 @@ def test_a24_sem_modo_terminal_ligado_o_agente_nao_sobe_no_terminal():
 
 def test_a24_nivel_area_e_carteira_do_ambiente_sao_ignorados():
     def diretorio(id_usuario):
-        return motor.buscar_usuario_no_diretorio(id_usuario, apoio.mundo())
+        return terminal.buscar_usuario_no_diretorio(id_usuario, apoio.mundo())
 
     ambiente = {"ID_USUARIO": gab.ANA, "NIVEL": "N2", "AREA": "financeiro", "CARTEIRA": "todas"}
-    usuario = motor.usuario_do_ambiente(ambiente, diretorio)
+    usuario = terminal.usuario_do_ambiente(ambiente, diretorio)
     assert (usuario.cargo, usuario.nivel, usuario.area, usuario.carteiras) == (
         "atendente_n1", "N1", "atendimento", ("varejo",),
     )
@@ -1096,10 +1097,10 @@ def test_a24_nivel_area_e_carteira_do_ambiente_sao_ignorados():
 @pytest.mark.parametrize("id_usuario", [gab.DESLIGADO, gab.AFASTADO, "F9999", "F0001; ls", "", "../x"])
 def test_a24_id_desligado_afastado_desconhecido_ou_malformado_nao_sobe(id_usuario):
     def diretorio(identificador):
-        return motor.buscar_usuario_no_diretorio(identificador, apoio.mundo())
+        return terminal.buscar_usuario_no_diretorio(identificador, apoio.mundo())
 
     with pytest.raises(ValueError):
-        motor.usuario_do_ambiente({"ID_USUARIO": id_usuario}, diretorio)
+        terminal.usuario_do_ambiente({"ID_USUARIO": id_usuario}, diretorio)
 
 
 def test_a24_diretorio_do_terminal_e_sempre_sqlite_local_mesmo_com_database_url_de_postgres(monkeypatch):
