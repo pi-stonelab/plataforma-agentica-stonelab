@@ -8,8 +8,8 @@ import pytest
 from ferramentas import dados_sinteticos, governanca, lojista
 from ferramentas.base import ErroFerramenta
 from mock.consultas import LIMITE_MAXIMO as LIMITE_DAS_CONSULTAS
-from mock.regras import LIMITE_MAXIMO
 from mock.modelos import Chamado
+from mock.regras import LIMITE_MAXIMO
 from sqlalchemy.orm import Session
 
 from .apoio_ferramentas import (
