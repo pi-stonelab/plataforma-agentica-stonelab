@@ -896,7 +896,9 @@ def recriar(engine: Engine, caminho_pessoas_teste: Path | None = None) -> dict[s
 def _montar_analisador() -> argparse.ArgumentParser:
     analisador = argparse.ArgumentParser(description="Recria o mundo do mock do zero.")
     analisador.add_argument(
-        "--url", help="URL do banco (padrão: SQLite em dados_locais/mock.sqlite; DATABASE_URL é ignorada)",
+        "--url",
+        help="URL do banco (padrão: MOCK_DATABASE_URL, ou o SQLite em dados_locais/mock.sqlite; "
+        "DATABASE_URL é ignorada)",
     )
     analisador.add_argument(
         "--permitir-banco-externo", action="store_true",
@@ -933,8 +935,8 @@ def principal(
 ) -> int:
     """Linha de comando. Devolve 0 (ok), 1 (você não confirmou) ou 2 (argumento ou CSV recusado)."""
     parametros = _montar_analisador().parse_args(argumentos)
-    url = parametros.url or url_padrao()
     try:
+        url = parametros.url or url_padrao()
         sqlite = eh_sqlite(url)
     except ValueError as erro:
         print(erro, file=sys.stderr)

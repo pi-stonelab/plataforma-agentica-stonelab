@@ -9,7 +9,7 @@ converter centavos.
 from mock import consultas
 from mock.banco import criar_engine, url_padrao
 from mock.falhas import SistemaIndisponivel
-from sqlalchemy.exc import InterfaceError, OperationalError
+from sqlalchemy.exc import ArgumentError, InterfaceError, OperationalError
 from sqlalchemy.exc import TimeoutError as TempoEsgotadoNoPool
 
 ENDERECOS = {
@@ -32,16 +32,28 @@ _CONEXAO = {"engine": None}
 
 
 def configurar(origem):
-    """Define o banco do mock: URL ou engine. Sem chamar, usa DATABASE_URL ou o SQLite local."""
+    """Define o banco do mock: URL ou engine.
+
+    Sem chamar, vale `mock.banco.url_padrao()`: a variável MOCK_DATABASE_URL, se declarada, ou o
+    SQLite local em dados_locais/. `DATABASE_URL` (banco da plataforma) nunca é usada.
+    """
     _CONEXAO["engine"] = criar_engine(origem) if isinstance(origem, str) else origem
+
+
+def _engine():
+    """Engine do mock, criado na primeira consulta. URL inválida não repete o texto dela."""
+    if _CONEXAO["engine"] is None:
+        try:
+            _CONEXAO["engine"] = criar_engine(url_padrao())
+        except (ValueError, ArgumentError):  # a mensagem do SQLAlchemy pode trazer a senha
+            raise ConnectionError("integração indisponível") from None
+    return _CONEXAO["engine"]
 
 
 def _ler(consulta, *argumentos):
     """Roda uma consulta do mock; banco ou sistema fora do ar vira ConnectionError."""
     try:
-        if _CONEXAO["engine"] is None:
-            _CONEXAO["engine"] = criar_engine(url_padrao())
-        return consulta(_CONEXAO["engine"], *argumentos)
+        return consulta(_engine(), *argumentos)
     except FALHAS_DE_INTEGRACAO:
         raise ConnectionError("integração indisponível") from None
 
@@ -50,6 +62,11 @@ def reais(centavos):
     """Centavos inteiros em texto no padrão brasileiro: 184230 vira "R$ 1.842,30"."""
     inteiro, resto = divmod(centavos, 100)
     return f"R$ {inteiro:,}".replace(",", ".") + f",{resto:02d}"
+
+
+def buscar_funcionario(id_funcionario):
+    """Cargo, área, carteiras e situação de um funcionário do diretório do mock, ou None."""
+    return _ler(consultas.buscar_funcionario, id_funcionario)
 
 
 def carteira_do_lojista(codigo):
@@ -138,8 +155,7 @@ def buscar_chamados(codigo, limite):
 
 def chamado_e_do_lojista(codigo, id_chamado):
     """Diz se o chamado pertence ao lojista. Chamado de outro lojista e inexistente dão False."""
-    chamados = _ler(consultas.buscar_chamados, codigo, None)["itens"]
-    return any(chamado["codigo"] == id_chamado for chamado in chamados)
+    return _ler(consultas.chamado_e_do_lojista, codigo, id_chamado)
 
 
 def buscar_interacoes(codigo, id_chamado, limite):

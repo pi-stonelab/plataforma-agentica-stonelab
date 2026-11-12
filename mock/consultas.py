@@ -28,7 +28,7 @@ from .modelos import (
 )
 from .regras import area_do_cargo
 
-LIMITE_MAXIMO = 50
+LIMITE_MAXIMO = regras.LIMITE_MAXIMO
 
 
 @contextmanager
@@ -202,6 +202,16 @@ def buscar_chamados(origem: Session | Engine, codigo: str, limite: int | None = 
 
     with _sessao_de(origem) as sessao:
         return _lista(sessao, consulta, limite, formatar)
+
+
+def chamado_e_do_lojista(origem: Session | Engine, codigo_lojista: str, codigo_chamado: str) -> bool:
+    """True se o chamado existe e pertence ao lojista (uma consulta por código, sem teto de 50)."""
+    falhas.verificar("crm")
+    consulta = select(Chamado.codigo).where(
+        Chamado.codigo == codigo_chamado, Chamado.id_lojista == codigo_lojista
+    )
+    with _sessao_de(origem) as sessao:
+        return sessao.scalar(consulta) is not None
 
 
 def buscar_interacoes(

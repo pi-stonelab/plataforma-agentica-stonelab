@@ -9,7 +9,7 @@ atendimento/financeiro, `carteiras` = nomes de carteira (varejo, pme, contas_cha
 import logging
 from datetime import timedelta
 
-from mock import consultas, regras
+from mock import regras
 
 NIVEIS = regras.NIVEIS_FERRAMENTA
 AREAS_USUARIO = regras.AREAS
@@ -31,7 +31,7 @@ PARAMETROS_RESERVADOS = (
     "contexto",
 )
 ESCRITA_SEM_CONFIRMACAO = ("solicitar_ferramenta_ausente",)
-LIMITE_LINHAS = consultas.LIMITE_MAXIMO
+LIMITE_LINHAS = regras.LIMITE_MAXIMO
 CAMPOS_REGISTRO = (
     "momento",
     "execucao_id",
@@ -149,8 +149,14 @@ def lojista_no_escopo(usuario, lojista):
 
 
 def janela_dias(usuario):
-    """Quantos dias para trás o cargo consulta vendas e agenda (KAN-69); None = sem janela."""
-    return _regra(usuario).janela_dias if _usuario_valido(usuario) else 0
+    """Quantos dias para trás o cargo consulta vendas e agenda (KAN-69); None = sem janela.
+
+    Usuário inválido levanta ValueError (nunca vira "sem janela" nem "janela de zero dias"): quem
+    chama já passou por `motivo_bloqueio`, então isso só acontece por erro de programação.
+    """
+    if not _usuario_valido(usuario):
+        raise ValueError("Usuário inválido.")
+    return _regra(usuario).janela_dias
 
 
 def inicio_da_janela(usuario):

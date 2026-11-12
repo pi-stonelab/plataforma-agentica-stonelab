@@ -98,6 +98,14 @@ class Ferramenta:
     def rodar(self, argumentos, usuario):
         raise ErroFerramenta("ferramenta_inativa", "Ferramenta ainda sem lógica.")
 
+    def _registrar_inicio(self, usuario, contexto, inicio):
+        """Ferramenta de escrita registra ANTES de agir (MED-1): se não gravar, levanta e não age.
+
+        É o primeiro de dois registros da chamada (status "iniciada"); o segundo traz o resultado.
+        """
+        registro = montar_registro(self, usuario, contexto, resposta("iniciada"), None, inicio)
+        governanca.registrar(registro)
+
     def executar(self, argumentos, usuario, contexto=None):
         inicio = time.monotonic()
         camada = None
@@ -108,13 +116,18 @@ class Ferramenta:
             if not self.esta_ativa():
                 camada = "inativa"
                 raise ErroFerramenta("ferramenta_inativa", "Ferramenta inativa.")
-            dados = self.rodar(self.validar(argumentos), usuario)
+            argumentos_validos = self.validar(argumentos)
+            if self.acesso == "escrita":
+                self._registrar_inicio(usuario, contexto, inicio)
+            dados = self.rodar(argumentos_validos, usuario)
             dados = mascara.mascarar(dados, self.categorias_dados)  # uma vez, antes do embrulho
             resultado = resposta("ok", dados, "Concluído.")
             if self.conteudo_terceiros:
                 resultado = resposta("ok", {"conteudo_de_terceiros": dados}, MENSAGEM_TERCEIROS)
         except ErroFerramenta as erro:
             resultado = resposta("erro", None, erro.mensagem, erro.tipo_erro)
+        except governanca.RegistroIndisponivel:  # O9, MED-1: sem rastro da intenção, nada é gravado
+            return resposta("erro", None, "Registro indisponível.", "integracao_indisponivel")
         except (ConnectionError, TimeoutError):
             resultado = resposta("erro", None, "Integração fora do ar.", "integracao_indisponivel")
         except Exception:  # noqa: BLE001
