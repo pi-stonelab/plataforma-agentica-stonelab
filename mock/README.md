@@ -7,11 +7,12 @@ Stone. Fonte das regras: DOC-MOCK (`§` nos comentários do código). Esta é a 
 ## Para que serve cada arquivo
 - `regras.py`: configuração sem banco. `HOJE_DO_MOCK` (15/10/2026), carteiras, os 10 cargos (área, perfil de
   acesso, nível de ferramenta, escopo de lojistas, janela de dias, categorias de dado), máscaras por campo
-  (`CLASSIFICACAO_CAMPOS`) e taxas. Cargo desconhecido: `regra_do_cargo` devolve `None` (quem chama nega).
+  (`CLASSIFICACAO_CAMPOS`, chaveada pelo NOME DO CAMPO que as consultas devolvem; os campos livres ficam em
+  `CAMPOS_NAO_RESTRITOS`; campo fora das duas listas sai mascarado) e taxas. Cargo desconhecido: `regra_do_cargo` devolve `None` (quem chama nega).
 - `modelos.py`: tabelas SQLAlchemy (`BaseMock`, separada da `Base` do back-end). Dinheiro em centavos.
 - `banco.py`: `criar_engine`, `url_padrao`, `criar_tabelas`, `apagar_tabelas` (só mexem nas tabelas do mock).
 - `gerar.py`: recria o mundo do zero, sempre igual (semente fixa, sem Faker).
-- `consultas.py`: o "conector": leituras com teto de 50 linhas e só as colunas necessárias. Não decide permissão.
+- `consultas.py`: o "conector": leituras com teto de 50 linhas e só as colunas necessárias. Não decide permissão. Já calcula `dias_em_atraso` (faturas) e `dias_em_aberto` (chamados) a partir de `HOJE_DO_MOCK`, e `buscar_interacoes` exige o lojista dono do chamado.
 - `falhas.py`: sistema "fora do ar" (`cadastro`, `core`, `cobranca`, `crm`, `diretorio`).
 
 ## Como recriar

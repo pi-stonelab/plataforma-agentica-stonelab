@@ -42,7 +42,21 @@ CATEGORIAS_DADO = (
 )
 
 # Categorias que não são dado de lojista: CEP público e pedido de ferramenta ausente.
-_COMUNS = frozenset({"endereco_publico", "pedido_plataforma"})
+CATEGORIAS_COMUNS = frozenset({"endereco_publico", "pedido_plataforma"})
+
+# Nomes grossos que as fichas das ferramentas ainda planejadas usam. Nenhum cargo os permite, então
+# essas ferramentas ficam bloqueadas para todos até serem migradas para os nomes finos acima.
+CATEGORIAS_DE_FERRAMENTAS_PLANEJADAS = (
+    "atendimento",
+    "financeiro",
+    "agenda",
+    "comunicacao",
+    "documento",
+    "cambio",
+    "metadado",
+    "indicador_agregado",
+    "chamado_interno",
+)
 
 # DOC-MOCK §8.2: o atendimento vê o lojista inteiro (cadastro, contato, conta, vendas, agenda,
 # liquidação, faturas, chamados). Liquidação entra por decisão O4 (cenário 1 exige).
@@ -87,45 +101,45 @@ CARGOS: dict[str, RegraCargo] = {
     for r in (
         _regra(
             "atendente_n1", "atendimento", "Colaborador", "N1", ESCOPO_CARTEIRAS_DO_TIME,
-            JANELA_DIAS_ATENDENTE_N1, _DADOS_DO_ATENDIMENTO | _COMUNS,
+            JANELA_DIAS_ATENDENTE_N1, _DADOS_DO_ATENDIMENTO | CATEGORIAS_COMUNS,
         ),
         # "Tudo do N1" (§8.2). Sem janela: a janela de 90 dias é só do N1 (O1).
         _regra(
             "especialista_n2", "atendimento", "Colaborador", "N2", ESCOPO_CARTEIRAS_DO_TIME,
-            None, _DADOS_DO_ATENDIMENTO | _COMUNS,
+            None, _DADOS_DO_ATENDIMENTO | CATEGORIAS_COMUNS,
         ),
         # "Todas as filas da área" (§8.2).
         _regra(
             "supervisor_atendimento", "atendimento", "Supervisor", "N2", ESCOPO_TODAS,
-            None, _DADOS_DO_ATENDIMENTO | _COMUNS,
+            None, _DADOS_DO_ATENDIMENTO | CATEGORIAS_COMUNS,
         ),
         # "Todos os lojistas com caso na ouvidoria e todo o histórico": cadastro, contato e
         # histórico de chamados. Sem ação financeira, então sem venda, agenda e liquidação.
         _regra(
             "analista_ouvidoria", "atendimento", "Colaborador", "N1", ESCOPO_TODAS,
-            None, {"cadastral", "contato", "chamado", "interacao"} | _COMUNS,
+            None, {"cadastral", "contato", "chamado", "interacao"} | CATEGORIAS_COMUNS,
         ),
         # "Só faturas, pagamentos, acordos e o saldo da agenda" (§8.2). Cadastro e contato só
         # para identificar o lojista e ligar (telefone chega mascarado na Sprint 2).
         _regra(
             "analista_cobranca", "financeiro", "Colaborador", "N1", ESCOPO_TODAS,
-            None, {"cadastral", "contato", "cobranca", "agenda_recebiveis"} | _COMUNS,
+            None, {"cadastral", "contato", "cobranca", "agenda_recebiveis"} | CATEGORIAS_COMUNS,
         ),
         # "Vendas, chargebacks e casos de Pix". Chargeback e Pix não existem na fase 1.
         _regra(
             "analista_disputas", "financeiro", "Colaborador", "N1", ESCOPO_TODAS,
-            None, {"cadastral", "venda"} | _COMUNS,
+            None, {"cadastral", "venda"} | CATEGORIAS_COMUNS,
         ),
         # "Agenda, liquidações e antecipações". Sem conta de recebimento (segregação §8.1).
         _regra(
             "analista_recebiveis", "financeiro", "Colaborador", "N1", ESCOPO_TODAS,
-            None, {"cadastral", "agenda_recebiveis", "liquidacao"} | _COMUNS,
+            None, {"cadastral", "agenda_recebiveis", "liquidacao"} | CATEGORIAS_COMUNS,
         ),
         # "Tudo do Financeiro": a união dos quatro analistas, menos o que é do atendimento.
         _regra(
             "coordenador_financeiro", "financeiro", "Supervisor", "N2", ESCOPO_TODAS, None,
             {"cadastral", "contato", "venda", "agenda_recebiveis", "liquidacao", "cobranca"}
-            | _COMUNS,
+            | CATEGORIAS_COMUNS,
         ),
         # Na Sprint 2 não há ferramenta de dado para os dois cargos transversais.
         _regra("auditor_compliance", None, "Auditor", None, ESCOPO_NENHUM, None, ()),
@@ -148,17 +162,36 @@ def area_do_cargo(cargo: str | None) -> str | None:
 
 
 # Máscara de cada campo restrito (DOC-MOCK §8.3). Uma fonte só: o mascaramento lê daqui
-# (DOC-MOCK §11.6). A chave é "tabela.coluna". Campo ausente = sem máscara própria.
+# (DOC-MOCK §11.6). CONTRATO: a chave é o nome do campo no dict PLANO que as consultas
+# (`consultas.py`) devolvem, não "tabela.coluna". O nome do campo é único entre as tabelas, e um
+# teste confere isso. Campo restrito novo = uma linha aqui; campo que não está aqui nem em
+# CAMPOS_NAO_RESTRITOS sai mascarado (negar por padrão).
 CLASSIFICACAO_CAMPOS = {
-    "contatos_lojista.cpf": "cpf",
-    "contatos_lojista.telefone": "telefone",
-    "contatos_lojista.email": "email",
-    "contas_recebimento.agencia": "conta",
-    "contas_recebimento.conta": "conta",
-    "vendas.ultimos4": "cartao",
-    "interacoes.texto": "texto_livre",
-    "chamados.resumo": "texto_livre",
+    "nome": "nome",  # contatos_lojista.nome (restrito, DOC-MOCK §5)
+    "cpf": "cpf",
+    "telefone": "telefone",
+    "email": "email",
+    "agencia": "conta",
+    "conta": "conta",
+    "ultimos4": "cartao",
+    "texto": "texto_livre",  # interacoes.texto
+    "resumo": "texto_livre",  # chamados.resumo
 }
+
+# Campos que as consultas devolvem e que não são restritos (público, interno ou confidencial).
+# Inclui os montados pela fachada das ferramentas (valores em reais).
+CAMPOS_NAO_RESTRITOS = frozenset(
+    {
+        "codigo", "nome_fantasia", "segmento", "porte", "cidade", "uf", "carteira", "situacao",
+        "data_entrada", "id_responsavel", "id", "papel", "banco", "data_hora", "modalidade",
+        "parcelas", "bandeira", "valor_bruto_centavos", "valor_liquido_centavos", "data",
+        "valor_total_centavos", "motivo_falha", "tipo", "mes_referencia", "vencimento",
+        "valor_centavos", "dias_em_atraso", "protocolo", "categoria", "prioridade", "fila",
+        "aberto_por", "aberto_em", "dias_em_aberto", "id_liquidacao", "id_fatura", "autor",
+        "canal", "id_chamado", "total", "limite", "itens", "cargo", "area", "carteiras",
+        "valor_bruto", "valor_liquido", "valor_total", "valor",
+    }
+)
 
 # MDR em pontos-base (199 = 1,99%) por plano (DOC-MOCK §2.2). Inteiros evitam erro de arredondamento.
 # MEI, ME e EPP usam o Essencial. A média empresa usa o Negociado: "sempre abaixo do Volume",

@@ -6,6 +6,7 @@ import pytest
 from mock.banco import apagar_tabelas, criar_engine, criar_tabelas, url_padrao
 from mock.modelos import BaseMock, Lojista
 from mock.regras import (
+    CAMPOS_NAO_RESTRITOS,
     CARGOS,
     CATEGORIAS_DADO,
     CLASSIFICACAO_CAMPOS,
@@ -89,22 +90,21 @@ def test_mdr_do_plano_essencial():
 
 
 def test_classificacao_de_campos_aponta_para_colunas_reais():
-    colunas = {
-        f"{tabela.name}.{coluna.name}"
-        for tabela in BaseMock.metadata.sorted_tables
-        for coluna in tabela.columns
-    }
+    colunas = {coluna.name for tabela in BaseMock.metadata.sorted_tables for coluna in tabela.columns}
     assert set(CLASSIFICACAO_CAMPOS) <= colunas
     assert set(CLASSIFICACAO_CAMPOS.values()) <= {
-        "cpf", "telefone", "email", "conta", "cartao", "texto_livre"}
+        "nome", "cpf", "telefone", "email", "conta", "cartao", "texto_livre"}
     exigidos = {
-        "contatos_lojista.cpf": "cpf", "contatos_lojista.telefone": "telefone",
-        "contatos_lojista.email": "email", "contas_recebimento.conta": "conta",
-        "vendas.ultimos4": "cartao", "interacoes.texto": "texto_livre",
-        "chamados.resumo": "texto_livre",
+        "nome": "nome", "cpf": "cpf", "telefone": "telefone", "email": "email",
+        "conta": "conta", "agencia": "conta", "ultimos4": "cartao", "texto": "texto_livre",
+        "resumo": "texto_livre",
     }
-    for campo, mascara in exigidos.items():
-        assert CLASSIFICACAO_CAMPOS[campo] == mascara
+    assert CLASSIFICACAO_CAMPOS == exigidos
+
+
+def test_nome_de_campo_restrito_nao_se_repete_com_campo_livre():
+    # A chave é só o nome do campo: não pode haver coluna livre com o mesmo nome.
+    assert not set(CLASSIFICACAO_CAMPOS) & CAMPOS_NAO_RESTRITOS
 
 
 # --- banco -------------------------------------------------------------------------------
