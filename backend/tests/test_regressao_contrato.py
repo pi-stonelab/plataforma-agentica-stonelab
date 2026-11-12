@@ -261,8 +261,6 @@ def luhn_valido(texto: str) -> bool:
 def achados_de_lgpd(texto: str) -> set[tuple[int, str]]:
     achados = set()
     for numero, linha in enumerate(texto.splitlines(), start=1):
-        if gab.MARCADOR_DADO_ARMADILHA in linha:
-            continue
         for casou in CANDIDATO_A_CPF.finditer(linha):
             digitos = re.sub(r"\D", "", casou.group())
             if cpf_valido(digitos) and digitos != gab.CPF_VALIDO_PERMITIDO:
@@ -289,11 +287,22 @@ def varrer_repositorio():
     return achados
 
 
+def cpf_valido_de(nove_digitos: str) -> str:
+    """CPF com dígitos verificadores certos, montado na hora: o repositório não guarda nenhum."""
+    d = [int(c) for c in nove_digitos]
+    for n in (9, 10):
+        d.append((sum(d[i] * (n + 1 - i) for i in range(n)) * 10) % 11 % 10)
+    return "".join(map(str, d))
+
+
 def test_o_detector_de_lgpd_acha_cada_tipo_e_respeita_o_que_e_permitido():
-    assert achados_de_lgpd("cpf 111.444.777-35") == {(1, "cpf válido")}  # armadilha-permitida
-    assert achados_de_lgpd("cpf 11144477735") == {(1, "cpf válido")}  # armadilha-permitida
-    assert achados_de_lgpd("cartão 4242 4242 4242 4242") == {(1, "cartão válido")}  # armadilha-permitida
-    assert achados_de_lgpd("fulano@gmail.com") == {(1, "e-mail fora de .example/.test")}  # armadilha-permitida
+    cpf = cpf_valido_de("111444777")  # valor montado em tempo de teste, nunca escrito no arquivo
+    assert cpf_valido(cpf) and cpf != gab.CPF_VALIDO_PERMITIDO
+    formatado = f"{cpf[:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:]}"
+    assert achados_de_lgpd(f"cpf {formatado}") == {(1, "cpf válido")}
+    assert achados_de_lgpd(f"cpf {cpf}") == {(1, "cpf válido")}
+    assert achados_de_lgpd("cartão " + " ".join(["4242"] * 4)) == {(1, "cartão válido")}
+    assert achados_de_lgpd("fulano@" + "gmail.com") == {(1, "e-mail fora de .example/.test")}
     permitidos = (
         "123.456.789-09",
         "4111 1111 1111 1111",
@@ -301,10 +310,17 @@ def test_o_detector_de_lgpd_acha_cada_tipo_e_respeita_o_que_e_permitido():
         "a@b.example",
         "a@b.test",
         "111.444.777-00",  # dígito verificador errado de propósito
-        "cpf 111.444.777-35  # armadilha-permitida",
     )
     for texto in permitidos:
         assert achados_de_lgpd(texto) == set(), texto
+
+
+def test_a_marca_armadilha_permitida_nao_desliga_a_varredura_da_linha():
+    """BAIXO-9 da auditoria C: a marca antiga pulava a linha inteira; agora não pula nada."""
+    cpf = cpf_valido_de("111444777")
+    linha = f"4111 1111 1111 1111 e {cpf} e fulano@" + "gmail.com  # armadilha-permitida"
+    assert achados_de_lgpd(linha) == {(1, "cpf válido"), (1, "e-mail fora de .example/.test")}
+    assert achados_de_lgpd("4111 1111 1111 1111 e 111.444.777-00  # armadilha-permitida") == set()
 
 
 def test_nenhum_arquivo_rastreado_tem_cpf_cartao_ou_email_real():
