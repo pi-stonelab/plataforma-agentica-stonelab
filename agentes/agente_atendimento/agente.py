@@ -14,8 +14,11 @@ from dataclasses import dataclass, field
 
 import requests
 from dotenv import load_dotenv
+from sqlalchemy.exc import SQLAlchemyError
 
-from ferramentas import catalogo
+from ferramentas import catalogo, governanca
+from mock.banco import criar_engine, url_padrao
+from mock.consultas import buscar_funcionario
 
 load_dotenv()
 
@@ -33,6 +36,7 @@ MAX_CHARS_PERGUNTA = 4000  # a pergunta do funcionário é cortada aqui (BAIXO-4
 
 NOME_EMPRESA = "Stone"
 AGENTE_ID = "agente_atendimento"
+SITUACAO_ATIVA = "ativo"  # DOC-MOCK §8.4: desligado e afastado não usam a plataforma
 
 # Ferramentas que este agente pode usar. O catálogo ainda confere o nível e a área do funcionário.
 # [aqui conectamos com agentes: lista vinda da configuração do agente, KAN-55]
@@ -86,16 +90,22 @@ ACAO_RE = re.compile(r"^\s*(LER|USAR|PERGUNTAR|FINAL)\b[ \t]*:?[ \t]*", flags=re
 
 
 # ---------- QUEM ESTÁ USANDO O AGENTE ----------
-def buscar_usuario_no_diretorio(id_usuario):
+def buscar_usuario_no_diretorio(id_usuario, engine=None):
     """PONTO ÚNICO de ligação do modo terminal com o diretório de funcionários do mock (O12).
 
-    Deve devolver o `governanca.Usuario` (nível, área e carteira vindos do cargo) ou None se o
-    id não existir. Ainda não há função que faça essa conversão: `mock.consultas.buscar_funcionario`
-    devolve só cargo, área e carteiras, e a governança ainda não traduz cargo em nível.
-    [etapa B: ligar aqui quando existir, sem ler NIVEL, AREA nem CARTEIRA do .env]
+    Devolve o `governanca.Usuario` montado pelo cargo (nível, área e carteiras vêm do cargo e do
+    time do diretório) ou None se o id não existe ou o funcionário não está ativo (desligado,
+    afastado ou qualquer outra situação): negar por padrão. Sem `engine`, usa o SQLite local do mock.
+    Diretório fora do ar não vira "não encontrado": levanta ValueError.
     """
-    raise NotImplementedError(
-        "O modo terminal ainda não encontra o perfil no diretório do mock (pendente da etapa B)."
+    try:
+        funcionario = buscar_funcionario(engine or criar_engine(url_padrao()), id_usuario)
+    except (ConnectionError, SQLAlchemyError):
+        raise ValueError("Diretório de funcionários indisponível.") from None
+    if funcionario is None or funcionario["situacao"] != SITUACAO_ATIVA:
+        return None
+    return governanca.usuario_do_cargo(
+        funcionario["id"], funcionario["cargo"], tuple(funcionario["carteiras"])
     )
 
 
@@ -480,7 +490,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="  [%(levelname)s] %(message)s")
     try:
         funcionario = usuario_do_ambiente()
-    except (ValueError, NotImplementedError) as erro:
+    except ValueError as erro:
         raise SystemExit(str(erro)) from erro
     print(
         f"Assistente {NOME_EMPRESA} (funcionário {funcionario.id_usuario}, "
