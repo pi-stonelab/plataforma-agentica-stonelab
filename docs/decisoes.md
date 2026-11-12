@@ -97,7 +97,7 @@ Como ler:
 - No código: `ferramentas/catalogo.py`. Consequência: não existe tabela `ferramentas` nem rota que liste fichas para a
   interface.
 
-## Decisões também tomadas na noite de 11/11 (Pedro, ao longo das etapas)
+## Decisões também tomadas na noite de 11/11 e de manhã em 12/11 (Pedro, ao longo das etapas)
 
 Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no `PLANO.md`. A data é a dos commits.
 
@@ -135,6 +135,13 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - Quem e quando: Pedro, 11/11 à noite (commit 6a775c2).
 - Motivo: não registrado.
 - No código: `Plataforma.convidar` e a regra de `CONVIDAR` em `seguranca/permissoes.py`. Ver a tabela em `seguranca/CLAUDE.md`.
+
+### H6. O parâmetro de lojista continua `id_cliente`
+- Decisão: o nome que o modelo preenche nas ferramentas de lojista continua `id_cliente`. Por dentro é `codigo` ou
+  `codigo_lojista`, e nas tabelas `id_lojista`. Nenhum código muda.
+- Quem e quando: Pedro, 12/11 de manhã.
+- Motivo: os gabaritos da KAN-69 já usam `id_cliente`; renomear quebraria fichas, testes e gabaritos.
+- No código: `ferramentas/lojista.py` (docstring com os três nomes).
 
 ## Decisões do orquestrador (O1 a O13)
 
@@ -278,9 +285,7 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
 4. E-mail e telefone digitados em texto livre são mascarados? Hoje não. A máscara de texto livre só cobre sequências de
    11 dígitos (CPF) e de 13 a 19 dígitos (cartão); 12 dígitos ou mais de 19 viram `***`. O DOC-MOCK §8.3 só pede
    "detectados e mascarados" para CPF e cartão.
-5. `id_cliente` ou `codigo_lojista`? O parâmetro que o modelo preenche é `id_cliente` (nome da ficha original); por dentro
-   é `codigo` ou `codigo_lojista`; nas tabelas é `id_lojista`. Está documentado em `ferramentas/lojista.py`. Falta
-   decidir se um nome só vale para tudo (crítica I1).
+5. `id_cliente` ou `codigo_lojista`? Decidido em H6: continua `id_cliente` para o modelo.
 6. Formato da máscara do nome do sócio. Hoje: inicial de cada parte e `***` (`J*** S***`). O DOC-MOCK §8.3 não define
    (SEM FONTE).
 7. Alçadas em `mock/regras.py`. Hoje ficam na ferramenta, com a pendência anotada no próprio arquivo. Mover deixa as
