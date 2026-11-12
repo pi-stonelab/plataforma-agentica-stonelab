@@ -113,7 +113,7 @@ def test_c5_no_cenario_5_o_n2_tambem_recebe_mascarado(engine):
         ("cpf", "12345678909", "***.456.789-**"),
         ("telefone", "(21) 90000-4321", "(21) *****-4321"),
         ("telefone", "2133334321", "(21) ****-4321"),
-        ("email", "joao@exemplo.com", "j***@exemplo.com"),
+        ("email", "joao@exemplo.example", "j***@exemplo.example"),
         ("conta", "012345-6", "***56"),
         ("cartao", "9273", "**** **** **** 9273"),
         ("nome", "Maria da Silva", "M*** d*** S***"),
@@ -164,9 +164,9 @@ def test_protocolo_e_codigos_nao_viram_cpf_nem_cartao():
 
 
 def test_listas_e_dicts_aninhados_sao_percorridos():
-    dados = {"itens": [{"cpf": "123.456.789-09"}, {"cpf": "987.654.321-00"}], "total": 2}
+    dados = {"itens": [{"cpf": "123.456.789-09"}, {"cpf": "111.222.333-44"}], "total": 2}
     saida = mascara.mascarar(dados, ("contato",))
-    assert [i["cpf"] for i in saida["itens"]] == ["***.456.789-**", "***.654.321-**"]
+    assert [i["cpf"] for i in saida["itens"]] == ["***.456.789-**", "***.222.333-**"]
     assert saida["total"] == 2
 
 

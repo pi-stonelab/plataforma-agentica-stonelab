@@ -60,20 +60,9 @@ def test_func_py_nao_importa_sqlalchemy_nem_mock(arquivo):
     assert proibidos == []
 
 
-PENDENTE_DE_AGENTS_MD = {
-    "consultar_endereco_cep": "ferramentas/consultas_publicas/consultar_endereco_cep/agents.md ainda tem "
-    "'[preencher: quais APIs...]' na seção de quem mantém (ferramenta ativa)."
-}
-
-
 @pytest.mark.parametrize(
     "nome",
-    [
-        pytest.param(n, marks=pytest.mark.xfail(strict=True, reason=PENDENTE_DE_AGENTS_MD[n]))
-        if n in PENDENTE_DE_AGENTS_MD
-        else n
-        for n in ATIVAS
-    ],
+    ATIVAS,
 )
 def test_toda_ferramenta_ativa_tem_agents_md_preenchido(nome):
     ficha = FERRAMENTAS[nome]
@@ -245,13 +234,8 @@ def test_todo_ataque_da_kan69_tem_pelo_menos_um_teste():
 
 # ---------- LGPD: nenhum dado pessoal real nos arquivos rastreados ----------
 
-# Achados antigos fora desta etapa (BAIXO-9 de auditoria_B.md): CPF com dígito válido e e-mail de domínio
-# comum em testes de outras etapas. Ficam listados aqui para o teste principal passar; o teste xfail
-# abaixo cobra a correção. Cada item é (arquivo, tipo).
-PENDENTES_DE_OUTRAS_ETAPAS = {
-    ("backend/tests/test_ferramentas_mascara.py", "cpf válido"),
-    ("backend/tests/test_ferramentas_mascara.py", "e-mail fora de .example/.test"),
-}
+# Exceções conhecidas da varredura (arquivo, tipo). Vazia: nenhum arquivo rastreado tem exceção.
+PENDENTES_DE_OUTRAS_ETAPAS = set()
 CANDIDATO_A_CPF = re.compile(r"(?<![\d.])\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?![\d])")
 CANDIDATO_A_CARTAO = re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)")
 # (?<![...]) evita casar "senha@servidor" dentro de uma URL com usuário:senha, que não é e-mail
@@ -328,13 +312,5 @@ def test_nenhum_arquivo_rastreado_tem_cpf_cartao_ou_email_real():
     assert novos == {}, "arquivo, tipo e linhas (o valor não é mostrado)"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BAIXO-9 (auditoria_B.md): backend/tests/test_ferramentas_mascara.py usa um CPF com dígito "
-        "verificador válido e um e-mail de domínio comum. Trocar por valores inválidos/.example "
-        "(outra etapa); ao passar, esvazie PENDENTES_DE_OUTRAS_ETAPAS e tire o xfail."
-    ),
-)
 def test_repositorio_limpo_sem_nenhuma_excecao_pendente():
     assert varrer_repositorio() == {}
