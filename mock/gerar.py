@@ -8,7 +8,9 @@ pessoas reais de teste importadas de um CSV local (ver `importar_pessoas_teste`)
 
 import argparse
 import csv
+import logging
 import math
+import os
 import random
 import re
 import sys
@@ -18,7 +20,8 @@ from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, inspect, select
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from .banco import (
@@ -891,6 +894,38 @@ def recriar(engine: Engine, caminho_pessoas_teste: Path | None = None) -> dict[s
             "chamados": len(sessao.scalars(select(Chamado.codigo)).all()),
             "pessoas_reais_de_teste": len(pessoas),
         }
+
+
+logger = logging.getLogger("mock")
+
+
+def garantir_mundo_local(url: str) -> bool:
+    """Gera o SQLite local do mock na primeira vez em que alguém o usa. Devolve True se gerou.
+
+    Assim ninguém precisa rodar `python -m mock.gerar` à mão. É o mesmo mundo de sempre (mesma
+    semente). Só age em arquivo SQLite que ainda não existe ou está sem nenhuma tabela: nunca em
+    banco externo, nunca em memória, nunca sobre um arquivo que já tem tabelas (do mock ou não).
+    Gera num arquivo temporário e troca de nome no fim, então dois processos juntos não se pisam.
+    """
+    if not eh_sqlite(url) or sqlite_em_memoria(url):
+        return False
+    caminho = Path(make_url(url).database)
+    if caminho.exists():
+        engine = criar_engine(url)
+        try:
+            if inspect(engine).get_table_names():
+                return False
+        finally:
+            engine.dispose()
+    temporario = caminho.with_name(f"{caminho.name}.{os.getpid()}.tmp")
+    engine = criar_engine(f"sqlite:///{temporario.as_posix()}")
+    try:
+        recriar(engine)
+    finally:
+        engine.dispose()
+    os.replace(temporario, caminho)
+    logger.info("Mock gerado pela primeira vez em %s", caminho.name)
+    return True
 
 
 def _montar_analisador() -> argparse.ArgumentParser:

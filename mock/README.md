@@ -27,7 +27,8 @@ Falha: `MOCK_FALHAS=core,crm` deixa esses sistemas fora do ar (testes usam `liga
 ## Qual banco o mock usa (`MOCK_DATABASE_URL`)
 Uma variável própria, lida num lugar só (`banco.url_padrao`) e usada pelo gerador, pela fachada das
 ferramentas (`ferramentas/dados_sinteticos.py`) e pelo diretório de funcionários:
-- sem declarar: SQLite local em `dados_locais/mock.sqlite` (fora do Git);
+- sem declarar: SQLite local em `dados_locais/mock.sqlite` (fora do Git). Ele é gerado sozinho na primeira vez que
+  alguém o usa (ferramenta, terminal ou teste); `python -m mock.gerar` só serve para recriar do zero;
 - `MOCK_DATABASE_URL=<url>` no `.env` aponta o mock para outro banco. Se não for SQLite, o gerador só
   recria com `--permitir-banco-externo` (recriar apaga as tabelas do mock nesse banco);
 - `DATABASE_URL` é o banco da PLATAFORMA e é sempre ignorada. Declarar o mesmo banco nas duas variáveis é

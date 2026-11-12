@@ -9,6 +9,7 @@ converter centavos.
 from mock import consultas
 from mock.banco import criar_engine, url_padrao
 from mock.falhas import SistemaIndisponivel
+from mock.gerar import garantir_mundo_local
 from sqlalchemy.exc import ArgumentError, InterfaceError, OperationalError
 from sqlalchemy.exc import TimeoutError as TempoEsgotadoNoPool
 
@@ -35,7 +36,7 @@ def configurar(origem):
     """Define o banco do mock: URL ou engine.
 
     Sem chamar, vale `mock.banco.url_padrao()`: a variável MOCK_DATABASE_URL, se declarada, ou o
-    SQLite local em dados_locais/. `DATABASE_URL` (banco da plataforma) nunca é usada.
+    SQLite local em dados_locais/, que é gerado sozinho na primeira vez. `DATABASE_URL` (banco da plataforma) nunca é usada.
     """
     _CONEXAO["engine"] = criar_engine(origem) if isinstance(origem, str) else origem
 
@@ -44,8 +45,10 @@ def _engine():
     """Engine do mock, criado na primeira consulta. URL inválida não repete o texto dela."""
     if _CONEXAO["engine"] is None:
         try:
-            _CONEXAO["engine"] = criar_engine(url_padrao())
-        except (ValueError, ArgumentError):  # a mensagem do SQLAlchemy pode trazer a senha
+            url = url_padrao()
+            garantir_mundo_local(url)  # SQLite local novo: gera o mock na primeira vez
+            _CONEXAO["engine"] = criar_engine(url)
+        except (ValueError, ArgumentError, OSError, OperationalError):  # a mensagem pode trazer a senha
             raise ConnectionError("integração indisponível") from None
     return _CONEXAO["engine"]
 

@@ -66,7 +66,10 @@ Depende de `mock/` por import: `ferramentas/governanca.py` (listas de cargo, ár
 Uma variável própria, `MOCK_DATABASE_URL`, lida num lugar só (`banco.url_padrao`). O gerador, a fachada das
 ferramentas e o diretório de funcionários usam essa função.
 
-- Variável vazia: SQLite local em `dados_locais/mock.sqlite` (fora do Git).
+- Variável vazia: SQLite local em `dados_locais/mock.sqlite` (fora do Git). A fachada das ferramentas o gera sozinho na
+  primeira consulta (`gerar.garantir_mundo_local`): só se o arquivo não existe ou não tem nenhuma tabela, nunca em banco
+  externo nem em memória, e por arquivo temporário + troca de nome. Recriar do zero continua sendo `python -m mock.gerar`.
+  O terminal carrega o `.env` e o gerador não: se `MOCK_DATABASE_URL` estiver preenchida no `.env`, o terminal usa essa.
 - `MOCK_DATABASE_URL=<url>` no `.env`: aponta para outro banco. Se não for SQLite, o gerador só recria com
   `--permitir-banco-externo`.
 - `DATABASE_URL` é o banco da PLATAFORMA e é sempre ignorada. Declarar a mesma URL nas duas variáveis é recusado.

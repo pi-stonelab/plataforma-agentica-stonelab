@@ -170,6 +170,14 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - Verificado: o gerador e a suíte inteira do back-end contra um Postgres 16 (servidor instalado, sem Docker): 2173 passam,
   1 pulado (NUL). O arquivo do compose foi validado com `docker compose config`; o container em si não foi subido.
 
+### H10. O SQLite local do mock é gerado sozinho na primeira vez
+- Decisão: ninguém precisa rodar `python -m mock.gerar` para começar. A fachada gera `dados_locais/mock.sqlite` na primeira
+  consulta, só se o arquivo não existe ou está sem tabelas.
+- Quem e quando: Pedro, 12/11 ("a intenção é não ter que gerar toda vez").
+- Motivo: o erro "diretório de funcionários indisponível" no terminal, com o arquivo ainda não gerado.
+- No código: `mock/gerar.py` (`garantir_mundo_local`), `ferramentas/dados_sinteticos.py` (`_engine`), `tests/test_mock_primeira_vez.py`.
+- Não muda: o mundo é o mesmo (mesma semente); banco externo e `--permitir-banco-externo` seguem como antes.
+
 ## Decisões do orquestrador (O1 a O13)
 
 Todas de 11/11, PLANO v2, escritas depois da crítica ao plano. "Para o Pedro ver" quer dizer que ele leu; só a O10
