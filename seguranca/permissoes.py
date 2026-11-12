@@ -364,11 +364,29 @@ class Plataforma:
         self._log(criador, "CRIAR", agente.id, True)
         self._agentes[agente.id] = agente
 
+    def _registrado(self, agente: object) -> Agente | None:
+        """O agente que a Plataforma conhece, se o recebido for igual a ele; senão None.
+
+        Quem decide é sempre o registrado. Um objeto forjado (mesmo id, mas dono ou
+        visibilidade diferentes) não é igual ao registrado, então não vale.
+        """
+        try:
+            registrado = self._agentes.get(getattr(agente, "id", None))
+        except TypeError:  # id que não é hashable
+            return None
+        if registrado is None:
+            return None
+        if agente is registrado or (type(agente) is Agente and registrado == agente):
+            return registrado
+        return None
+
     def autorizar(self, usuario: Usuario, acao: Acao, agente: Agente) -> None:
         atual = self._atual(usuario)
+        registrado = self._registrado(agente)
         try:
-            ok = atual is not None and atual.pode(acao, agente)
-            if acao is Acao.EXECUTAR and not agente.ativo:
+            # agente não registrado ou diferente do registrado: negado (falha fechada)
+            ok = registrado is not None and atual is not None and atual.pode(acao, registrado)
+            if acao is Acao.EXECUTAR and (registrado is None or not registrado.ativo):
                 ok = False  # cinto de segurança: vale mesmo para um perfil novo que esqueça disso
         except Exception:  # noqa: BLE001 (agente ou regra com defeito: nega)
             ok = False
@@ -382,7 +400,7 @@ class Plataforma:
         if self._atual(convidado) is None:
             self._log(quem, "CONVIDAR_PESSOA_DESCONHECIDA", agente.id, False)
             raise AcessoNegado(f"CONVIDAR negado: pessoa {_id_de(convidado)} não está cadastrada")
-        agente.convidados_ids.add(convidado.id)
+        self._registrado(agente).convidados_ids.add(convidado.id)  # no registrado, não na cópia
 
     def agentes_visiveis(self, usuario: Usuario) -> list[Agente]:
         atual = self._atual(usuario)

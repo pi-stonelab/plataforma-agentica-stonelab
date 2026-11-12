@@ -88,6 +88,7 @@ def montar_cenario(perfil: str, relacao: str, visibilidade: Visibilidade, ativo:
     convidados = {"pessoa"} if relacao.startswith("convidado") else set()
     agente = Agente("agente", area_do_agente, dono_id, convidados_ids=convidados,
                     visibilidade=visibilidade, ativo=ativo)
+    plataforma._agentes[agente.id] = agente  # a Plataforma só decide sobre agente registrado
     return plataforma, pessoa, agente
 
 
@@ -491,6 +492,7 @@ def test_autorizar_nega_executar_em_inativo_mesmo_se_o_perfil_esquecer():
     plataforma = Plataforma()
     pessoa = plataforma.cadastrar(Esquecido("e", None, id="esq"))
     agente = Agente("a", Financeiro(), "dono", ativo=False)
+    plataforma._agentes[agente.id] = agente
     with pytest.raises(AcessoNegado):
         plataforma.autorizar(pessoa, Acao.EXECUTAR, agente)
 
@@ -512,3 +514,46 @@ def test_demo_roda_e_nao_imprime_nome(capsys):
     assert "Bloqueado" in saida
     for nome in ("Ana", "Bruno", "João", "Maria", "Carla", "Davi"):
         assert nome not in saida
+
+
+# ---------------------------------------------------------------- ALTO-1: decide o agente registrado
+def test_agente_forjado_com_mesmo_id_nao_ganha_acesso():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    atacante = plataforma.cadastrar(Colaborador("m", Financeiro(), id="atacante"))
+    real = dono.criar_agente("privado", plataforma)  # PRIVADO, do "dono"
+    forjado = Agente("privado", Financeiro(), "atacante", id=real.id, visibilidade=PUB)
+    for acao in Acao:
+        with pytest.raises(AcessoNegado):
+            plataforma.autorizar(atacante, acao, forjado)
+    assert plataforma.auditoria[-1].permitido is False
+    assert plataforma._agentes[real.id] is real  # o registrado não foi trocado
+
+
+def test_agente_nao_registrado_e_negado_ate_para_o_dono():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    solto = Agente("solto", Financeiro(), "dono")
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(dono, Acao.VER, solto)
+
+
+def test_copia_igual_ao_registrado_vale_e_copia_alterada_nao():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    real = dono.criar_agente("x", plataforma)
+    copia = Agente("x", Financeiro(), "dono", id=real.id)  # como se viesse de outra leitura do banco
+    plataforma.autorizar(dono, Acao.VER, copia)
+    copia.visibilidade = PUB  # a cópia agora difere do registrado
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(dono, Acao.VER, copia)
+
+
+def test_convidar_grava_no_agente_registrado():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    amigo = plataforma.cadastrar(Colaborador("a", Financeiro(), id="amigo"))
+    real = dono.criar_agente("x", plataforma)
+    real.visibilidade = Visibilidade.CONVIDADOS
+    plataforma.convidar(dono, amigo, real)
+    assert plataforma._agentes[real.id].convidados_ids == {"amigo"}
