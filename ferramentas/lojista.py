@@ -13,6 +13,7 @@ from ferramentas import dados_sinteticos, governanca
 from ferramentas.base import ErroFerramenta
 
 PADRAO_CODIGO = re.compile(r"M[0-9]{5}")
+LIMITE_PADRAO = 20
 
 
 def exigir_acesso(usuario, codigo):
@@ -44,3 +45,17 @@ def periodo_permitido(usuario, data_inicio, data_fim):
         dias = governanca.janela_dias(usuario)
         raise ErroFerramenta("permissao_negada", f"Seu cargo só consulta os últimos {dias} dias.")
     return data_inicio or inicio_da_janela, data_fim
+
+
+def limite_pedido(argumentos, padrao=LIMITE_PADRAO):
+    """Limite de linhas do pedido (`padrao` se faltar); fora de 1 a LIMITE_LINHAS é parâmetro inválido."""
+    limite = argumentos.get("limite", padrao)
+    if not 1 <= limite <= governanca.LIMITE_LINHAS:
+        raise ErroFerramenta("parametro_invalido", "O limite deve ficar entre 1 e 50.")
+    return limite
+
+
+def conferir_ordem_das_datas(data_inicio, data_fim):
+    """data_inicio depois de data_fim é parâmetro inválido (as duas são opcionais)."""
+    if data_inicio and data_fim and data_inicio > data_fim:
+        raise ErroFerramenta("parametro_invalido", "A data_inicio vem depois da data_fim.")
