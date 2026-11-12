@@ -4,4 +4,5 @@ target-version = "py311"
 
 [lint]
 # `parametros` é um dict de classe na ficha de cada ferramenta: é dado fixo, ninguém altera em execução.
-extend-ignore = ["RUF012"]
+extend-ignore = ["RUF012", "UP026"]
+# UP026: `mock` aqui é o pacote da Stone simulada (pasta mock/ da raiz), não o `mock` antigo do PyPI.

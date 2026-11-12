@@ -1,0 +1,2 @@
+# O SQL pronto do mock é 100% sintético e vai para o Git (a raiz ignora *.sql para proteger dumps reais).
+!*.sql

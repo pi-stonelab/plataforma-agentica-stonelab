@@ -1,29 +1,22 @@
-"""Governança provisória: permissão por nível e área, escopo de carteira e registro de chamadas.
+"""Governança das ferramentas: permissão por cargo, escopo de lojista, janela de dias e registro.
 
-Tudo aqui falha fechado: na dúvida, a ferramenta é bloqueada e o cliente fica fora do escopo.
+Tudo aqui falha fechado: na dúvida, a ferramenta é bloqueada e o lojista fica fora do escopo.
+Vocabulário do mock (mock/regras.py): `cargo` (10 cargos), `nivel` N1/N2 como texto, `area`
+atendimento/financeiro, `carteiras` = nomes de carteira (varejo, pme, contas_chave) e lojista pelo
+`codigo` M00001. As listas abaixo vêm do mock: não repita valores aqui.
 """
 
-from contextlib import suppress
+import logging
+import threading
+from datetime import timedelta
 
-# [aqui conectamos com Brenno: níveis e áreas oficiais, KAN-62]
-NIVEIS = ("N1", "N2")
-AREAS_USUARIO = ("atendimento", "financeiro", "dados", "tecnologia")
+from mock import regras
+
+NIVEIS = regras.NIVEIS_FERRAMENTA
+AREAS_USUARIO = regras.AREAS
 ACESSOS = ("leitura", "escrita", "calculo")
 SENSIBILIDADES = ("publica", "interna", "pessoal", "sigilosa")
-CATEGORIAS_DADOS = (
-    "cadastral",
-    "atendimento",
-    "financeiro",
-    "indicador_agregado",
-    "metadado",
-    "comunicacao",
-    "documento",
-    "agenda",
-    "chamado_interno",
-    "endereco_publico",
-    "cambio",
-    "pedido_plataforma",
-)
+CATEGORIAS_DADOS = regras.CATEGORIAS_DADO + regras.CATEGORIAS_DE_FERRAMENTAS_PLANEJADAS
 STATUS_FICHA = ("ativa", "inativa", "planejada")
 TODAS_AS_AREAS = "todas"
 PARAMETROS_RESERVADOS = (
@@ -32,12 +25,14 @@ PARAMETROS_RESERVADOS = (
     "nivel",
     "area",
     "carteira",
+    "carteiras",
+    "cargo",
     "credencial",
     "ferramentas_do_agente",
     "contexto",
 )
 ESCRITA_SEM_CONFIRMACAO = ("solicitar_ferramenta_ausente",)
-LIMITE_LINHAS = 50
+LIMITE_LINHAS = regras.LIMITE_MAXIMO
 CAMPOS_REGISTRO = (
     "momento",
     "execucao_id",
@@ -58,25 +53,50 @@ LIMITE_REGISTROS = 1000
 # [preencher: prazo de retenção de REGISTROS, definir com Brenno e o monitoramento]
 REGISTROS = []
 DESTINOS = []
+TRAVA_DOS_REGISTROS = threading.Lock()  # BAIXO-6: incluir e aparar a lista de uma vez
+logger = logging.getLogger(__name__)
+
+
+class RegistroIndisponivel(Exception):
+    """Algum destino não gravou o registro: sem rastro, sem resposta (O9)."""
 
 
 class Usuario:
-    """Funcionário autenticado. Provisório até a classe oficial (KAN-62)."""
+    """Funcionário autenticado. O `cargo` decide o que ele vê; nível e área vêm do cargo.
 
-    def __init__(self, id_usuario, nivel, area, carteira=()):
+    `carteiras` são nomes de carteira do time dele (ex.: ("varejo",)). Provisório até a classe
+    oficial (KAN-62).
+    """
+
+    def __init__(self, id_usuario, nivel, area, carteiras=(), cargo=None):
         self.id_usuario = id_usuario
         self.nivel = nivel
         self.area = area
-        self.carteira = carteira
+        self.carteiras = carteiras
+        self.cargo = cargo
+
+
+def usuario_do_cargo(id_usuario, cargo, carteiras=()):
+    """Monta o Usuario pelo cargo do diretório. Cargo desconhecido ou transversal: usuário inválido."""
+    regra = regras.regra_do_cargo(cargo)
+    nivel, area = (regra.nivel_ferramenta, regra.area) if regra else (None, None)
+    return Usuario(id_usuario, nivel, area, carteiras, cargo)
+
+
+def _regra(usuario):
+    return regras.regra_do_cargo(getattr(usuario, "cargo", None))
 
 
 def _usuario_valido(usuario):
     id_usuario = getattr(usuario, "id_usuario", None)
+    regra = _regra(usuario)
     return (
         isinstance(id_usuario, str)
         and id_usuario.strip() != ""
+        and regra is not None
         and getattr(usuario, "nivel", None) in NIVEIS
         and getattr(usuario, "area", None) in AREAS_USUARIO
+        and (usuario.nivel, usuario.area) == (regra.nivel_ferramenta, regra.area)
     )
 
 
@@ -106,22 +126,45 @@ def motivo_bloqueio(ferramenta, usuario):
         areas = ferramenta.areas_permitidas
         if TODAS_AS_AREAS not in areas and usuario.area not in areas:
             return "Área não permitida."
+        if not set(ferramenta.categorias_dados) <= _regra(usuario).categorias_dado:
+            return "Categoria de dado não permitida para o cargo."  # O1: some do catalogo.ler
         return None
     except (AttributeError, TypeError, ValueError):
         return "Ficha ou usuário inválido."
 
 
-def cliente_no_escopo(usuario, id_cliente):
-    """Nível mais alto vê qualquer cliente; os demais só os da própria carteira (KAN-69)."""
+def escopo_do_usuario(usuario):
+    """Escopo de lojistas do cargo (carteiras_do_time, todas ou nenhum); None se usuário inválido."""
+    return _regra(usuario).escopo_lojistas if _usuario_valido(usuario) else None
+
+
+def lojista_no_escopo(usuario, lojista):
+    """`lojista` é o dict de `carteira_do_lojista` (ou None se não existe). Sem banco aqui (O13)."""
     try:
-        if not _usuario_valido(usuario):
-            return False
-        if usuario.nivel == NIVEIS[-1]:
-            return True
-        # [aqui conectamos com Brenno: escopo de carteira oficial, KAN-69]
-        return isinstance(usuario.carteira, (tuple, list)) and id_cliente in usuario.carteira
-    except (AttributeError, TypeError):
+        escopo = escopo_do_usuario(usuario)
+        if escopo == regras.ESCOPO_CARTEIRAS_DO_TIME:
+            carteiras = usuario.carteiras
+            return isinstance(carteiras, (tuple, list)) and lojista["carteira"] in carteiras
+        return escopo == regras.ESCOPO_TODAS and isinstance(lojista, dict)
+    except (AttributeError, TypeError, KeyError):
         return False
+
+
+def janela_dias(usuario):
+    """Quantos dias para trás o cargo consulta vendas e agenda (KAN-69); None = sem janela.
+
+    Usuário inválido levanta ValueError (nunca vira "sem janela" nem "janela de zero dias"): quem
+    chama já passou por `motivo_bloqueio`, então isso só acontece por erro de programação.
+    """
+    if not _usuario_valido(usuario):
+        raise ValueError("Usuário inválido.")
+    return _regra(usuario).janela_dias
+
+
+def inicio_da_janela(usuario):
+    """Primeiro dia que o cargo pode consultar, contado de HOJE_DO_MOCK (nunca date.today())."""
+    dias = janela_dias(usuario)
+    return None if dias is None else regras.HOJE_DO_MOCK - timedelta(days=dias)
 
 
 def adicionar_destino(funcao):
@@ -131,12 +174,25 @@ def adicionar_destino(funcao):
 
 
 def registrar(registro):
-    """Guarda só os campos de CAMPOS_REGISTRO e repassa aos destinos, sem nunca levantar erro."""
+    """Guarda só os campos de CAMPOS_REGISTRO e repassa aos destinos.
+
+    Falha fechada (O9): se algum destino não gravar, o registro fica marcado como erro e a função
+    levanta RegistroIndisponivel, para quem chamou negar a resposta.
+    """
     if not isinstance(registro, dict):
         return
     limpo = {campo: registro.get(campo) for campo in CAMPOS_REGISTRO}
-    REGISTROS.append(limpo)
-    del REGISTROS[:-LIMITE_REGISTROS]
+    falhou = False
     for destino in DESTINOS:
-        with suppress(Exception):
+        try:
             destino(dict(limpo))
+        except Exception:  # noqa: BLE001 (qualquer falha do destino nega a resposta)
+            falhou = True
+    if falhou:
+        limpo["status"], limpo["tipo_erro"] = "erro", "integracao_indisponivel"
+    with TRAVA_DOS_REGISTROS:
+        REGISTROS.append(limpo)
+        del REGISTROS[:-LIMITE_REGISTROS]
+    if falhou:
+        logger.error("registro de ferramenta não gravado: ferramenta=%s", limpo["ferramenta"])
+        raise RegistroIndisponivel

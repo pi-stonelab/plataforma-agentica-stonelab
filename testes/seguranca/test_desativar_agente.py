@@ -21,6 +21,7 @@ from seguranca.permissoes import (
     Financeiro,
     GestorDeAcessos,
     Supervisor,
+    Visibilidade,
 )
 
 ACOES_BLOQUEADAS = [Acao.EXECUTAR, Acao.EDITAR, Acao.CONVIDAR, Acao.DEPRECAR]
@@ -94,7 +95,9 @@ def test_dono_desativa_o_proprio_agente(plataforma, maria, triagem):
         plataforma.autorizar(maria, Acao.EXECUTAR, triagem)
 
 
-def test_supervisor_da_area_desativa(plataforma, triagem):
+def test_supervisor_da_area_desativa(plataforma, maria, triagem):
+    # o supervisor não vê agente privado de outra pessoa (decisão do grupo): o dono abre antes
+    plataforma.alterar_visibilidade(maria, triagem, Visibilidade.CONVIDADOS)
     bia = plataforma.cadastrar(Supervisor("Bia", AtendimentoCliente()))
     plataforma.deprecar(bia, triagem)
     assert triagem.ativo is False
@@ -135,5 +138,5 @@ def test_deprecar_vai_para_auditoria(plataforma, maria, joao, triagem):
         plataforma.deprecar(joao, triagem)
     plataforma.deprecar(maria, triagem)
     eventos = [e for e in plataforma.auditoria if e.acao == "DEPRECAR"]
-    assert [(e.usuario, e.permitido) for e in eventos] == [(joao, False), (maria, True)]
+    assert [(e.id_usuario, e.permitido) for e in eventos] == [(joao.id, False), (maria.id, True)]
     assert all(e.alvo == str(triagem.id) for e in eventos)
