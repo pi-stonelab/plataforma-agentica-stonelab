@@ -24,6 +24,7 @@ from agentes.agente_atendimento import agente as motor
 from agentes.agente_geral import agente as geral
 from ferramentas import catalogo, governanca, mascara
 from ferramentas.base import Ferramenta
+from ferramentas.mascara import CARACTERES_INVISIVEIS
 from mock import regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 from mock.banco import url_padrao
 from mock.modelos import BaseMock, Chamado, ContaRecebimento, ContatoLojista, Interacao, Lojista
@@ -364,14 +365,6 @@ def test_a07_mascara_de_texto_livre_pega_os_formatos_comuns(texto):
     assert not _vazou_numero(texto, mascara.mascarar_valor("texto_livre", texto))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "ALTO-1 (auditoria_B.md): ferramentas/mascara.py CPF_NO_TEXTO e CARTAO_NO_TEXTO não cobrem "
-        "separadores livres, letra colada no número, Unicode largo nem Amex. F1 corrige; ao passar, "
-        "tire o xfail."
-    ),
-)
 @pytest.mark.parametrize("texto", FORMATOS_QUE_A_MASCARA_DEIXA_PASSAR)
 def test_a07_mascara_de_texto_livre_nao_deixa_passar_separador_incomum_ALTO_1(texto):
     assert not _vazou_numero(texto, mascara.mascarar_valor("texto_livre", texto))
@@ -623,7 +616,8 @@ def test_a13_caracteres_especiais_passam_e_voltam_como_dado_sem_quebrar(texto):
             pessoa("atendente_n1"),
         )
     assert resposta["status"] == "ok", resposta["tipo_erro"]
-    assert any(m["texto"] == texto for m in resposta["dados"]["conteudo_de_terceiros"]["interacoes"])
+    esperado = CARACTERES_INVISIVEIS.sub("", texto)  # a máscara normaliza o texto livre (NFKC, sem invisíveis)
+    assert any(m["texto"] == esperado for m in resposta["dados"]["conteudo_de_terceiros"]["interacoes"])
 
 
 @AGENTES
@@ -1016,14 +1010,6 @@ def test_a22_o_modelo_nao_recebe_dado_de_chamada_sem_rastro(rodador):
     assert devolvidos and all(r["status"] == "erro" and r["dados"] is None for r in devolvidos)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "MED-1 (auditoria_B.md): em ferramenta de escrita o `rodar` acontece antes do registro "
-        "(ferramentas/base.py Ferramenta.executar), então com o destino caído o pedido é gravado em "
-        "PEDIDOS mesmo assim. O O9 diz sem rastro, sem ação. F1 corrige; ao passar, tire o xfail."
-    ),
-)
 def test_a22_escrita_sem_registro_nao_acontece_MED_1():
     pedidos = apoio.pedidos()
     governanca.adicionar_destino(_destino_que_falha)
