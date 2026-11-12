@@ -50,3 +50,12 @@ Todos os dados de lojistas e de funcionários do mock são fictícios. Para test
 - Linha inválida recusa o arquivo inteiro; a mensagem diz a linha e o campo, sem repetir o valor.
 - Senha de login não fica no CSV (é definida por comando, na etapa do back-end). Recriar o mundo apaga as
   pessoas importadas e importa de novo do CSV.
+
+## Vocabulário (um nome por conceito; `ferramentas/governanca.py` usa estes)
+- `codigo` do lojista: `M00001`. O parâmetro público das ferramentas continua `id_cliente` (texto para o
+  funcionário: "cliente"), mas só aceita código de lojista.
+- `carteira` do lojista e `carteiras` do funcionário/time: nomes `varejo`, `pme`, `contas_chave`.
+- `cargo` (10, em `regras.CARGOS`), `nivel` N1/N2 como texto, `area` `atendimento`/`financeiro`.
+- Pessoa: `id_usuario` nas ferramentas, `id` no diretório e na segurança, `ID_USUARIO` no `.env`.
+- Onde outras pastas usam outro nome: `seguranca/` tem `nivel` inteiro (hierarquia do perfil) e fala em
+  `role`/`ROLES`; `agentes/` lê `NIVEL`, `AREA` e `CARTEIRA` do `.env` (agora deve ler só `ID_USUARIO`).
