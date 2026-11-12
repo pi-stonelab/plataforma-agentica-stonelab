@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from agentes.agente_atendimento import agente
 from ferramentas import governanca
+from mock.banco import criar_engine
+from mock.falhas import desligar_todas, ligar
 
 from . import apoio_agente as apoio
 
@@ -540,6 +542,9 @@ class TestModoTerminal(unittest.TestCase):
 class TestUsuarioDoAmbiente(unittest.TestCase):
     """O12: o modo terminal lê só ID_USUARIO; o perfil vem do diretório."""
 
+    def setUp(self):
+        apoio.limpar()
+
     def test_so_o_id_vai_para_a_busca_no_diretorio(self):
         pedidos = []
 
@@ -570,9 +575,67 @@ class TestUsuarioDoAmbiente(unittest.TestCase):
         with self.assertRaises(ValueError):
             agente.usuario_do_ambiente({"ID_USUARIO": "USR-404"}, lambda _: None)
 
-    def test_ponto_de_ligacao_com_o_diretorio_ainda_nao_existe(self):
-        with self.assertRaises(NotImplementedError):
-            agente.usuario_do_ambiente({"ID_USUARIO": "USR-1"})
+
+class TestDiretorioDoMock(unittest.TestCase):
+    """O ponto único de ligação com o diretório (DOC-MOCK §8.4): ativo entra; o resto, não."""
+
+    def setUp(self):
+        apoio.limpar()
+        self.engine = apoio.mundo()
+
+    def buscar(self, id_usuario):
+        return agente.buscar_usuario_no_diretorio(id_usuario, self.engine)
+
+    def usuario(self, id_usuario, ambiente_extra=None):
+        ambiente = {"ID_USUARIO": id_usuario, **(ambiente_extra or {})}
+        return agente.usuario_do_ambiente(ambiente, self.buscar)
+
+    def test_ana_vira_atendente_n1_com_a_carteira_do_time(self):
+        ana = self.usuario("F0001")
+        self.assertEqual(
+            (ana.id_usuario, ana.cargo, ana.nivel, ana.area, ana.carteiras),
+            ("F0001", "atendente_n1", "N1", "atendimento", ("varejo",)),
+        )
+
+    def test_o_perfil_vem_do_cargo_e_nao_do_ambiente(self):
+        extras = {"NIVEL": "N1", "AREA": "atendimento", "CARTEIRA": "varejo"}
+        renata = self.usuario("F0011", extras)
+        self.assertEqual(
+            (renata.cargo, renata.nivel, renata.area, renata.carteiras),
+            ("coordenador_financeiro", "N2", "financeiro", ()),
+        )
+
+    def test_funcionario_desligado_ou_afastado_e_usuario_invalido(self):
+        for id_usuario in ("F0014", "F0015"):  # desligado, afastado
+            self.assertIsNone(self.buscar(id_usuario))
+            with self.assertRaises(ValueError):
+                self.usuario(id_usuario)
+
+    def test_id_bem_formado_que_nao_existe_e_usuario_invalido(self):
+        self.assertIsNone(self.buscar("F9999"))
+        with self.assertRaises(ValueError):
+            self.usuario("F9999")
+
+    def test_diretorio_fora_do_ar_nao_sobe_e_nao_vira_nao_encontrado(self):
+        ligar("diretorio")
+        self.addCleanup(desligar_todas)
+        with self.assertRaisesRegex(ValueError, "indisponível"):
+            self.usuario("F0001")
+
+    def test_banco_sem_as_tabelas_do_mock_nao_sobe(self):
+        vazio = criar_engine("sqlite://")
+        with self.assertRaisesRegex(ValueError, "indisponível"):
+            agente.buscar_usuario_no_diretorio("F0001", vazio)
+
+    def test_usuario_do_diretorio_so_usa_o_que_o_catalogo_libera_para_o_cargo(self):
+        ana = self.usuario("F0001")
+        linhas = INDICE + [
+            "LER: atendimento/consultar_cliente",
+            'USAR: consultar_cliente | {"id_cliente": "M00002"}',
+            "FINAL: sem acesso",
+        ]
+        resultado = turno(linhas, ana)
+        self.assertIn("permissao_negada", resultado.trajetoria[2])  # M00002 é da carteira pme
 
 
 class TestEnvExample(unittest.TestCase):
