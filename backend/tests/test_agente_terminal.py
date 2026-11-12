@@ -12,6 +12,7 @@ from unittest import mock
 
 from agentes import terminal
 from agentes.agente_atendimento import agente as motor
+from ferramentas import dados_sinteticos
 from mock.banco import criar_engine
 from mock.falhas import desligar_todas, ligar
 
@@ -96,10 +97,10 @@ class TestDiretorioDoMock(unittest.TestCase):
 
     def setUp(self):
         apoio.limpar()
-        self.engine = apoio.mundo()
+        apoio.mundo()  # liga a fachada de ferramentas ao mock em memória
 
     def buscar(self, id_usuario):
-        return terminal.buscar_usuario_no_diretorio(id_usuario, self.engine)
+        return terminal.buscar_usuario_no_diretorio(id_usuario)
 
     def usuario(self, id_usuario, ambiente_extra=None):
         ambiente = {"ID_USUARIO": id_usuario, **(ambiente_extra or {})}
@@ -138,9 +139,10 @@ class TestDiretorioDoMock(unittest.TestCase):
             self.usuario("F0001")
 
     def test_banco_sem_as_tabelas_do_mock_nao_sobe(self):
-        vazio = criar_engine("sqlite://")
+        dados_sinteticos.configurar(criar_engine("sqlite://"))
+        self.addCleanup(apoio.mundo)  # religa a fachada ao mock de teste: o estado não vaza
         with self.assertRaisesRegex(ValueError, "indisponível"):
-            terminal.buscar_usuario_no_diretorio("F0001", vazio)
+            terminal.buscar_usuario_no_diretorio("F0001")
 
     def test_usuario_do_diretorio_so_usa_o_que_o_catalogo_libera_para_o_cargo(self):
         ana = self.usuario("F0001")
@@ -302,7 +304,8 @@ class TestAgenteEscolhidoNoTerminal(unittest.TestCase):
 
 
 class TestMotorSemMockNemBanco(unittest.TestCase):
-    """I6: o motor não importa mock/, SQLAlchemy, requests nem dotenv; isso é do terminal."""
+    """I6: o motor não importa mock/, SQLAlchemy, requests nem dotenv; isso é do terminal.
+    O terminal lê o diretório pela fachada `ferramentas.dados_sinteticos`, então nada em agentes/ importa mock."""
 
     PROIBIDOS = ("mock", "sqlalchemy", "requests", "dotenv")
 
@@ -323,13 +326,13 @@ class TestMotorSemMockNemBanco(unittest.TestCase):
                 with self.subTest(arquivo=Path(caminho).parent.name, importado=nome):
                     self.assertNotIn(nome.split(".")[0], self.PROIBIDOS)
 
-    def test_o_terminal_e_o_unico_arquivo_de_agentes_que_importa_mock(self):
+    def test_nenhum_arquivo_de_agentes_importa_mock(self):
         com_mock = [
             str(caminho.relative_to(RAIZ))
             for caminho in (RAIZ / "agentes").rglob("*.py")
             if any(nome.split(".")[0] == "mock" for nome in self.modulos_importados(caminho))
         ]
-        self.assertEqual(com_mock, ["agentes/terminal.py"])
+        self.assertEqual(com_mock, [])
 
     def test_o_motor_nao_tem_mais_o_modo_terminal(self):
         for nome in ("conversar_no_terminal", "usuario_do_ambiente", "buscar_usuario_no_diretorio", "chamar_llm"):
