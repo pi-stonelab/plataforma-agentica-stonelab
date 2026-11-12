@@ -29,6 +29,7 @@ MAX_PASSOS = 10         # KAN-38: mais de 10 etapas sem terminar interrompe o tu
 MAX_REPETICOES = 3      # KAN-38: mesma ferramenta e mesmos argumentos 3 vezes seguidas = loop
 MAX_CHARS_MD = 6000     # limite de texto de cada leitura e de cada resultado enviado ao modelo
 MAX_TURNOS_HISTORICO = 10  # quantos pares pergunta/resposta anteriores entram no prompt
+MAX_CHARS_PERGUNTA = 4000  # a pergunta do funcionário é cortada aqui (BAIXO-4 da auditoria A1-A3)
 
 NOME_EMPRESA = "Stone"
 AGENTE_ID = "agente_atendimento"
@@ -122,8 +123,11 @@ class Turno:
     motivo: str | None = None
 
 
-# Caminho e nome só entram na trajetória e no log se tiverem a forma de um caminho do catálogo.
+# Forma de um caminho do catálogo ("area" ou "area/ferramenta"). É só o primeiro filtro: o que vai
+# para o log e a trajetória ainda precisa ser um nome que existe no catálogo (`_alvo_seguro`).
 CAMINHO_SEGURO_RE = re.compile(r"^[a-z0-9_]+(?:/[a-z0-9_]+)?$")
+# execucao_id e agente_id vêm de fora e vão para o log: só letras, dígitos, "_" e "-" (sem quebra de linha).
+IDENTIFICADOR_SEGURO_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 # ---------- ESTADO DE UM ATENDIMENTO ----------
@@ -181,7 +185,7 @@ class Atendimento:
             args = json.loads(argumentos_texto)
             if not isinstance(args, dict):
                 raise TypeError("os argumentos devem ser um objeto JSON")
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, RecursionError) as e:  # RecursionError: JSON aninhado demais
             return f"erro: argumentos inválidos ({e}).", "argumentos inválidos"
 
         contexto = {"agente_id": self.agente_id, "execucao_id": self.execucao_id, "passo": passo}
@@ -236,20 +240,40 @@ def montar_prompt(pergunta, historico, atendimento):
                 + "\n\n".join(atendimento.descricoes_retomadas)
             )
         partes.append(aviso)
-    partes.append(f"Pergunta do funcionário: {pergunta}")
+    texto = pergunta if isinstance(pergunta, str) else str(pergunta)
+    if len(texto) > MAX_CHARS_PERGUNTA:
+        logger.info("pergunta cortada tamanho=%d limite=%d", len(texto), MAX_CHARS_PERGUNTA)
+        texto = texto[:MAX_CHARS_PERGUNTA] + " [pergunta cortada pelo sistema]"
+    partes.append(f"Pergunta do funcionário: {texto}")
     return "\n\n".join(partes)
 
 
+def _nomes_do_catalogo():
+    """Áreas e ferramentas que existem no catálogo: os únicos nomes que podem ir para o log."""
+    ferramentas = catalogo.carregar()
+    return set(ferramentas) | {ferramenta.area for ferramenta in ferramentas.values()}
+
+
 def _alvo_seguro(texto):
-    """Caminho/nome para trajetória e log; qualquer outra coisa vira um marcador."""
-    return texto if CAMINHO_SEGURO_RE.match(texto) else "<fora do padrão>"
+    """Caminho/nome para trajetória e log. Só passa o que existe no catálogo; o resto, mesmo
+    parecido com um caminho (um CPF sem pontos, por exemplo), vira um marcador (MED-3)."""
+    nomes = _nomes_do_catalogo()
+    if CAMINHO_SEGURO_RE.match(texto) and all(parte in nomes for parte in texto.split("/")):
+        return texto
+    return "<desconhecido>"
+
+
+def _identificador_seguro(valor, padrao):
+    """`valor` se tem a forma de um identificador (ver IDENTIFICADOR_SEGURO_RE); senão `padrao`."""
+    texto = str(valor) if valor else ""
+    return texto if IDENTIFICADOR_SEGURO_RE.match(texto) else padrao
 
 
 def _assinatura(nome, argumentos_texto):
     """Identifica 'mesma ferramenta, mesmos argumentos' sem guardar nem logar o conteúdo."""
     try:
         argumentos = json.dumps(json.loads(argumentos_texto), sort_keys=True)
-    except ValueError:
+    except (ValueError, RecursionError):
         argumentos = argumentos_texto.strip()
     return nome, argumentos
 
@@ -302,7 +326,7 @@ class Rodada:
         if self._repetiu(nome, args) >= MAX_REPETICOES:  # KAN-38: para antes de executar a 3ª vez
             return self._parar_por_repeticao(passo, nome)
         obs, resumo = self.atendimento.usar(nome, args, passo)
-        return obs, resumo, nome
+        return obs, resumo, _alvo_seguro(nome)
 
     def _repetiu(self, nome, args):
         """Quantas vezes seguidas esta mesma ferramenta com os mesmos argumentos apareceu."""
@@ -318,7 +342,7 @@ class Rodada:
         )
         logger.warning(
             "passo=%d execucao_id=%s acao=USAR ferramenta=%s repeticao=%d",
-            passo, self.execucao_id, nome, self.repeticoes,
+            passo, self.execucao_id, _alvo_seguro(nome), self.repeticoes,
         )
         return self.terminar(MENSAGEM_REPETICAO, "limite", "repeticao")
 
@@ -368,14 +392,16 @@ def rodar_turno(
     Nenhum argumento de ferramenta, dado devolvido ou texto do funcionário vai para log ou trajetória.
     """
     contexto = contexto if isinstance(contexto, dict) else {}
-    execucao_id = str(contexto.get("execucao_id") or uuid.uuid4().hex)
-    agente_id = str(contexto.get("agente_id") or AGENTE_ID)
+    execucao_id = _identificador_seguro(contexto.get("execucao_id"), uuid.uuid4().hex)
+    agente_id = _identificador_seguro(contexto.get("agente_id"), AGENTE_ID)
     atendimento = Atendimento(usuario, ferramentas_do_agente, execucao_id, agente_id, estado)
     rodada = Rodada(atendimento, execucao_id, agente_id)
     prompt = montar_prompt(pergunta, historico, atendimento)
 
     for passo in range(1, MAX_PASSOS + 1):
         resposta = chamar_modelo(prompt_sistema, prompt)
+        if not isinstance(resposta, str):  # contrato: texto; qualquer outra coisa é resposta inválida
+            resposta = ""
         encontro = ACAO_RE.search(resposta)
         if not encontro:
             obs = rodada.tratar_formato_invalido(passo)

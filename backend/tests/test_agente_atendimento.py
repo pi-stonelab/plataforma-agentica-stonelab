@@ -4,6 +4,7 @@ import json
 import logging
 import unittest
 from unittest import mock
+from uuid import uuid4
 
 from agentes.agente_atendimento import agente
 from ferramentas import governanca
@@ -420,6 +421,100 @@ class TestLgpd(RegistroDeLogs):
     def test_resposta_crua_do_modelo_fora_do_formato_nao_vai_para_o_log(self):
         turno([f"o CPF é {CANARIO}", "LER:", "FINAL: ok"], apoio.n2_financeiro())
         self.assertNotIn(CANARIO, "\n".join(self.mensagens))
+
+
+class TestEntradasHostis(RegistroDeLogs):
+    """Auditoria A1-A3: MED-2, MED-3, BAIXO-4, BAIXO-5 e BAIXO-6."""
+
+    def test_json_aninhado_demais_vira_argumento_invalido_e_o_turno_termina(self):
+        fundo = "[" * 100_000
+        linhas = INDICE + [LER_MULTA, f"USAR: calcular_multa_atraso | {fundo}", "FINAL: ok"]
+        resultado = turno(linhas, apoio.n2_financeiro())
+        self.assertEqual((resultado.tipo, resultado.resposta), ("final", "ok"))
+        self.assertIn("argumentos inválidos", resultado.trajetoria[2])
+        self.assertEqual(governanca.REGISTROS, [])
+        self.assertIn("turno encerrado", self.mensagens[-1])
+
+    def test_json_aninhado_demais_sem_ler_a_ferramenta_tambem_nao_derruba(self):
+        linhas = INDICE + [f"USAR: calcular_multa_atraso | {'[' * 100_000}", "FINAL: ok"]
+        resultado = turno(linhas, apoio.n2_financeiro())
+        self.assertEqual(resultado.tipo, "final")
+        self.assertIn("ferramenta não lida", resultado.trajetoria[1])
+
+    def test_alvo_do_log_so_aceita_nome_do_catalogo(self):
+        cpf = "12345678909"
+        linhas = INDICE + [f"LER: {cpf}", f"LER: atendimento/{cpf}", f"USAR: cpf_{cpf} | {{}}", "FINAL: ok"]
+        resultado = turno(linhas, apoio.n2_financeiro())
+        self.assertEqual(resultado.tipo, "final")
+        saidas = resultado.trajetoria + self.mensagens
+        self.assertTrue(any("alvo=<desconhecido>" in texto for texto in saidas))
+        for texto in saidas:
+            self.assertNotIn(cpf, texto)
+
+    def test_alvo_conhecido_continua_aparecendo(self):
+        for caminho in ("financeiro", "financeiro/calcular_multa_atraso", "calcular_multa_atraso"):
+            self.assertEqual(agente._alvo_seguro(caminho), caminho)
+        for caminho in ("", "financeiro/", "a/b/c", "Financeiro", "financeiro/12345678909"):
+            self.assertEqual(agente._alvo_seguro(caminho), "<desconhecido>")
+
+    def test_repeticao_nao_loga_nome_de_ferramenta_inventado(self):
+        inventada = 'USAR: cpf_12345678909 | {}'
+        resultado = turno(INDICE + [inventada] * 3 + ["FINAL: nunca"], apoio.n2_financeiro())
+        self.assertEqual(resultado.motivo, "repeticao")
+        self.assertNotIn("12345678909", "\n".join(self.mensagens))
+
+    def test_pergunta_gigante_e_cortada_no_limite(self):
+        prompts = []
+        enorme = "x" * (agente.MAX_CHARS_PERGUNTA * 50)
+        agente.rodar_turno(
+            enorme, apoio.n2_financeiro(), apoio.AGENTE_COMPLETO,
+            modelo_roteirizado(["FINAL: x", "LER:", "FINAL: ok"], prompts),
+        )
+        self.assertLess(len(prompts[0]), agente.MAX_CHARS_PERGUNTA + 200)
+        self.assertIn("pergunta cortada pelo sistema", prompts[0])
+        self.assertIn("pergunta cortada", "\n".join(self.mensagens))
+
+    def test_pergunta_dentro_do_limite_vai_inteira(self):
+        prompts = []
+        texto = "y" * agente.MAX_CHARS_PERGUNTA
+        agente.rodar_turno(
+            texto, apoio.n2_financeiro(), apoio.AGENTE_COMPLETO,
+            modelo_roteirizado(["FINAL: x", "LER:", "FINAL: ok"], prompts),
+        )
+        self.assertIn(texto, prompts[0])
+        self.assertNotIn("cortada", prompts[0])
+
+    def test_resposta_do_modelo_que_nao_e_texto_e_resposta_invalida(self):
+        for estranha in (None, 123, ["FINAL: x"], b"FINAL: x"):
+            apoio.limpar()
+            resultado = agente.rodar_turno(
+                "p",
+                apoio.n2_financeiro(),
+                apoio.AGENTE_COMPLETO,
+                modelo_roteirizado([estranha, "LER:", "FINAL: ok"]),
+            )
+            self.assertEqual((resultado.tipo, resultado.resposta), ("final", "ok"))
+            self.assertIn("fora do formato", resultado.trajetoria[0])
+
+    def test_execucao_id_com_quebra_de_linha_nao_chega_ao_log(self):
+        falso = "abc\nFAKE LINHA passo=9 acao=FINAL"
+        resultado = turno(
+            INDICE + [LER_MULTA, MULTA, "FINAL: ok"],
+            apoio.n2_financeiro(),
+            contexto={"execucao_id": falso, "agente_id": "x" * 10_000},
+        )
+        self.assertEqual(resultado.tipo, "final")
+        texto = "\n".join(self.mensagens) + json.dumps(governanca.REGISTROS)
+        self.assertNotIn("FAKE", texto)
+        self.assertNotIn("xxxxxxxx", texto)
+        self.assertEqual(governanca.REGISTROS[-1]["agente_id"], agente.AGENTE_ID)
+        self.assertTrue(agente.IDENTIFICADOR_SEGURO_RE.match(governanca.REGISTROS[-1]["execucao_id"]))
+
+    def test_identificadores_normais_sao_mantidos(self):
+        for valor in ("exec-42", "agente_x", uuid4().hex, str(uuid4())):
+            self.assertEqual(agente._identificador_seguro(valor, "padrao"), valor)
+        for valor in (None, "", "a b", "a\nb", "x" * 65):
+            self.assertEqual(agente._identificador_seguro(valor, "padrao"), "padrao")
 
 
 class TestModoTerminal(unittest.TestCase):
