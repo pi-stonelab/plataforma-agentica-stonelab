@@ -55,3 +55,17 @@ def limpar():
     """Religa o mock e zera registros, destinos, falhas e pedidos de ferramenta entre os testes."""
     mundo()
     limpar_estado()
+
+
+def modelo_roteirizado(linhas, prompts=None, sistemas=None):
+    """Devolve as linhas em ordem. Se `prompts` ou `sistemas` forem listas, guarda o que chegou."""
+    respostas = iter(linhas)
+
+    def chamar(prompt_sistema, prompt):
+        if sistemas is not None:
+            sistemas.append(prompt_sistema)
+        if prompts is not None:
+            prompts.append(prompt)
+        return next(respostas)
+
+    return chamar

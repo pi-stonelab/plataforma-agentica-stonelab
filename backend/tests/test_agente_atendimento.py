@@ -13,6 +13,7 @@ from mock.banco import criar_engine
 from mock.falhas import desligar_todas, ligar
 
 from . import apoio_agente as apoio
+from .apoio_agente import modelo_roteirizado
 
 MULTA = 'USAR: calcular_multa_atraso | {"valor_fatura": 1000, "dias_atraso": 30}'
 CLIENTE_FORA = 'USAR: consultar_cliente | {"id_cliente": "M00002"}'
@@ -21,18 +22,6 @@ CLIENTE_FORA = 'USAR: consultar_cliente | {"id_cliente": "M00002"}'
 CANARIO = "CANARIO-123"
 INDICE = ["LER:"]
 LER_MULTA = "LER: financeiro/calcular_multa_atraso"
-
-
-def modelo_roteirizado(linhas, prompts=None):
-    """Devolve as linhas em ordem; se `prompts` for uma lista, guarda cada prompt recebido."""
-    respostas = iter(linhas)
-
-    def chamar(prompt_sistema, prompt):
-        if prompts is not None:
-            prompts.append(prompt)
-        return next(respostas)
-
-    return chamar
 
 
 def rodar(linhas, usuario):
