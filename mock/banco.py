@@ -1,5 +1,6 @@
 """Engine e criação das tabelas do mock. Mexe só na metadata do mock (`BaseMock`)."""
 
+import os
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine
@@ -8,6 +9,9 @@ from sqlalchemy.exc import ArgumentError
 from sqlalchemy.pool import StaticPool
 
 from . import modelos
+
+VARIAVEL_DO_BANCO = "MOCK_DATABASE_URL"
+VARIAVEL_DA_PLATAFORMA = "DATABASE_URL"
 
 # Relativo à raiz do repositório (não ao diretório onde o comando roda).
 RAIZ_DO_REPO = Path(__file__).resolve().parent.parent
@@ -30,11 +34,19 @@ def criar_engine(url: str) -> Engine:
 
 
 def url_padrao() -> str:
-    """SQLite local em dados_locais/ na raiz do repo (a pasta é criada).
+    """URL do banco do mock: a variável `MOCK_DATABASE_URL`, se declarada; senão o SQLite local.
 
-    Não usa `DATABASE_URL`: essa variável aponta para o banco da plataforma, e recriar o mock
-    apaga tabelas (ALTO-2 da auditoria A1-A3). Outro banco só com `--url` e a flag explícita.
+    O SQLite local fica em dados_locais/ na raiz do repo (a pasta é criada). `DATABASE_URL` nunca é
+    lida: ela aponta para o banco da plataforma, e recriar o mock apaga tabelas (ALTO-2 da auditoria
+    A1-A3). Por isso a URL declarada não pode ser igual à da plataforma. Um banco que não é SQLite
+    ainda exige `--permitir-banco-externo` no gerador (`mock.gerar`). Uma fonte só: o gerador, a
+    fachada das ferramentas e o diretório de funcionários usam esta função.
     """
+    declarada = os.environ.get(VARIAVEL_DO_BANCO, "").strip()
+    if declarada:
+        if declarada == os.environ.get(VARIAVEL_DA_PLATAFORMA, "").strip():
+            raise ValueError(f"{VARIAVEL_DO_BANCO} não pode ser o banco da plataforma.")
+        return declarada
     PASTA_LOCAL.mkdir(exist_ok=True)
     return f"sqlite:///{CAMINHO_LOCAL_PADRAO.as_posix()}"
 

@@ -10,19 +10,29 @@ Stone. Fonte das regras: DOC-MOCK (`§` nos comentários do código). Esta é a 
   (`CLASSIFICACAO_CAMPOS`, chaveada pelo NOME DO CAMPO que as consultas devolvem; os campos livres ficam em
   `CAMPOS_NAO_RESTRITOS`; campo fora das duas listas sai mascarado) e taxas. Cargo desconhecido: `regra_do_cargo` devolve `None` (quem chama nega).
 - `modelos.py`: tabelas SQLAlchemy (`BaseMock`, separada da `Base` do back-end). Dinheiro em centavos.
-- `banco.py`: `criar_engine`, `url_padrao`, `criar_tabelas`, `apagar_tabelas` (só mexem nas tabelas do mock).
+- `banco.py`: `criar_engine`, `url_padrao` (lê `MOCK_DATABASE_URL`), `criar_tabelas`, `apagar_tabelas` (só mexem nas tabelas do mock).
 - `gerar.py`: recria o mundo do zero, sempre igual (semente fixa, sem Faker).
 - `consultas.py`: o "conector": leituras com teto de 50 linhas e só as colunas necessárias. Não decide permissão. Já calcula `dias_em_atraso` (faturas) e `dias_em_aberto` (chamados) a partir de `HOJE_DO_MOCK`, e `buscar_interacoes` exige o lojista dono do chamado.
 - `falhas.py`: sistema "fora do ar" (`cadastro`, `core`, `cobranca`, `crm`, `diretorio`).
 
 ## Como recriar
-    python -m mock.gerar                     # SQLite em dados_locais/mock.sqlite (raiz do repo); ignora DATABASE_URL
+    python -m mock.gerar                     # MOCK_DATABASE_URL, se declarada; senão SQLite em dados_locais/mock.sqlite; ignora DATABASE_URL
     python -m mock.gerar --sim               # idem, sem perguntar antes de apagar
     python -m mock.gerar --url sqlite://     # só confere que o mundo gera (memória)
     python -m mock.gerar --url <outro banco> --permitir-banco-externo   # só de propósito
 Recriar APAGA e refaz as tabelas do mock (as outras tabelas do banco ficam como estão) e pede um "sim"
 antes, salvo com `--sim` ou em memória. URL que não é SQLite só com `--permitir-banco-externo`.
 Falha: `MOCK_FALHAS=core,crm` deixa esses sistemas fora do ar (testes usam `ligar` e `desligar`).
+
+## Qual banco o mock usa (`MOCK_DATABASE_URL`)
+Uma variável própria, lida num lugar só (`banco.url_padrao`) e usada pelo gerador, pela fachada das
+ferramentas (`ferramentas/dados_sinteticos.py`) e pelo diretório de funcionários:
+- sem declarar: SQLite local em `dados_locais/mock.sqlite` (fora do Git);
+- `MOCK_DATABASE_URL=<url>` no `.env` aponta o mock para outro banco. Se não for SQLite, o gerador só
+  recria com `--permitir-banco-externo` (recriar apaga as tabelas do mock nesse banco);
+- `DATABASE_URL` é o banco da PLATAFORMA e é sempre ignorada. Declarar a mesma URL nas duas variáveis é
+  recusado (o gerador sai com 2). Use um banco ou schema separado para o mock.
+- `--url` no gerador vence a variável. URL inválida nunca é repetida em mensagem de erro.
 
 ## Cenários plantados (códigos fixos)
 - 1 (M00001, Padaria Pão da Vila, ME, varejo): conta de recebimento `invalida`; liquidação de 14/10/2026 de
