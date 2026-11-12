@@ -91,6 +91,9 @@ MENSAGEM_REPETICAO = (
     "Interrompi a consulta: repeti a mesma ferramenta com os mesmos dados "
     f"{MAX_REPETICOES} vezes seguidas. Tente reformular o pedido ou abra um chamado interno."
 )
+MENSAGEM_MODELO_INDISPONIVEL = (
+    "O modelo está indisponível no momento. Tente novamente em instantes ou abra um chamado interno."
+)
 MENSAGEM_LIMITE_TEMPO = (
     "Não consegui concluir a consulta no tempo previsto para um atendimento. "
     "Tente reformular o pedido ou abra um chamado interno."
@@ -135,13 +138,20 @@ def usuario_do_ambiente(ambiente=os.environ, buscar_no_diretorio=buscar_usuario_
     return usuario
 
 
+class ModeloIndisponivel(Exception):
+    """O modelo não respondeu (conexão, timeout, resposta ilegível). A mensagem é sempre genérica:
+    ela nunca leva o endereço do modelo. Quem chama o modelo pode levantar esta exceção, mas o
+    motor trata qualquer `Exception` do `chamar_modelo` do mesmo jeito (veja `parar_por_modelo`)."""
+
+
 # ---------- RESULTADO DE UM TURNO ----------
 @dataclass
 class Turno:
     """O que o back-end recebe de volta.
 
     tipo: "final" (resposta pronta), "pergunta" (o agente precisa de um dado do funcionário)
-    ou "limite" (KAN-38: passos ou repetições estouraram; `motivo` diz qual).
+    ou "limite" (`motivo` diz qual: "max_passos" e "repeticao" são da KAN-38; "tempo" é o prazo
+    do turno; "modelo_indisponivel" é o modelo que não respondeu).
     trajetoria: só ação + nome/caminho + status; nunca argumentos, dados ou textos do funcionário.
     estado: dicionário JSON para o próximo turno, depois de uma "pergunta".
     """
@@ -186,6 +196,9 @@ class Atendimento:
                 self.descricoes_retomadas.append(f"[{caminho}]\n{texto}")
 
     def estado(self):
+        """Estado para o próximo turno. `indice_lido` só economiza o passo de reler o índice: quem
+        forja um estado com ele verdadeiro pula esse passo e nada mais, porque a autorização é
+        refeita no catálogo a cada caminho (BAIXO-1 da auditoria B)."""
         return {"indice_lido": self.indice_lido, "ferramentas_lidas": list(self.caminhos_lidos)}
 
     def ler(self, caminho):
@@ -234,8 +247,13 @@ def montar_headers():
     }
 
 
-def chamar_llm(prompt_sistema: str, prompt: str) -> str:
-    """Chamada direta ao Ollama, para o terminal. No produto quem chama é o `LLMClient` do back-end."""
+def chamar_llm(prompt_sistema: str, prompt: str, tempo_limite: float = 120) -> str:
+    """Chamada direta ao Ollama, para o terminal. No produto quem chama é o `LLMClient` do back-end.
+
+    `tempo_limite` (segundos) é o timeout da chamada; o motor passa o que sobra do turno. Falha de
+    rede ou resposta ilegível vira `ModeloIndisponivel` com mensagem genérica: a do `requests`
+    traria a URL do modelo.
+    """
     if not LLM_URL:
         raise RuntimeError("Defina LLM_URL no .env para usar o modelo direto (modo terminal).")
     payload = {
@@ -246,11 +264,17 @@ def chamar_llm(prompt_sistema: str, prompt: str) -> str:
         "think": False,
         "options": {"temperature": 0, "stop": [PARADA_DO_MODELO]},
     }
-    r = requests.post(
-        f"{LLM_URL}/api/generate", headers=montar_headers(), json=payload, timeout=120
-    )
-    r.raise_for_status()
-    texto = r.json()["response"]
+    headers = montar_headers()  # fora do try: credencial ausente é erro de configuração
+    try:
+        r = requests.post(
+            f"{LLM_URL}/api/generate", headers=headers, json=payload, timeout=tempo_limite
+        )
+        r.raise_for_status()
+        texto = r.json()["response"]
+    except (requests.RequestException, ValueError, KeyError):
+        raise ModeloIndisponivel("Modelo indisponível.") from None
+    if not isinstance(texto, str):
+        raise ModeloIndisponivel("Modelo indisponível.")
     return re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
 
 
@@ -361,7 +385,11 @@ class Rodada:
         return obs, resumo, _alvo_seguro(nome)
 
     def _repetiu(self, nome, args):
-        """Quantas vezes seguidas esta mesma ferramenta com os mesmos argumentos apareceu."""
+        """Quantas vezes seguidas esta mesma ferramenta com os mesmos argumentos apareceu.
+
+        Limitação conhecida (KAN-69, A-11, aceita): alternar A, B, A, B zera a contagem a cada
+        troca e não aciona esta regra; só o teto de MAX_PASSOS e o prazo do turno param esse laço.
+        """
         assinatura = _assinatura(nome, args)
         self.repeticoes = self.repeticoes + 1 if assinatura == self.ultima_assinatura else 1
         self.ultima_assinatura = assinatura
@@ -383,6 +411,16 @@ class Rodada:
         self.trajetoria.append(f"Passo {passo}: limite: tempo do turno esgotado")
         logger.warning("passo=%d execucao_id=%s limite de tempo do turno", passo, self.execucao_id)
         return self.terminar(MENSAGEM_LIMITE_TEMPO, "limite", "tempo")
+
+    def parar_por_modelo(self, passo, erro):
+        """O `chamar_modelo` levantou uma exceção. Só o TIPO dela vai para o log: a mensagem de
+        uma exceção de rede costuma trazer a URL do modelo, e a URL nunca sai daqui (BAIXO-2)."""
+        self.trajetoria.append(f"Passo {passo}: modelo indisponível")
+        logger.warning(
+            "passo=%d execucao_id=%s modelo indisponivel tipo_erro=%s",
+            passo, self.execucao_id, type(erro).__name__,
+        )
+        return self.terminar(MENSAGEM_MODELO_INDISPONIVEL, "limite", "modelo_indisponivel")
 
     def tratar_perguntar(self, passo, primeira_linha):
         """Encerra o turno; o funcionário responde no turno seguinte."""
@@ -463,10 +501,15 @@ def rodar_turno(
         restante = prazo - relogio()
         if restante <= 0:
             return rodada.parar_por_tempo(passo)
-        if informar_tempo:
-            resposta = chamar_modelo(prompt_sistema, prompt, tempo_limite=restante)
-        else:
-            resposta = chamar_modelo(prompt_sistema, prompt)
+        try:
+            if informar_tempo:
+                resposta = chamar_modelo(prompt_sistema, prompt, tempo_limite=restante)
+            else:
+                resposta = chamar_modelo(prompt_sistema, prompt)
+        except Exception as erro:  # noqa: BLE001 - qualquer falha do modelo encerra o turno
+            if relogio() >= prazo:  # o timeout que demos ao modelo foi o do prazo do turno
+                return rodada.parar_por_tempo(passo)
+            return rodada.parar_por_modelo(passo, erro)
         if relogio() >= prazo:  # a chamada passou do prazo: a resposta dela não vira ação
             return rodada.parar_por_tempo(passo)
         if not isinstance(resposta, str):  # contrato: texto; qualquer outra coisa é resposta inválida

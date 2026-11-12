@@ -464,6 +464,152 @@ class TestLimiteDeTempo(RegistroDeLogs):
         self.assertNotIn(CANARIO, "\n".join(saidas))
 
 
+URL_DO_MODELO = "https://modelo-secreto.exemplo.invalid"
+
+
+def modelo_que_falha(erro):
+    def chamar(prompt_sistema, prompt):
+        raise erro
+
+    return chamar
+
+
+class TestModeloIndisponivel(RegistroDeLogs):
+    """BAIXO-2 da auditoria B: falha do modelo não sobe, e a URL dele nunca aparece."""
+
+    def rodar_com_falha(self, erro):
+        modelo = modelo_que_falha(erro)
+        return agente.rodar_turno(
+            "pergunta de teste", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, modelo
+        )
+
+    def test_excecao_do_modelo_vira_limite_sem_subir(self):
+        for erro in (
+            ConnectionError(f"falha ao conectar em {URL_DO_MODELO}/api/generate"),
+            TimeoutError(URL_DO_MODELO),
+            agente.requests.exceptions.ReadTimeout(f"{URL_DO_MODELO} demorou"),
+            RuntimeError("qualquer outra falha"),
+        ):
+            with self.subTest(erro=type(erro).__name__):
+                resultado = self.rodar_com_falha(erro)
+                self.assertEqual((resultado.tipo, resultado.motivo), ("limite", "modelo_indisponivel"))
+                self.assertEqual(resultado.resposta, agente.MENSAGEM_MODELO_INDISPONIVEL)
+                self.assertIn("modelo indisponível", resultado.trajetoria[-1])
+
+    def test_a_url_nao_aparece_em_resposta_trajetoria_nem_log_e_o_log_so_tem_o_tipo(self):
+        erro = ConnectionError(f"Max retries exceeded with url: {URL_DO_MODELO}/api/generate")
+        resultado = self.rodar_com_falha(erro)
+        saidas = "\n".join([resultado.resposta, *resultado.trajetoria, *self.mensagens])
+        self.assertNotIn("modelo-secreto", saidas)
+        self.assertNotIn("Max retries", saidas)
+        self.assertTrue(any("tipo_erro=ConnectionError" in linha for linha in self.mensagens))
+
+    def test_falha_depois_do_prazo_conta_como_tempo(self):
+        relogio = RelogioFalso()
+
+        def modelo(prompt_sistema, prompt):
+            relogio.passar(130)
+            raise TimeoutError(URL_DO_MODELO)
+
+        resultado = agente.rodar_turno(
+            "p", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, modelo, relogio=relogio
+        )
+        self.assertEqual(resultado.motivo, "tempo")
+
+    def resposta_http(self, **atributos):
+        resposta = mock.Mock()
+        resposta.raise_for_status.side_effect = atributos.get("erro_http")
+        resposta.json.side_effect = atributos.get("erro_json")
+        if "corpo" in atributos:
+            resposta.json.return_value = atributos["corpo"]
+        return resposta
+
+    def chamar_llm_com(self, **configuracao):
+        ambiente = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "segredo"}
+        with (
+            mock.patch.dict("os.environ", ambiente),
+            mock.patch.object(agente, "LLM_URL", URL_DO_MODELO),
+            mock.patch.object(agente.requests, "post", **configuracao),
+        ):
+            return agente.chamar_llm("sistema", "prompt")
+
+    def test_chamar_llm_troca_o_erro_de_rede_por_mensagem_generica(self):
+        rede = agente.requests.exceptions
+        falhas = (
+            {"side_effect": rede.ConnectionError(f"HTTPSConnectionPool(host='{URL_DO_MODELO}')")},
+            {"side_effect": rede.ReadTimeout(f"{URL_DO_MODELO} Read timed out")},
+            {"return_value": self.resposta_http(erro_http=rede.HTTPError(f"502 para url: {URL_DO_MODELO}"))},
+            {"return_value": self.resposta_http(erro_json=ValueError(URL_DO_MODELO))},
+            {"return_value": self.resposta_http(corpo={"sem_resposta": 1})},
+            {"return_value": self.resposta_http(corpo={"response": 123})},
+        )
+        for configuracao in falhas:
+            with self.subTest(configuracao=list(configuracao)):
+                with self.assertRaises(agente.ModeloIndisponivel) as contexto:
+                    self.chamar_llm_com(**configuracao)
+                self.assertNotIn("modelo-secreto", str(contexto.exception))
+                self.assertIsNone(contexto.exception.__cause__)
+                erro = contexto.exception
+                self.assertTrue(erro.__suppress_context__ or erro.__context__ is None)
+
+    def test_chamar_llm_usa_o_tempo_recebido_como_timeout(self):
+        resposta = self.resposta_http(corpo={"response": "FINAL: ok"})
+        ambiente = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "segredo"}
+        with (
+            mock.patch.dict("os.environ", ambiente),
+            mock.patch.object(agente, "LLM_URL", URL_DO_MODELO),
+            mock.patch.object(agente.requests, "post", return_value=resposta) as post,
+        ):
+            agente.chamar_llm("sistema", "prompt", tempo_limite=17.5)
+        self.assertEqual(post.call_args.kwargs["timeout"], 17.5)
+
+    def test_turno_com_chamar_llm_reaproveita_o_tempo_que_sobra(self):
+        relogio = RelogioFalso()
+        tempos = []
+
+        def post(*_, **kwargs):
+            tempos.append(kwargs["timeout"])
+            relogio.passar(40)
+            return self.resposta_http(corpo={"response": "LER:"})
+
+        ambiente = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "segredo"}
+        with (
+            mock.patch.dict("os.environ", ambiente),
+            mock.patch.object(agente, "LLM_URL", URL_DO_MODELO),
+            mock.patch.object(agente.requests, "post", side_effect=post),
+        ):
+            resultado = agente.rodar_turno(
+                "p", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, agente.chamar_llm,
+                relogio=relogio,
+            )
+        self.assertEqual(tempos, [120, 80, 40])
+        self.assertEqual(resultado.motivo, "tempo")
+
+
+class TestLimitacoesConhecidas(unittest.TestCase):
+    def setUp(self):
+        apoio.limpar()
+
+    def test_alternar_duas_chamadas_nao_aciona_a_regra_de_repeticao(self):
+        """KAN-69 A-11 (aceita): só o teto de passos para o laço A, B, A, B."""
+        outra = 'USAR: calcular_multa_atraso | {"valor_fatura": 2000, "dias_atraso": 30}'
+        linhas = INDICE + [LER_MULTA] + [MULTA, outra] * 4
+        resultado = turno(linhas, apoio.coordenador_financeiro())
+        self.assertEqual(resultado.motivo, "max_passos")
+
+    def test_indice_lido_forjado_so_economiza_o_passo_e_nao_libera_nada(self):
+        forjado = {"indice_lido": True, "ferramentas_lidas": ["financeiro/consultar_transacoes_cliente"]}
+        linhas = [
+            'USAR: consultar_transacoes_cliente | {"id_cliente": "M00001"}',
+            "FINAL: sem acesso",
+        ]
+        resultado = turno(linhas, apoio.analista_cobranca(), estado=forjado)
+        self.assertEqual(resultado.tipo, "final")  # pulou o índice
+        self.assertIn("ferramenta não lida", resultado.trajetoria[0])
+        self.assertEqual(governanca.REGISTROS, [])
+        self.assertEqual(resultado.estado["ferramentas_lidas"], [])
+
+
 class TestLgpd(RegistroDeLogs):
     def test_argumentos_dados_e_resposta_do_funcionario_nao_vazam(self):
         cliente = f'USAR: consultar_cliente | {{"id_cliente": "{CANARIO}"}}'
