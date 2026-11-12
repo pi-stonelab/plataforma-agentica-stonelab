@@ -23,7 +23,7 @@ def modelo_roteirizado(linhas, prompts=None):
     """Devolve as linhas em ordem; se `prompts` for uma lista, guarda cada prompt recebido."""
     respostas = iter(linhas)
 
-    def chamar(prompt):
+    def chamar(prompt_sistema, prompt):
         if prompts is not None:
             prompts.append(prompt)
         return next(respostas)
@@ -161,7 +161,7 @@ class TestLoopDoAgente(unittest.TestCase):
 
     def test_estouro_de_passos_devolve_mensagem_padrao(self):
         final, trajetoria = agente.agente(
-            "pergunta", apoio.n2_financeiro(), lambda prompt: "LER:"
+            "pergunta", apoio.n2_financeiro(), lambda prompt_sistema, prompt: "LER:"
         )
         self.assertIn("Não consegui concluir", final)
         self.assertEqual(len(trajetoria), agente.MAX_PASSOS)
@@ -172,6 +172,52 @@ class TestLoopDoAgente(unittest.TestCase):
             "p", apoio.n2_financeiro(), modelo_roteirizado(linhas), ("calcular_multa_atraso",)
         )
         self.assertEqual(final, "ok")
+
+
+class TestPromptDeSistema(unittest.TestCase):
+    def setUp(self):
+        apoio.limpar()
+
+    def test_cada_chamada_ao_modelo_leva_o_protocolo(self):
+        recebidos = []
+
+        def modelo(prompt_sistema, prompt):
+            recebidos.append(prompt_sistema)
+            return "LER:" if len(recebidos) == 1 else "FINAL: ok"
+
+        resultado = agente.rodar_turno("p", apoio.n2_financeiro(), apoio.AGENTE_COMPLETO, modelo)
+        self.assertEqual(resultado.resposta, "ok")
+        self.assertEqual(recebidos, [agente.SISTEMA, agente.SISTEMA])
+        for acao in ("LER:", "USAR:", "PERGUNTAR:", "FINAL:"):
+            self.assertIn(acao, agente.SISTEMA)
+
+    def test_agente_pode_ter_prompt_de_sistema_proprio(self):
+        recebidos = []
+
+        def modelo(prompt_sistema, prompt):
+            recebidos.append(prompt_sistema)
+            return "FINAL: x" if len(recebidos) > 1 else "LER:"
+
+        agente.rodar_turno(
+            "p", apoio.n2_financeiro(), apoio.AGENTE_COMPLETO, modelo, prompt_sistema="outro"
+        )
+        self.assertEqual(set(recebidos), {"outro"})
+
+    def test_chamar_llm_envia_o_sistema_e_a_parada(self):
+        resposta = mock.Mock()
+        resposta.json.return_value = {"response": "<think>x</think>FINAL: ok"}
+        ambiente = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "segredo"}
+        with (
+            mock.patch.dict("os.environ", ambiente),
+            mock.patch.object(agente, "BASE_URL", "http://modelo.teste"),
+            mock.patch.object(agente.requests, "post", return_value=resposta) as post,
+        ):
+            texto = agente.chamar_llm("SISTEMA DE TESTE", "prompt de teste")
+        enviado = post.call_args.kwargs["json"]
+        self.assertEqual(texto, "FINAL: ok")
+        self.assertEqual(enviado["system"], "SISTEMA DE TESTE")
+        self.assertEqual(enviado["prompt"], "prompt de teste")
+        self.assertEqual(enviado["options"]["stop"], [agente.PARADA_DO_MODELO])
 
 
 class TestTurno(unittest.TestCase):
@@ -278,7 +324,7 @@ class TestLimitesKan38(unittest.TestCase):
         self.assertEqual(agente.MAX_PASSOS, 10)
         chamadas = []
         resultado = agente.rodar_turno(
-            "p", apoio.n2_financeiro(), apoio.AGENTE_COMPLETO, lambda p: chamadas.append(p) or "LER:"
+            "p", apoio.n2_financeiro(), apoio.AGENTE_COMPLETO, lambda sistema, p: chamadas.append(p) or "LER:"
         )
         self.assertEqual((resultado.tipo, resultado.motivo), ("limite", "max_passos"))
         self.assertEqual(len(chamadas), 10)

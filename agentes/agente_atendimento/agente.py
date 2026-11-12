@@ -67,6 +67,9 @@ Regras de trabalho (siga esta ordem):
 7. Se a ferramenta devolver erro de parâmetro ou "não encontrado" para um dado (ex.: cliente inexistente), corrija o que for seu ou use PERGUNTAR. Nunca invente dados de clientes, valores ou prazos; use somente o que as ferramentas devolverem.
 8. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
 SISTEMA = SISTEMA.replace("{EMPRESA}", NOME_EMPRESA)
+# O modelo deve parar aqui, senão inventa o resultado da ferramenta. Todo `chamar_modelo` (inclusive o
+# `LLMClient` do back-end) precisa passar isto como "stop" ao Ollama.
+PARADA_DO_MODELO = "Observação:"
 
 MENSAGEM_LIMITE_PASSOS = (
     f"Não consegui concluir a consulta em {MAX_PASSOS} passos. "
@@ -197,17 +200,15 @@ def montar_headers():
     }
 
 
-def chamar_llm(prompt: str) -> str:
+def chamar_llm(prompt_sistema: str, prompt: str) -> str:
+    """Chamada direta ao Ollama, para o terminal. No produto quem chama é o `LLMClient` do back-end."""
     payload = {
         "model": MODELO,
-        "system": SISTEMA,
+        "system": prompt_sistema,
         "prompt": prompt,
         "stream": False,
         "think": False,
-        "options": {
-            "temperature": 0,
-            "stop": ["Observação:"],  # impede o modelo de inventar o resultado
-        },
+        "options": {"temperature": 0, "stop": [PARADA_DO_MODELO]},
     }
     r = requests.post(
         f"{BASE_URL}/api/generate", headers=montar_headers(), json=payload, timeout=120
@@ -350,13 +351,16 @@ def rodar_turno(
     pergunta: str,
     usuario,
     ferramentas_do_agente: Sequence[str],
-    chamar_modelo: Callable[[str], str],
+    chamar_modelo: Callable[[str, str], str],
     historico: Sequence[tuple[str, str]] = (),
     estado: dict | None = None,
     contexto: dict | None = None,
+    prompt_sistema: str = SISTEMA,
 ) -> Turno:
     """Roda um turno: até MAX_PASSOS chamadas ao modelo e devolve um `Turno`.
 
+    `chamar_modelo(prompt_sistema, prompt)` devolve o texto do modelo. O prompt de sistema (o
+    protocolo LER/USAR/PERGUNTAR/FINAL) vai a cada chamada; assim qualquer cliente de modelo serve.
     `historico`: pares (mensagem do funcionário, resposta do agente) dos turnos anteriores.
     `estado`: o `Turno.estado` do turno anterior, quando ele terminou em "pergunta"; sem ele
     (conversa nova) o agente precisa ler o índice e as ferramentas de novo.
@@ -371,7 +375,7 @@ def rodar_turno(
     prompt = montar_prompt(pergunta, historico, atendimento)
 
     for passo in range(1, MAX_PASSOS + 1):
-        resposta = chamar_modelo(prompt)
+        resposta = chamar_modelo(prompt_sistema, prompt)
         encontro = ACAO_RE.search(resposta)
         if not encontro:
             obs = rodada.tratar_formato_invalido(passo)
@@ -396,9 +400,14 @@ def rodar_turno(
     return rodada.terminar(MENSAGEM_LIMITE_PASSOS, "limite", "max_passos")
 
 
-def agente(pergunta, usuario, chamar_modelo=chamar_llm, ferramentas_do_agente=FERRAMENTAS_DO_AGENTE):
+def agente(
+    pergunta, usuario, chamar_modelo=chamar_llm, ferramentas_do_agente=FERRAMENTAS_DO_AGENTE,
+    prompt_sistema=SISTEMA,
+):
     """Um turno sem histórico, para o terminal e os testes. Devolve (resposta, trajetoria)."""
-    turno = rodar_turno(pergunta, usuario, ferramentas_do_agente, chamar_modelo)
+    turno = rodar_turno(
+        pergunta, usuario, ferramentas_do_agente, chamar_modelo, prompt_sistema=prompt_sistema
+    )
     return turno.resposta, turno.trajetoria
 
 
