@@ -339,7 +339,7 @@ class TestMotorSemMockNemBanco(unittest.TestCase):
             self.assertFalse(hasattr(motor, nome), nome)
 
     def test_python_dash_m_do_motor_continua_mostrando_o_aviso_de_modo_desligado(self):
-        ambiente = {k: v for k, v in os.environ.items() if k != "MODO_TERMINAL"}
+        ambiente = {**os.environ, "MODO_TERMINAL": "0"}  # o .env de quem desenvolve não liga o terminal
         resultado = subprocess.run(
             [sys.executable, "-m", "agentes.agente_atendimento.agente"],
             cwd=RAIZ, env=ambiente, capture_output=True, text=True, timeout=60, check=False,
@@ -348,7 +348,7 @@ class TestMotorSemMockNemBanco(unittest.TestCase):
         self.assertIn("MODO_TERMINAL=1", resultado.stderr)
 
     def test_python_dash_m_terminal_aceita_o_argumento_geral(self):
-        ambiente = {k: v for k, v in os.environ.items() if k != "MODO_TERMINAL"}
+        ambiente = {**os.environ, "MODO_TERMINAL": "0"}  # o .env de quem desenvolve não liga o terminal
         resultado = subprocess.run(
             [sys.executable, "-m", "agentes.terminal", "geral"],
             cwd=RAIZ, env=ambiente, capture_output=True, text=True, timeout=60, check=False,
