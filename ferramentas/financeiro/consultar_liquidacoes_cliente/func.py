@@ -23,18 +23,12 @@ class ConsultarLiquidacoesCliente(Ferramenta):
     }
 
     def rodar(self, argumentos, usuario):
-        codigo = argumentos["id_cliente"]
-        data_inicio = argumentos.get("data_inicio")
-        data_fim = argumentos.get("data_fim")
-        limite = lojista.limite_pedido(argumentos)
-        lojista.conferir_ordem_das_datas(data_inicio, data_fim)
-        lojista.exigir_acesso(usuario, codigo)
-        data_inicio, data_fim = lojista.periodo_permitido(usuario, data_inicio, data_fim)  # O4
+        pedido = lojista.preparar(usuario, argumentos, com_periodo=True)
         liquidacoes, total = dados_sinteticos.buscar_liquidacoes(
-            codigo, data_inicio, data_fim, limite
+            pedido.codigo, pedido.data_inicio, pedido.data_fim, pedido.limite
         )
         return {
-            "codigo": codigo,
+            "codigo": pedido.codigo,
             "liquidacoes": liquidacoes,
             "total_encontrado": total,
             "truncado": total > len(liquidacoes),

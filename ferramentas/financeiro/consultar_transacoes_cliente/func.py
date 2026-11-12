@@ -21,18 +21,14 @@ class ConsultarTransacoesCliente(Ferramenta):
     }
 
     def rodar(self, argumentos, usuario):
-        codigo = argumentos["id_cliente"]
-        data_inicio = argumentos.get("data_inicio")
-        data_fim = argumentos.get("data_fim")
-        limite = lojista.limite_pedido(argumentos)
-        lojista.conferir_ordem_das_datas(data_inicio, data_fim)
-        lojista.exigir_acesso(usuario, codigo)
-        data_inicio, data_fim = lojista.periodo_permitido(usuario, data_inicio, data_fim)
-        if dados_sinteticos.buscar_cliente(codigo) is None:
+        pedido = lojista.preparar(usuario, argumentos, com_periodo=True)
+        if dados_sinteticos.buscar_cliente(pedido.codigo) is None:
             raise ErroFerramenta("nao_encontrado", "Lojista não encontrado.")
-        vendas, total = dados_sinteticos.buscar_transacoes(codigo, data_inicio, data_fim, limite)
+        vendas, total = dados_sinteticos.buscar_transacoes(
+            pedido.codigo, pedido.data_inicio, pedido.data_fim, pedido.limite
+        )
         return {
-            "codigo": codigo,
+            "codigo": pedido.codigo,
             "transacoes": vendas,
             "total_encontrado": total,
             "truncado": total > len(vendas),

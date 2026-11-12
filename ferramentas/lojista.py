@@ -3,9 +3,17 @@
 Quem decide é a governança (função pura); aqui só se busca a carteira do lojista e se traduz a
 decisão em erro. Lojista inexistente e lojista fora do escopo têm a MESMA resposta, para ninguém
 descobrir por tentativa quais códigos existem (O13, A-15).
+
+Vocabulário (I1 da crítica B): "cliente" e "lojista" são a mesma pessoa jurídica. O parâmetro que o
+MODELO preenche se chama `id_cliente` (nome da ficha original, o que a Stone chama de cliente); o
+valor dele é sempre o código do lojista, como `M00001`. Por dentro (mock, fachada, governança) o
+mesmo valor se chama `codigo` (ou `codigo_lojista` quando há outro código por perto, como o do
+chamado) e, nas colunas das tabelas, `id_lojista`. Nas ferramentas, `codigo = argumentos["id_cliente"]`
+faz a ponte; `preparar` é o único lugar que lê o `id_cliente` das ferramentas que a usam.
 """
 
 import re
+from collections import namedtuple
 
 from mock import regras
 
@@ -59,3 +67,26 @@ def conferir_ordem_das_datas(data_inicio, data_fim):
     """data_inicio depois de data_fim é parâmetro inválido (as duas são opcionais)."""
     if data_inicio and data_fim and data_inicio > data_fim:
         raise ErroFerramenta("parametro_invalido", "A data_inicio vem depois da data_fim.")
+
+
+# O que as ferramentas de lojista precisam depois das checagens: já validado e dentro do escopo.
+PedidoDoLojista = namedtuple("PedidoDoLojista", "codigo data_inicio data_fim limite")
+
+
+def preparar(usuario, argumentos, *, com_periodo=False, limite_padrao=LIMITE_PADRAO):
+    """Todas as checagens de uma ferramenta de lojista, sempre na mesma ordem (I7 da crítica B).
+
+    1. `limite`; 2. ordem das datas (só `com_periodo`); 3. acesso ao lojista (formato, existência e
+    escopo); 4. janela de dias do cargo (só `com_periodo`). Parâmetro inválido vem antes do acesso
+    de propósito, e o acesso vem antes de qualquer consulta. Ferramenta nova de lojista chama esta
+    função primeiro: assim não dá para esquecer `exigir_acesso`.
+    """
+    codigo = argumentos["id_cliente"]
+    limite = limite_pedido(argumentos, limite_padrao)
+    data_inicio = argumentos.get("data_inicio") if com_periodo else None
+    data_fim = argumentos.get("data_fim") if com_periodo else None
+    conferir_ordem_das_datas(data_inicio, data_fim)
+    exigir_acesso(usuario, codigo)
+    if com_periodo:
+        data_inicio, data_fim = periodo_permitido(usuario, data_inicio, data_fim)  # O4
+    return PedidoDoLojista(codigo, data_inicio, data_fim, limite)

@@ -23,12 +23,10 @@ class ListarChamadosCliente(Ferramenta):
     }
 
     def rodar(self, argumentos, usuario):
-        codigo = argumentos["id_cliente"]
-        limite = lojista.limite_pedido(argumentos)
-        lojista.exigir_acesso(usuario, codigo)
-        chamados, total = dados_sinteticos.buscar_chamados(codigo, limite)
+        pedido = lojista.preparar(usuario, argumentos)
+        chamados, total = dados_sinteticos.buscar_chamados(pedido.codigo, pedido.limite)
         return {
-            "codigo": codigo,
+            "codigo": pedido.codigo,
             "chamados": chamados,
             "total_encontrado": total,
             "truncado": total > len(chamados),

@@ -155,8 +155,7 @@ def buscar_chamados(codigo, limite):
 
 def chamado_e_do_lojista(codigo, id_chamado):
     """Diz se o chamado pertence ao lojista. Chamado de outro lojista e inexistente dão False."""
-    chamados = _ler(consultas.buscar_chamados, codigo, None)["itens"]
-    return any(chamado["codigo"] == id_chamado for chamado in chamados)
+    return _ler(consultas.chamado_e_do_lojista, codigo, id_chamado)
 
 
 def buscar_interacoes(codigo, id_chamado, limite):

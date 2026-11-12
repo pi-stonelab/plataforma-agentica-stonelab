@@ -11,6 +11,9 @@ from datetime import date
 # "Hoje" do mock é fixo para o mundo sair sempre igual (DOC-MOCK §11.1). Nunca use date.today().
 HOJE_DO_MOCK = date(2026, 10, 15)
 
+# Teto de linhas de qualquer lista que o mock devolve (consultas e ferramentas usam o mesmo).
+LIMITE_MAXIMO = 50
+
 AREAS = ("atendimento", "financeiro")
 CARTEIRAS = ("varejo", "pme", "contas_chave")
 PORTES = ("MEI", "ME", "EPP", "media")
