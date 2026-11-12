@@ -30,6 +30,9 @@ MAX_CHARS_PERGUNTA = 4000  # a pergunta do funcionário é cortada aqui (BAIXO-4
 # escolhido para a demo (até 10 chamadas a um modelo local de 27B). Troque por turno com
 # `contexto["segundos_por_turno"]` e revise depois de medir com o modelo real.
 SEGUNDOS_POR_TURNO = 120
+# Teto do prazo vindo do contexto (BAIXO-7 da auditoria C): acima disso (ex.: 1e308) volta ao padrão.
+# SEM FONTE: cinco vezes o padrão, escolhido para impedir um turno sem prazo na prática.
+SEGUNDOS_MAXIMOS_POR_TURNO = 600
 
 NOME_EMPRESA = "Stone"
 AGENTE_ID = "agente_atendimento"
@@ -356,11 +359,12 @@ class Rodada:
 
 
 def _segundos_do_turno(contexto):
-    """`contexto["segundos_por_turno"]` se for um número positivo e finito; senão o padrão."""
+    """`contexto["segundos_por_turno"]` se for um número positivo, finito e até o teto; senão o padrão."""
     valor = contexto.get("segundos_por_turno")
     if isinstance(valor, bool) or not isinstance(valor, int | float):
         return SEGUNDOS_POR_TURNO
-    return valor if math.isfinite(valor) and valor > 0 else SEGUNDOS_POR_TURNO
+    dentro_do_limite = math.isfinite(valor) and 0 < valor <= SEGUNDOS_MAXIMOS_POR_TURNO
+    return valor if dentro_do_limite else SEGUNDOS_POR_TURNO
 
 
 def _aceita_tempo_limite(chamar_modelo):

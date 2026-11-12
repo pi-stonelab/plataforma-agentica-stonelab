@@ -422,6 +422,13 @@ class TestLimiteDeTempo(RegistroDeLogs):
                 self.assertEqual(agente._segundos_do_turno({"segundos_por_turno": valor}), 120)
         self.assertEqual(agente._segundos_do_turno({"segundos_por_turno": 7.5}), 7.5)
 
+    def test_prazo_acima_do_teto_volta_ao_padrao(self):
+        self.assertEqual(agente.SEGUNDOS_MAXIMOS_POR_TURNO, 600)
+        for valor in (601, 1e308, 10**12):
+            with self.subTest(valor=valor):
+                self.assertEqual(agente._segundos_do_turno({"segundos_por_turno": valor}), 120)
+        self.assertEqual(agente._segundos_do_turno({"segundos_por_turno": 600}), 600)
+
     def test_o_modelo_recebe_o_tempo_que_sobra_como_timeout(self):
         tempos = []
         self.rodar(["LER:"] * 10, 50, tempos=tempos)
