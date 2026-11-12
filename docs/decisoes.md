@@ -129,12 +129,12 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - Motivo: ver D6.
 - No código: `status = "ativa"` nas fichas de `ferramentas/*/*/func.py`.
 
-### H5. Convite só em agente de convidados
-- Decisão: convidar alguém só vale quando o agente está na visibilidade `CONVIDADOS`. Em `PRIVADO` e `PUBLICO` o convite é
-  negado. Quem quer convidar muda antes a visibilidade.
-- Quem e quando: Pedro, 11/11 à noite (commit 6a775c2).
-- Motivo: não registrado.
-- No código: `Plataforma.convidar` e a regra de `CONVIDAR` em `seguranca/permissoes.py`. Ver a tabela em `seguranca/CLAUDE.md`.
+### H5. Convite em agente privado e em convidados
+- Decisão: o dono convida em `PRIVADO` e em `CONVIDADOS`. Em `PUBLICO` o convite é negado, porque todos já usam. A lista de
+  convidados vale nos dois níveis, então `PRIVADO` e `CONVIDADOS` hoje se comportam igual.
+- Quem e quando: Pedro, 12/11 (substitui a regra de 11/11, commit 6a775c2, que só deixava convidar em `CONVIDADOS`).
+- Motivo: os testes do Brenno (PR #10) convidam em agente recém-criado, que nasce privado.
+- No código: `_gerencia` e `_usa` em `seguranca/permissoes.py`. Em aberto: manter os dois níveis separados ou juntar.
 
 ### H6. O parâmetro de lojista continua `id_cliente`
 - Decisão: o nome que o modelo preenche nas ferramentas de lojista continua `id_cliente`. Por dentro é `codigo` ou
@@ -151,6 +151,15 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
   "Double checkin" do SQLAlchemy. Não muda nada para quem usa o mock em arquivo.
 - Teste: `test_banco_em_memoria_nunca_e_usado_por_duas_threads_ao_mesmo_tempo` (falha sem a trava).
 - Também: removidos os `noqa` sem efeito e `timezone.utc` virou `UTC` (o ruff mais novo, que o CI instala, acusava).
+
+### H8. Alinhamento com o PR #10 do Brenno
+- Decisão: agente desativado só aceita `VER`, para todos; `autorizar` devolve o agente do cadastro e o decorator o passa à
+  função; do objeto recebido só vale o id; o método de pausar se chama `deprecar` (evento `DEPRECAR`), e `desativar` deixou
+  de existir. Os testes dele em `testes/seguranca/` foram ajustados aos ids (`dono_id`, `convidados_ids`, `id_usuario`), e o
+  teste do Supervisor abre o agente antes de pausar (Supervisor não vê privado de outra pessoa).
+- Quem e quando: Pedro, 12/11 ("prefira a regra dele").
+- Motivo: o PR #10 já está na `main`; o código tem uma regra só.
+- No código: `Plataforma.autorizar`, `_decidir`, `_registrado`, `deprecar`, `seguranca/envelope.py`.
 
 ## Decisões do orquestrador (O1 a O13)
 
@@ -301,7 +310,7 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
    regras todas num lugar só.
 8. Escopo por chamados atribuídos. O DOC-MOCK §3.2 fala em carteira, fila e chamados atribuídos; o código só usa as
    carteiras do time (L11 da pesquisa).
-9. Reativar um agente pausado. `Plataforma.desativar` existe; não existe método que reative. Nenhuma fonte diz se pode.
+9. Reativar um agente pausado. `Plataforma.deprecar` existe; não existe método que reative. Nenhuma fonte diz se pode.
 10. Lista de ferramentas do agente de atendimento (KAN-55). Está fixa em 5, sem as 6 novas. O comentário no código diz que
     a lista virá da configuração do agente (KAN-55); falta isso ser feito.
 11. Retenção do registro de chamadas e da auditoria. O valor está em branco no código (`[preencher: prazo de retenção]`

@@ -86,13 +86,15 @@ def exige_permissao(acao: Acao, plataforma: Plataforma | None = None):
             if not isinstance(p, Plataforma):
                 raise AcessoNegado(f"{funcao.__name__}: sem plataforma válida para checar")
             try:
-                p.autorizar(usuario, acao, agente, execucao_id)  # registra na auditoria
+                registrado = p.autorizar(usuario, acao, agente, execucao_id)  # registra na auditoria
             except AcessoNegado:
                 raise
             except Exception:  # noqa: BLE001 (falha fechada de propósito)
                 _registrar_negacao(p, usuario, acao, agente)
                 raise AcessoNegado(f"{funcao.__name__}: checagem falhou") from None
-            return funcao(*args, **kwargs)
+            # a função recebe o agente do cadastro, nunca a cópia que o chamador passou
+            chamada.arguments["agente"] = registrado
+            return funcao(*chamada.args, **chamada.kwargs)
 
         envelope.acao_exigida = acao  # permite conferir em testes qual ação a função exige
         return envelope

@@ -84,7 +84,7 @@ O que mudou:
   do banco e `ao_registrar` para gravar a auditoria.
 - `Evento` guarda só o id da pessoa, mais o `execucao_id`. Nunca o nome.
 - `autorizar` decide sobre o agente registrado e nega agente forjado ou não registrado.
-- Mudar visibilidade e desativar passam por métodos que autorizam e gravam evento.
+- Mudar visibilidade e deprecar passam por métodos que autorizam e gravam evento.
 - Existe agente geral: `Agente.da_plataforma(nome)`.
 - O decorator aceita `plataforma` e `execucao_id` como parâmetros da função decorada.
 

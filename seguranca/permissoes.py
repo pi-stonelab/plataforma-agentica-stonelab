@@ -143,14 +143,14 @@ ABERTOS = (Visibilidade.CONVIDADOS, Visibilidade.PUBLICO)  # tudo que não é pr
 def _gerencia(acao: Acao, agente: Agente) -> bool:
     """Dono (ou supervisor da área) faz tudo, com duas exceções.
 
-    - Agente inativo ninguém executa.
-    - Convidar só vale com visibilidade CONVIDADOS: para convidar alguém, o dono
-      primeiro muda o agente para "convidados" (decisão do grupo, ver README).
+    - Agente inativo só aceita VER (regra do Brenno, PR #10).
+    - Convidar não faz sentido em agente público, que todos já usam. Em privado e em
+      convidados o dono pode convidar (decisão de Pedro, 12/11, ver H5).
     """
-    if acao is Acao.EXECUTAR:
-        return agente.ativo
+    if acao is not Acao.VER and not agente.ativo:
+        return False
     if acao is Acao.CONVIDAR:
-        return agente.visibilidade is Visibilidade.CONVIDADOS
+        return agente.visibilidade is not Visibilidade.PUBLICO
     return True
 
 
@@ -160,7 +160,7 @@ def _usa(usuario: Usuario, acao: Acao, agente: Agente) -> bool:
         return False
     if agente.visibilidade is Visibilidade.PUBLICO:
         return True
-    return agente.visibilidade is Visibilidade.CONVIDADOS and usuario.id in agente.convidados_ids
+    return usuario.id in agente.convidados_ids  # a lista de convidados vale em privado e em convidados
 
 
 # ---------------------------------------------------------------- Usuários
@@ -212,7 +212,7 @@ class AdminGlobal(Usuario):
 
     def pode(self, acao: Acao, agente: Agente) -> bool:
         if acao is Acao.DEPRECAR:
-            return True
+            return agente.ativo  # agente já desativado só aceita VER
         # nunca executa (não vê dado de lojista), não edita e não convida
         return acao is Acao.VER and agente.visibilidade in ABERTOS
 
@@ -432,10 +432,10 @@ class Plataforma:
         self._agentes[agente.id] = agente
 
     def _registrado(self, agente: object) -> Agente | None:
-        """O agente que a Plataforma conhece, se o recebido for igual a ele; senão None.
+        """O agente que a Plataforma conhece com o id recebido; senão None.
 
-        Quem decide é sempre o registrado. Um objeto forjado (mesmo id, mas dono ou
-        visibilidade diferentes) não é igual ao registrado, então não vale.
+        Do objeto recebido só vale o id. Quem decide, e quem muda, é sempre o registrado:
+        um objeto forjado ou desatualizado não ganha nem perde nada por dizer outra coisa.
         """
         try:
             registrado = self._agentes.get(getattr(agente, "id", None))
@@ -443,14 +443,16 @@ class Plataforma:
             return None
         if registrado is None:
             return None
-        if agente is registrado or (type(agente) is Agente and registrado == agente):
-            return registrado
-        return None
+        return registrado
 
     def autorizar(self, usuario: Usuario, acao: Acao, agente: Agente,
-                  execucao_id: str | None = None) -> None:
-        """Decide e grava o evento. `execucao_id` (opcional) liga o evento à execução; inválido nega."""
-        self._decidir(usuario, acao, agente, acao.name, execucao_id)
+                  execucao_id: str | None = None) -> Agente:
+        """Decide, grava o evento e devolve o agente do cadastro.
+
+        `execucao_id` (opcional) liga o evento à execução; inválido nega.
+        Agente desativado só aceita VER, para todos, inclusive o admin.
+        """
+        return self._decidir(usuario, acao, agente, acao.name, execucao_id)
 
     def _decidir(self, usuario: Usuario, acao: Acao, agente: Agente, nome_do_evento: str,
                  execucao_id: str | None = None) -> Agente:
@@ -462,8 +464,8 @@ class Plataforma:
             # agente não registrado ou diferente do registrado: negado (falha fechada)
             ok = registrado is not None and atual is not None and atual.pode(acao, registrado)
             ok = ok and id_ok
-            if acao is Acao.EXECUTAR and (registrado is None or not registrado.ativo):
-                ok = False  # cinto de segurança: vale mesmo para um perfil novo que esqueça disso
+            if acao is not Acao.VER and (registrado is None or not registrado.ativo):
+                ok = False  # agente desativado só aceita VER; vale mesmo para um perfil novo
         except Exception:  # noqa: BLE001 (agente ou regra com defeito: nega)
             ok = False
         alvo = getattr(agente, "id", "desconhecido")
@@ -480,9 +482,9 @@ class Plataforma:
         registrado = self._decidir(quem, Acao.EDITAR, agente, f"ALTERAR_VISIBILIDADE:{nova.value}")
         registrado.visibilidade = nova
 
-    def desativar(self, quem: Usuario, agente: Agente) -> None:
-        """Pausa o agente (exige DEPRECAR): ninguém mais executa. Evento: DESATIVAR."""
-        registrado = self._decidir(quem, Acao.DEPRECAR, agente, "DESATIVAR")
+    def deprecar(self, quem: Usuario, agente: Agente) -> None:
+        """Pausa o agente (exige DEPRECAR): depois disso só VER é permitido. Evento: DEPRECAR."""
+        registrado = self._decidir(quem, Acao.DEPRECAR, agente, Acao.DEPRECAR.name)
         registrado.ativo = False
 
     def convidar(self, quem: Usuario, convidado: Usuario, agente: Agente) -> None:
@@ -548,7 +550,7 @@ if __name__ == "__main__":
     tentar("gestor se promove", lambda: p.atribuir_role(gestor, gestor, AdminGlobal))
     tentar("admin atribui role", lambda: p.atribuir_role(adm, joao, Supervisor))
     tentar("admin lê auditoria", lambda: p.autorizar_leitura_auditoria(adm))
-    p.desativar(adm, a1)  # admin pausa qualquer agente, sem ver o conteúdo
+    p.deprecar(adm, a1)  # admin pausa qualquer agente, sem ver o conteúdo
     tentar("dono executa agente inativo", lambda: p.autorizar(joao, Acao.EXECUTAR, a1))
 
     # gestor promove Maria a supervisora do Atendimento
