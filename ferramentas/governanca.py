@@ -7,6 +7,7 @@ atendimento/financeiro, `carteiras` = nomes de carteira (varejo, pme, contas_cha
 """
 
 import logging
+import threading
 from datetime import timedelta
 
 from mock import regras
@@ -52,6 +53,7 @@ LIMITE_REGISTROS = 1000
 # [preencher: prazo de retenção de REGISTROS, definir com Brenno e o monitoramento]
 REGISTROS = []
 DESTINOS = []
+TRAVA_DOS_REGISTROS = threading.Lock()  # BAIXO-6: incluir e aparar a lista de uma vez
 logger = logging.getLogger(__name__)
 
 
@@ -188,8 +190,9 @@ def registrar(registro):
             falhou = True
     if falhou:
         limpo["status"], limpo["tipo_erro"] = "erro", "integracao_indisponivel"
-    REGISTROS.append(limpo)
-    del REGISTROS[:-LIMITE_REGISTROS]
+    with TRAVA_DOS_REGISTROS:
+        REGISTROS.append(limpo)
+        del REGISTROS[:-LIMITE_REGISTROS]
     if falhou:
         logger.error("registro de ferramenta não gravado: ferramenta=%s", limpo["ferramenta"])
         raise RegistroIndisponivel
