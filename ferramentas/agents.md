@@ -22,7 +22,8 @@ Toda ferramenta responde com `status`, `dados`, `mensagem` e `tipo_erro`.
 - `permissao_negada`: não insista e avise o usuário.
 - `nao_encontrado`: confirme o identificador com o usuário.
 - `ferramenta_inexistente` e `ferramenta_inativa`: escolha outra ou avise o usuário.
-- `integracao_indisponivel`: o sistema não respondeu; avise e não repita sem parar.
+- `integracao_indisponivel`: o sistema não respondeu; avise e não repita sem parar. Se a mensagem disser
+  que a ação pode ter sido executada, não repita a chamada: avise o usuário.
 - `erro_interno`: falha da plataforma; avise sem inventar uma causa.
 
 ## Regras gerais
@@ -54,5 +55,11 @@ Tudo abaixo desta linha o código descarta antes de entregar o texto ao agente.
   `listar_faturas_em_atraso`, `calcular_parcelas` e
   `consultar_contatos_lojista`). As outras 32 são esqueletos em `func.py`,
   sem lógica. O código que lê e executa tudo isso está em `catalogo.py`.
+- Falha do registro FINAL de uma escrita (BAIXO-1 da auditoria C): o registro "iniciada" já foi gravado e
+  a ação pode ter acontecido (ex.: o pedido entrou na fila). A resposta é `integracao_indisponivel` com
+  "Registro indisponível. A ação pode ter sido executada; não repita a chamada.", sem dado nenhum; o
+  buffer fica com `iniciada` e `erro`. Falha do registro "iniciada" (ou de uma leitura) é "Registro
+  indisponível." e nada foi feito. Repetir a chamada duplicaria o efeito até haver idempotência por
+  `execucao_id` e passo [aqui conectamos com o back-end].
 - [preencher: ferramentas e áreas pendentes, com a frente de que dependem]
 - [aqui conectamos com o back-end: banco, CRM e demais fontes de dados]

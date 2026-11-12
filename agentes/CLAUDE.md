@@ -92,6 +92,8 @@ liste mais. Teste isso para cada agente novo (veja `test_agente_geral.py`).
   resposta) e o `Turno.estado` do último turno com `tipo == "pergunta"`. Devolver os dois no turno seguinte.
 - Passar `contexto={"execucao_id": ..., "agente_id": ...}` e ligar `governanca.adicionar_destino(...)` para
   gravar o registro de cada chamada de ferramenta. Se o destino falhar, a ferramenta não responde (O9).
+  Se falhar só o registro FINAL de uma escrita, a ação pode ter acontecido: a resposta diz isso, sem dado, e o agente
+  não deve repetir a chamada (detalhe em `ferramentas/agents.md`).
 - Gravar `Turno.trajetoria` como rastro da execução. Ela não tem conteúdo.
 
 ## Modo terminal
