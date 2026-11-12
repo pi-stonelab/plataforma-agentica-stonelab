@@ -254,6 +254,98 @@ def _assinatura(nome, argumentos_texto):
 
 
 # ---------- O TURNO DO AGENTE ----------
+class Rodada:
+    """O que muda durante um turno: trajetória e contagem de repetições. Cada `tratar_*` roda
+    uma ação e devolve (observação, resumo, alvo) para o passo seguinte, ou um `Turno` que encerra."""
+
+    def __init__(self, atendimento, execucao_id, agente_id):
+        self.atendimento = atendimento
+        self.execucao_id = execucao_id
+        self.agente_id = agente_id
+        self.trajetoria = []
+        self.ultima_assinatura = None
+        self.repeticoes = 0
+
+    def terminar(self, resposta, tipo, motivo=None):
+        logger.info(
+            "turno encerrado execucao_id=%s agente_id=%s tipo=%s motivo=%s passos=%d",
+            self.execucao_id, self.agente_id, tipo, motivo, len(self.trajetoria),
+        )
+        return Turno(resposta, tipo, self.trajetoria, self.atendimento.estado(), motivo)
+
+    def tratar_formato_invalido(self, passo):
+        logger.info("passo=%d execucao_id=%s resposta fora do formato", passo, self.execucao_id)
+        self.trajetoria.append(f"Passo {passo}: resposta fora do formato")
+        return "formato inválido: use PENSAMENTO + uma das ações (LER, USAR, PERGUNTAR, FINAL)."
+
+    def tratar_final(self, passo, final):
+        if not self.atendimento.indice_lido:
+            obs = "erro: antes de responder, consulte as ferramentas com LER."
+            return obs, "bloqueado: FINAL sem consultar o índice", ""
+        if not final:
+            return "erro: FINAL vazio.", "FINAL vazio", ""
+        self.trajetoria.append(f"Passo {passo}: resposta final entregue")
+        logger.info("passo=%d execucao_id=%s acao=FINAL", passo, self.execucao_id)
+        return self.terminar(final, "final")
+
+    def tratar_ler(self, primeira_linha):
+        obs, resumo = self.atendimento.ler(primeira_linha)
+        alvo = _alvo_seguro(primeira_linha) if primeira_linha else "índice"
+        return obs, resumo, alvo
+
+    def tratar_usar(self, passo, primeira_linha):
+        partes = re.match(r"^(?:[a-z0-9_]+/)?([a-z0-9_]+)\s*\|\s*(.*)$", primeira_linha)
+        if not partes:
+            return "erro: use 'USAR: <ferramenta> | <json>'.", "USAR em formato inválido", ""
+        nome, args = partes.group(1), partes.group(2)
+        if self._repetiu(nome, args) >= MAX_REPETICOES:  # KAN-38: para antes de executar a 3ª vez
+            return self._parar_por_repeticao(passo, nome)
+        obs, resumo = self.atendimento.usar(nome, args, passo)
+        return obs, resumo, nome
+
+    def _repetiu(self, nome, args):
+        """Quantas vezes seguidas esta mesma ferramenta com os mesmos argumentos apareceu."""
+        assinatura = _assinatura(nome, args)
+        self.repeticoes = self.repeticoes + 1 if assinatura == self.ultima_assinatura else 1
+        self.ultima_assinatura = assinatura
+        return self.repeticoes
+
+    def _parar_por_repeticao(self, passo, nome):
+        self.trajetoria.append(
+            f"Passo {passo}: USAR -> limite: mesma ferramenta e mesmos argumentos "
+            f"{MAX_REPETICOES} vezes seguidas"
+        )
+        logger.warning(
+            "passo=%d execucao_id=%s acao=USAR ferramenta=%s repeticao=%d",
+            passo, self.execucao_id, nome, self.repeticoes,
+        )
+        return self.terminar(MENSAGEM_REPETICAO, "limite", "repeticao")
+
+    def tratar_perguntar(self, passo, primeira_linha):
+        """Encerra o turno; o funcionário responde no turno seguinte."""
+        if not primeira_linha:
+            return "erro: PERGUNTAR vazio.", "PERGUNTAR vazio", ""
+        self.trajetoria.append(f"Passo {passo}: PERGUNTAR -> aguardando o funcionário")
+        logger.info("passo=%d execucao_id=%s acao=PERGUNTAR", passo, self.execucao_id)
+        return self.terminar(primeira_linha, "pergunta")
+
+    def tratar(self, passo, acao, resto, primeira_linha):
+        if acao == "FINAL":
+            return self.tratar_final(passo, resto.strip())
+        if acao == "LER":
+            return self.tratar_ler(primeira_linha)
+        if acao == "USAR":
+            return self.tratar_usar(passo, primeira_linha)
+        return self.tratar_perguntar(passo, primeira_linha)
+
+
+def _separar_acao(resposta, encontro):
+    """Da resposta do modelo tira (ação, resto depois dela, primeira linha do resto)."""
+    resto = resposta[encontro.end():]
+    primeira_linha = resto.splitlines()[0].strip() if resto.strip() else ""
+    return encontro.group(1), resto, primeira_linha
+
+
 def rodar_turno(
     pergunta: str,
     usuario,
@@ -275,92 +367,33 @@ def rodar_turno(
     execucao_id = str(contexto.get("execucao_id") or uuid.uuid4().hex)
     agente_id = str(contexto.get("agente_id") or AGENTE_ID)
     atendimento = Atendimento(usuario, ferramentas_do_agente, execucao_id, agente_id, estado)
+    rodada = Rodada(atendimento, execucao_id, agente_id)
     prompt = montar_prompt(pergunta, historico, atendimento)
-    trajetoria = []
-    ultima_assinatura, repeticoes = None, 0
-
-    def terminar(resposta, tipo, motivo=None):
-        logger.info(
-            "turno encerrado execucao_id=%s agente_id=%s tipo=%s motivo=%s passos=%d",
-            execucao_id, agente_id, tipo, motivo, len(trajetoria),
-        )
-        return Turno(resposta, tipo, trajetoria, atendimento.estado(), motivo)
 
     for passo in range(1, MAX_PASSOS + 1):
         resposta = chamar_modelo(prompt)
-        m = ACAO_RE.search(resposta)
-
-        if not m:
-            obs = "formato inválido: use PENSAMENTO + uma das ações (LER, USAR, PERGUNTAR, FINAL)."
-            logger.info("passo=%d execucao_id=%s resposta fora do formato", passo, execucao_id)
-            trajetoria.append(f"Passo {passo}: resposta fora do formato")
+        encontro = ACAO_RE.search(resposta)
+        if not encontro:
+            obs = rodada.tratar_formato_invalido(passo)
             prompt += f"\n{resposta}\nObservação: {obs}"
             continue
 
-        acao = m.group(1)
-        resto = resposta[m.end():]
-        primeira_linha = resto.splitlines()[0].strip() if resto.strip() else ""
-
-        # Guarda no prompt só até o fim da ação (descarta qualquer coisa inventada depois).
-        if acao == "FINAL":
-            registro = resposta[: m.end()] + resto
-        else:
-            registro = resposta[: m.end()] + primeira_linha
-
-        alvo = ""  # só caminho/nome já validado; é o que aparece no log
-        if acao == "FINAL":
-            final = resto.strip()
-            if not atendimento.indice_lido:
-                obs = "erro: antes de responder, consulte as ferramentas com LER."
-                resumo = "bloqueado: FINAL sem consultar o índice"
-            elif not final:
-                obs, resumo = "erro: FINAL vazio.", "FINAL vazio"
-            else:
-                trajetoria.append(f"Passo {passo}: resposta final entregue")
-                logger.info("passo=%d execucao_id=%s acao=FINAL", passo, execucao_id)
-                return terminar(final, "final")
-
-        elif acao == "LER":
-            obs, resumo = atendimento.ler(primeira_linha)
-            alvo = _alvo_seguro(primeira_linha) if primeira_linha else "índice"
-
-        elif acao == "USAR":
-            partes = re.match(r"^(?:[a-z0-9_]+/)?([a-z0-9_]+)\s*\|\s*(.*)$", primeira_linha)
-            if not partes:
-                obs, resumo = "erro: use 'USAR: <ferramenta> | <json>'.", "USAR em formato inválido"
-            else:
-                nome, args = partes.group(1), partes.group(2)
-                assinatura = _assinatura(nome, args)
-                repeticoes = repeticoes + 1 if assinatura == ultima_assinatura else 1
-                ultima_assinatura = assinatura
-                if repeticoes >= MAX_REPETICOES:  # KAN-38: para antes de executar a 3ª vez
-                    trajetoria.append(
-                        f"Passo {passo}: USAR -> limite: mesma ferramenta e mesmos argumentos "
-                        f"{MAX_REPETICOES} vezes seguidas"
-                    )
-                    logger.warning(
-                        "passo=%d execucao_id=%s acao=USAR ferramenta=%s repeticao=%d",
-                        passo, execucao_id, nome, repeticoes,
-                    )
-                    return terminar(MENSAGEM_REPETICAO, "limite", "repeticao")
-                alvo = nome
-                obs, resumo = atendimento.usar(nome, args, passo)
-
-        else:  # PERGUNTAR: encerra o turno; o funcionário responde no turno seguinte
-            if primeira_linha:
-                trajetoria.append(f"Passo {passo}: PERGUNTAR -> aguardando o funcionário")
-                logger.info("passo=%d execucao_id=%s acao=PERGUNTAR", passo, execucao_id)
-                return terminar(primeira_linha, "pergunta")
-            obs, resumo = "erro: PERGUNTAR vazio.", "PERGUNTAR vazio"
+        acao, resto, primeira_linha = _separar_acao(resposta, encontro)
+        saida = rodada.tratar(passo, acao, resto, primeira_linha)
+        if isinstance(saida, Turno):
+            return saida
+        obs, resumo, alvo = saida
 
         logger.info(
             "passo=%d execucao_id=%s acao=%s alvo=%s resultado=%s",
             passo, execucao_id, acao, alvo or "-", resumo,
         )
-        trajetoria.append(f"Passo {passo}: {acao} -> {resumo[:150]}")
+        rodada.trajetoria.append(f"Passo {passo}: {acao} -> {resumo[:150]}")
+        # Guarda no prompt só até o fim da ação (descarta qualquer coisa inventada depois).
+        registro = resposta[: encontro.end()] + (resto if acao == "FINAL" else primeira_linha)
         prompt += f"\n{registro}\nObservação: {obs}"
 
-    return terminar(MENSAGEM_LIMITE_PASSOS, "limite", "max_passos")
+    return rodada.terminar(MENSAGEM_LIMITE_PASSOS, "limite", "max_passos")
 
 
 def agente(pergunta, usuario, chamar_modelo=chamar_llm, ferramentas_do_agente=FERRAMENTAS_DO_AGENTE):
