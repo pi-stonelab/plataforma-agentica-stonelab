@@ -124,8 +124,17 @@ ABERTOS = (Visibilidade.CONVIDADOS, Visibilidade.PUBLICO)  # tudo que não é pr
 
 
 def _gerencia(acao: Acao, agente: Agente) -> bool:
-    """Dono (ou supervisor da área) faz tudo; agente inativo é o único que ninguém executa."""
-    return acao is not Acao.EXECUTAR or agente.ativo
+    """Dono (ou supervisor da área) faz tudo, com duas exceções.
+
+    - Agente inativo ninguém executa.
+    - Convidar só vale com visibilidade CONVIDADOS: para convidar alguém, o dono
+      primeiro muda o agente para "convidados" (decisão do Pedro, 11/11).
+    """
+    if acao is Acao.EXECUTAR:
+        return agente.ativo
+    if acao is Acao.CONVIDAR:
+        return agente.visibilidade is Visibilidade.CONVIDADOS
+    return True
 
 
 def _usa(usuario: Usuario, acao: Acao, agente: Agente) -> bool:

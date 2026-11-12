@@ -45,7 +45,7 @@ Outras regras:
 
 ### Decisões a confirmar com o grupo
 
-1. Níveis separados. A decisão registrada diz "agente privado: só o criador, os convidados..." num texto e "privado / convidados" como níveis diferentes em outro. Implementamos três níveis: privado = só o dono (convidar um privado é permitido, mas só passa a valer se virar `CONVIDADOS`), convidados = dono e convidados, público = todos os Colaboradores e Supervisores das duas áreas.
+1. Níveis separados. A decisão registrada diz "agente privado: só o criador, os convidados..." num texto e "privado / convidados" como níveis diferentes em outro. Implementamos três níveis: privado = só o dono (para convidar alguém, o dono primeiro muda o agente para `CONVIDADOS`; em privado e público o convite é negado. Decisão do Pedro, 11/11), convidados = dono e convidados, público = todos os Colaboradores e Supervisores das duas áreas.
 2. Agente inativo some para quem só usa (ver acima). O texto original só diz "ninguém executa; o dono ainda vê".
 3. Supervisor executa e gerencia qualquer agente não privado das suas áreas, mesmo sem convite (era o que o código original fazia). Se o grupo quiser que ele só gerencie, é mudar `_gerencia` para não incluir EXECUTAR no caso dele.
 4. Admin e Auditor não criam agentes. O Admin não é dono de nada nem pode ser convidado para usar.

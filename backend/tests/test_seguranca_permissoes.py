@@ -27,24 +27,26 @@ from seguranca.permissoes import (
 TODAS = frozenset(Acao)
 USAR = frozenset({Acao.VER, Acao.EXECUTAR})
 NADA = frozenset()
-GERENCIA_SEM_EXECUTAR = TODAS - {Acao.EXECUTAR}
-
 PRIV, CONV, PUB = Visibilidade.PRIVADO, Visibilidade.CONVIDADOS, Visibilidade.PUBLICO
+
+# Quem gerencia faz tudo, mas só convida com visibilidade CONVIDADOS (decisão do Pedro, 11/11).
+GERENCIA = {PRIV: TODAS - {Acao.CONVIDAR}, CONV: TODAS, PUB: TODAS - {Acao.CONVIDAR}}
+GERENCIA_SEM_EXECUTAR = {v: acoes - {Acao.EXECUTAR} for v, acoes in GERENCIA.items()}
 
 # relação da pessoa com o agente (a pessoa de teste é sempre da área Financeiro)
 RELACOES = ["dono", "convidado_mesma_area", "convidado_outra_area", "mesma_area", "outra_area"]
 
 # (perfil, relação) -> {visibilidade: ações permitidas com o agente ATIVO}
 ESPERADO_ATIVO = {
-    ("Colaborador", "dono"): {PRIV: TODAS, CONV: TODAS, PUB: TODAS},
+    ("Colaborador", "dono"): GERENCIA,
     ("Colaborador", "convidado_mesma_area"): {PRIV: NADA, CONV: USAR, PUB: USAR},
     ("Colaborador", "convidado_outra_area"): {PRIV: NADA, CONV: USAR, PUB: USAR},
     ("Colaborador", "mesma_area"): {PRIV: NADA, CONV: NADA, PUB: USAR},
     ("Colaborador", "outra_area"): {PRIV: NADA, CONV: NADA, PUB: USAR},
-    ("Supervisor", "dono"): {PRIV: TODAS, CONV: TODAS, PUB: TODAS},
-    ("Supervisor", "convidado_mesma_area"): {PRIV: NADA, CONV: TODAS, PUB: TODAS},
+    ("Supervisor", "dono"): GERENCIA,
+    ("Supervisor", "convidado_mesma_area"): {PRIV: NADA, CONV: TODAS, PUB: GERENCIA[PUB]},
     ("Supervisor", "convidado_outra_area"): {PRIV: NADA, CONV: USAR, PUB: USAR},
-    ("Supervisor", "mesma_area"): {PRIV: NADA, CONV: TODAS, PUB: TODAS},
+    ("Supervisor", "mesma_area"): {PRIV: NADA, CONV: TODAS, PUB: GERENCIA[PUB]},
     ("Supervisor", "outra_area"): {PRIV: NADA, CONV: NADA, PUB: USAR},
 }
 _ADMIN = {PRIV: {Acao.DEPRECAR}, CONV: {Acao.VER, Acao.DEPRECAR}, PUB: {Acao.VER, Acao.DEPRECAR}}
@@ -55,12 +57,10 @@ for _rel in RELACOES:
 
 # Agente INATIVO: quem gerencia perde só o EXECUTAR; quem só usa perde tudo (some da lista).
 ESPERADO_INATIVO = {
-    ("Colaborador", "dono"): {v: GERENCIA_SEM_EXECUTAR for v in Visibilidade},
-    ("Supervisor", "dono"): {v: GERENCIA_SEM_EXECUTAR for v in Visibilidade},
-    ("Supervisor", "convidado_mesma_area"): {PRIV: NADA, CONV: GERENCIA_SEM_EXECUTAR,
-                                             PUB: GERENCIA_SEM_EXECUTAR},
-    ("Supervisor", "mesma_area"): {PRIV: NADA, CONV: GERENCIA_SEM_EXECUTAR,
-                                   PUB: GERENCIA_SEM_EXECUTAR},
+    ("Colaborador", "dono"): GERENCIA_SEM_EXECUTAR,
+    ("Supervisor", "dono"): GERENCIA_SEM_EXECUTAR,
+    ("Supervisor", "convidado_mesma_area"): {**GERENCIA_SEM_EXECUTAR, PRIV: NADA},
+    ("Supervisor", "mesma_area"): {**GERENCIA_SEM_EXECUTAR, PRIV: NADA},
 }
 for _chave, _por_vis in ESPERADO_ATIVO.items():
     if _chave in ESPERADO_INATIVO:
@@ -126,15 +126,16 @@ def test_padrao_do_agente_e_privado_e_ativo():
     assert agente.ativo is True
 
 
-def test_convidado_de_agente_privado_nao_ganha_acesso():
+def test_para_convidar_o_dono_muda_para_convidados():
     plataforma = Plataforma()
     dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
     amigo = plataforma.cadastrar(Colaborador("a", Financeiro(), id="amigo"))
-    agente = dono.criar_agente("meu", plataforma)
-    plataforma.convidar(dono, amigo, agente)
+    agente = dono.criar_agente("meu", plataforma)  # nasce PRIVADO
     with pytest.raises(AcessoNegado):
-        plataforma.autorizar(amigo, Acao.VER, agente)
-    agente.visibilidade = Visibilidade.CONVIDADOS  # só agora o convite vale
+        plataforma.convidar(dono, amigo, agente)
+    assert agente.convidados_ids == set()
+    agente.visibilidade = Visibilidade.CONVIDADOS
+    plataforma.convidar(dono, amigo, agente)
     plataforma.autorizar(amigo, Acao.EXECUTAR, agente)
 
 
@@ -461,6 +462,7 @@ def test_convidar_exige_pessoa_cadastrada_e_permissao():
     dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
     outro = plataforma.cadastrar(Colaborador("o", Financeiro(), id="outro"))
     agente = dono.criar_agente("x", plataforma)
+    agente.visibilidade = Visibilidade.CONVIDADOS
     with pytest.raises(AcessoNegado):
         plataforma.convidar(outro, dono, agente)  # só o dono convida
     with pytest.raises(AcessoNegado):
