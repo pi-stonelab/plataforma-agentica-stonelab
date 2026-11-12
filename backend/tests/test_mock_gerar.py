@@ -307,19 +307,19 @@ def test_linha_de_cargo_transversal_e_aceita(tmp_path):
 def test_linha_de_comando_grava_sqlite_local_e_recusa_csv_ruim(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(tmp_path)
     url = f"sqlite:///{tmp_path / 'mock.sqlite'}"
-    assert principal(["--url", url]) == 0
+    assert principal(["--url", url, "--sim"]) == 0
     assert (tmp_path / "mock.sqlite").exists()
     assert "lojistas=20" in capsys.readouterr().out
 
     ruim = _escrever(tmp_path / "ruim.csv", ["X1,nada,nada,"])
-    assert principal(["--url", url, "--pessoas-teste", str(ruim)]) == 2
+    assert principal(["--url", url, "--sim", "--pessoas-teste", str(ruim)]) == 2
     assert "recusado" in capsys.readouterr().err
 
 
 def test_linha_de_comando_usa_csv_padrao_se_existir(tmp_path, monkeypatch, capsys):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "dados_locais").mkdir()
-    _escrever(tmp_path / "dados_locais" / "pessoas_teste.csv",
-              ["F9005,atendente_n1,colega@exemplo.test,"])
+    padrao = tmp_path / "dados_locais" / "pessoas_teste.csv"
+    padrao.parent.mkdir()
+    _escrever(padrao, ["F9005,atendente_n1,colega@exemplo.test,"])
+    monkeypatch.setattr("mock.gerar.CAMINHO_PESSOAS_TESTE_PADRAO", padrao)
     assert principal(["--url", "sqlite://"]) == 0
     assert "pessoas_reais_de_teste=1" in capsys.readouterr().out

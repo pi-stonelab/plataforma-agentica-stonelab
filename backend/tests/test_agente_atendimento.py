@@ -575,6 +575,18 @@ class TestUsuarioDoAmbiente(unittest.TestCase):
             agente.usuario_do_ambiente({"ID_USUARIO": "USR-1"})
 
 
+class TestEnvExample(unittest.TestCase):
+    def test_env_example_sem_perfil_do_funcionario_e_com_url_do_modelo(self):
+        raiz = Path(__file__).resolve().parents[2]
+        chaves = {
+            linha.split("=")[0].strip()
+            for linha in (raiz / ".env.example").read_text(encoding="utf-8").splitlines()
+            if "=" in linha and not linha.lstrip().startswith("#")
+        }
+        self.assertTrue({"ID_USUARIO", "LLM_URL", "LLM_MODELO"} <= chaves)
+        self.assertFalse(chaves & {"NIVEL", "AREA", "CARTEIRA"})
+
+
 class TestConfiguracaoDoModelo(unittest.TestCase):
     def test_url_do_modelo_nao_tem_valor_no_codigo(self):
         with mock.patch.object(agente, "LLM_URL", ""), self.assertRaises(RuntimeError):

@@ -14,13 +14,22 @@ import re
 import sys
 import unicodedata
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from .banco import apagar_tabelas, criar_engine, criar_tabelas, url_padrao
+from .banco import (
+    PASTA_LOCAL,
+    apagar_tabelas,
+    criar_engine,
+    criar_tabelas,
+    eh_sqlite,
+    sqlite_em_memoria,
+    url_padrao,
+)
 from .modelos import (
     Chamado,
     ContaRecebimento,
@@ -44,7 +53,7 @@ from .regras import (
 )
 
 SEMENTE = 20261015
-CAMINHO_PESSOAS_TESTE_PADRAO = Path("dados_locais/pessoas_teste.csv")
+CAMINHO_PESSOAS_TESTE_PADRAO = PASTA_LOCAL / "pessoas_teste.csv"
 
 # Texto exato do cenário 7 (DOC-MOCK §9): instrução escondida na mensagem de um lojista.
 INSTRUCAO_ESCONDIDA = (
@@ -830,18 +839,66 @@ def recriar(engine: Engine, caminho_pessoas_teste: Path | None = None) -> dict[s
         }
 
 
-def principal(argumentos: list[str] | None = None) -> int:
+def _montar_analisador() -> argparse.ArgumentParser:
     analisador = argparse.ArgumentParser(description="Recria o mundo do mock do zero.")
-    analisador.add_argument("--url", help="URL do banco (padrão: DATABASE_URL ou SQLite local)")
+    analisador.add_argument(
+        "--url", help="URL do banco (padrão: SQLite em dados_locais/mock.sqlite; DATABASE_URL é ignorada)",
+    )
+    analisador.add_argument(
+        "--permitir-banco-externo", action="store_true",
+        help="aceita --url que não seja SQLite (cuidado: apaga as tabelas do mock nesse banco)",
+    )
+    analisador.add_argument("--sim", action="store_true", help="não pergunta antes de apagar")
     analisador.add_argument(
         "--pessoas-teste", type=Path, help="CSV id,cargo,email,nome com pessoas reais de teste",
     )
-    parametros = analisador.parse_args(argumentos)
+    return analisador
+
+
+def _descrever_destino(url: str) -> str:
+    """Texto para a pergunta de confirmação; nunca repete a URL de um banco externo (senha)."""
+    if eh_sqlite(url):
+        return f"no banco SQLite {url.removeprefix('sqlite:///')}"
+    return "num banco externo (não SQLite)"
+
+
+def _confirmou(url: str, perguntar: Callable[[str], str]) -> bool:
+    """Recriar apaga as tabelas do mock: pede um 'sim' escrito. Sem terminal, vale como não."""
+    aviso = (
+        f"Isto APAGA e recria as tabelas do mock {_descrever_destino(url)}. "
+        "Digite 'sim' para continuar: "
+    )
+    try:
+        return perguntar(aviso).strip().lower() == "sim"
+    except EOFError:
+        return False
+
+
+def principal(
+    argumentos: list[str] | None = None, perguntar: Callable[[str], str] = input
+) -> int:
+    """Linha de comando. Devolve 0 (ok), 1 (você não confirmou) ou 2 (argumento ou CSV recusado)."""
+    parametros = _montar_analisador().parse_args(argumentos)
+    url = parametros.url or url_padrao()
+    try:
+        sqlite = eh_sqlite(url)
+    except ValueError as erro:
+        print(erro, file=sys.stderr)
+        return 2
+    if not sqlite and not parametros.permitir_banco_externo:
+        print(
+            "Banco que não é SQLite: só com --permitir-banco-externo (apaga as tabelas do mock).",
+            file=sys.stderr,
+        )
+        return 2
+    if not (parametros.sim or sqlite_em_memoria(url) or _confirmou(url, perguntar)):
+        print("Cancelado: nada foi apagado.", file=sys.stderr)
+        return 1
     caminho = parametros.pessoas_teste
     if caminho is None and CAMINHO_PESSOAS_TESTE_PADRAO.exists():
         caminho = CAMINHO_PESSOAS_TESTE_PADRAO
     try:
-        contagem = recriar(criar_engine(parametros.url or url_padrao()), caminho)
+        contagem = recriar(criar_engine(url), caminho)
     except ErroPessoasTeste as erro:
         print(f"CSV de pessoas de teste recusado: {erro}", file=sys.stderr)
         return 2
