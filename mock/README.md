@@ -30,8 +30,10 @@ ferramentas (`ferramentas/dados_sinteticos.py`) e pelo diretório de funcionári
 - sem declarar: SQLite local em `dados_locais/mock.sqlite` (fora do Git);
 - `MOCK_DATABASE_URL=<url>` no `.env` aponta o mock para outro banco. Se não for SQLite, o gerador só
   recria com `--permitir-banco-externo` (recriar apaga as tabelas do mock nesse banco);
-- `DATABASE_URL` é o banco da PLATAFORMA e é sempre ignorada. Declarar a mesma URL nas duas variáveis é
-  recusado (o gerador sai com 2). Use um banco ou schema separado para o mock.
+- `DATABASE_URL` é o banco da PLATAFORMA e é sempre ignorada. Declarar o mesmo banco nas duas variáveis é
+  recusado (o gerador sai com 2), mesmo escrito de outro jeito: a comparação ignora driver, usuário, senha,
+  query string, caixa do host, porta padrão, barra final e `postgres://` x `postgresql://`; em SQLite vale o
+  caminho resolvido. Use um banco ou schema separado para o mock.
 - `--url` no gerador vence a variável. URL inválida nunca é repetida em mensagem de erro.
 
 ## Cenários plantados (códigos fixos)
