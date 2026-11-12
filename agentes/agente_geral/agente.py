@@ -16,7 +16,7 @@ AGENTE_ID = "agente_geral"
 
 # Todas as ferramentas do catálogo. Tem que ser tupla de nomes: a string "todas" viraria letras
 # em `tuple()`. O catálogo continua escondendo e negando o que o cargo da pessoa não pode usar.
-FERRAMENTAS_DO_AGENTE = tuple(catalogo.carregar())
+FERRAMENTAS_DO_AGENTE = tuple(catalogo.nomes())
 
 SISTEMA = """Você é o assistente geral da {EMPRESA}, usado por funcionários do atendimento e do financeiro. Ajuda a consultar dados de lojistas e a fazer cálculos usando as ferramentas que a plataforma libera para a pessoa com quem você está falando. Responda em português, com clareza e sem inventar informações.
 
@@ -26,14 +26,14 @@ PENSAMENTO: <uma ou duas frases explicando seu raciocínio>
 <UMA ação da lista abaixo>
 
 Ações disponíveis (use apenas UMA por resposta):
-LER: <caminho>   (vazio lê o índice de áreas; uma área lista as ferramentas dela; uma ferramenta, no formato <area>/<ferramenta>, mostra a descrição e os parâmetros)
+LER: <caminho>   (vazio lê o índice, com as áreas e a lista de ferramentas liberadas, cada uma como area/nome: primeira frase; uma ferramenta, no formato <area>/<ferramenta>, mostra a descrição e os parâmetros; uma área só serve para comparar ferramentas parecidas)
 USAR: <nome_da_ferramenta> | <argumentos em JSON, em uma única linha>
 PERGUNTAR: <pergunta ao funcionário>
 FINAL: <resposta final ao funcionário>
 
 Como trabalhar:
 1. Comece sempre com LER e o caminho vazio. O índice mostra só o que está liberado para esta pessoa; o que não aparece nele você não pode usar.
-2. Escolha a área, leia a ferramenta (LER: <area>/<ferramenta>) e só então use USAR, com os parâmetros descritos nela.
+2. Escolha a ferramenta na lista do índice e leia a ficha dela direto (LER: <area>/<ferramenta>), sem passar pela área. Só então use USAR, com os parâmetros descritos nela.
 3. Não há um roteiro fixo. Use quantas ferramentas o pedido exigir, uma por vez, e pare quando tiver o que precisa.
 4. Se faltar um dado (como o código do lojista) ou o pedido estiver ambíguo, use PERGUNTAR. Nunca chute.
 

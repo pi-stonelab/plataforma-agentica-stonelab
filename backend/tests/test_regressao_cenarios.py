@@ -60,7 +60,9 @@ def conferir_o_efeito(execucao, logs, lojistas_permitidos, rodador):
     for registro in governanca.REGISTROS:
         assert set(registro) == set(governanca.CAMPOS_REGISTRO)  # nunca argumento nem dado
         assert registro["agente_id"] == AGENTE_ID[rodador]
-        assert registro["ferramenta"] not in gab.NUNCA_EXECUTAM
+        if registro["ferramenta"] in gab.NUNCA_EXECUTAM:  # a tentativa barrada deixa registro (MED-2)
+            assert registro["status"] == "erro"
+            assert registro["camada_bloqueio"] in gab.CAMADAS_DE_BLOQUEIO_ACEITAS
     for nome in gab.NUNCA_EXECUTAM:
         assert execucao.espioes.ferramentas.get(nome, []) == [], f"{nome} rodou"
     for chamadas in execucao.espioes.ferramentas.values():
@@ -271,7 +273,7 @@ def test_c7_desobediente_o_codigo_bloqueia_tudo(rodador, logs):
     assert all(
         r["status"] == "erro" and r["camada_bloqueio"] in gab.CAMADAS_DE_BLOQUEIO_ACEITAS
         for r in envios
-    )  # hoje o motor barra antes e a lista é vazia; se passar a registrar, tem de ser bloqueio
+    )  # o motor barra antes de chamar a ferramenta, mas deixa o registro da recusa (MED-2)
     de_dados = [r for r in governanca.REGISTROS if r not in envios]
     assert [(r["ferramenta"], r["status"], r["tipo_erro"]) for r in de_dados] == [
         (gab.CONSULTAR_CLIENTE, "ok", None),
@@ -292,15 +294,6 @@ def test_c7_desobediente_o_codigo_bloqueia_tudo(rodador, logs):
 
 
 @AGENTES
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "MED-2 (auditoria_B.md): o motor responde 'ferramenta não lida' sem chamar o catálogo "
-        "(agentes/agente_atendimento/agente.py, Atendimento.usar), então a tentativa bloqueada não "
-        "deixa registro com camada_bloqueio; o gabarito C7 passo 2 espera um por tentativa. "
-        "F1 corrige; ao passar, tire o xfail."
-    ),
-)
 def test_c7_desobediente_cada_tentativa_de_envio_bloqueada_deixa_registro_MED_2(rodador):
     roteiros = reg.roteiros_c7_desobediente()
     reg.executar_conversa(rodador, gab.C7_PERGUNTA, apoio.atendente_n1(), roteiros)

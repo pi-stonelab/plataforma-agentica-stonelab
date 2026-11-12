@@ -118,10 +118,10 @@ def test_a02_id_de_outro_funcionario_no_corpo_e_ignorado():
 
 
 def test_a03_diretorio_nao_entrega_funcionario_desligado_ou_afastado():
-    engine = apoio.mundo()
-    assert terminal.buscar_usuario_no_diretorio(gab.ANA, engine) is not None
+    apoio.mundo()  # liga a fachada de ferramentas ao mock de teste
+    assert terminal.buscar_usuario_no_diretorio(gab.ANA) is not None
     for id_funcionario in (gab.DESLIGADO, gab.AFASTADO, "F9999", "", "F0001' OR '1'='1"):
-        assert terminal.buscar_usuario_no_diretorio(id_funcionario, engine) is None, id_funcionario
+        assert terminal.buscar_usuario_no_diretorio(id_funcionario) is None, id_funcionario
 
 
 @pytest.mark.skip(reason=PRECISA_DO_BACKEND)
@@ -754,7 +754,15 @@ def test_a16_ferramenta_ativa_mas_fora_do_cargo_nao_aparece_nem_roda_pelo_agente
     execucao = reg.executar_roteiro(rodador, "o dinheiro caiu?", pessoa("analista_cobranca"), roteiro)
     turno = execucao.turnos[0]
     assert "não encontrado ou não liberado" in turno.trajetoria[1] and "ferramenta não lida" in turno.trajetoria[2]
-    assert execucao.espioes.nomes_chamados() == {} and governanca.REGISTROS == []
+    assert execucao.espioes.nomes_chamados() == {} and so_recusas_do_agente()
+
+
+def so_recusas_do_agente():
+    """Nenhuma ferramenta rodou: o que há no registro são só recusas do agente (MED-2), sem dado."""
+    return all(
+        r["status"] == "erro" and r["camada_bloqueio"] == "agente" and r["tipo_erro"] == "ferramenta_inexistente"
+        for r in governanca.REGISTROS
+    )
 
 
 CAMINHOS_ESTRANHOS = (
@@ -1071,7 +1079,8 @@ def test_a24_sem_modo_terminal_ligado_o_agente_nao_sobe_no_terminal():
 
 def test_a24_nivel_area_e_carteira_do_ambiente_sao_ignorados():
     def diretorio(id_usuario):
-        return terminal.buscar_usuario_no_diretorio(id_usuario, apoio.mundo())
+        apoio.mundo()
+        return terminal.buscar_usuario_no_diretorio(id_usuario)
 
     ambiente = {"ID_USUARIO": gab.ANA, "NIVEL": "N2", "AREA": "financeiro", "CARTEIRA": "todas"}
     usuario = terminal.usuario_do_ambiente(ambiente, diretorio)
@@ -1083,7 +1092,8 @@ def test_a24_nivel_area_e_carteira_do_ambiente_sao_ignorados():
 @pytest.mark.parametrize("id_usuario", [gab.DESLIGADO, gab.AFASTADO, "F9999", "F0001; ls", "", "../x"])
 def test_a24_id_desligado_afastado_desconhecido_ou_malformado_nao_sobe(id_usuario):
     def diretorio(identificador):
-        return terminal.buscar_usuario_no_diretorio(identificador, apoio.mundo())
+        apoio.mundo()
+        return terminal.buscar_usuario_no_diretorio(identificador)
 
     with pytest.raises(ValueError):
         terminal.usuario_do_ambiente({"ID_USUARIO": id_usuario}, diretorio)
@@ -1259,7 +1269,7 @@ def test_estado_adulterado_nao_libera_ferramenta_fora_do_cargo(rodador, estado):
     execucao = reg.executar_roteiro(
         rodador, "oi", pessoa("analista_cobranca"), roteiro, estado=estado
     )
-    assert execucao.espioes.nomes_chamados() == {} and governanca.REGISTROS == []
+    assert execucao.espioes.nomes_chamados() == {} and so_recusas_do_agente()
     assert execucao.turnos[0].estado["ferramentas_lidas"] == []
 
 

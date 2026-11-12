@@ -18,16 +18,10 @@ from dataclasses import dataclass
 
 import requests
 from dotenv import load_dotenv
-from sqlalchemy.exc import SQLAlchemyError
 
 from agentes.agente_atendimento import agente as motor
 from agentes.agente_geral import agente as geral
-from ferramentas import governanca
-
-# [PENDENTE da etapa de ferramentas: quando `ferramentas/` expuser `buscar_funcionario` na fachada,
-# troque só estes dois imports e a chamada em `buscar_usuario_no_diretorio`; o resto não muda.]
-from mock.banco import criar_engine, url_padrao
-from mock.consultas import buscar_funcionario
+from ferramentas import dados_sinteticos, governanca
 
 load_dotenv()
 
@@ -53,17 +47,18 @@ AGENTES = {
 
 
 # ---------- QUEM ESTÁ USANDO O AGENTE ----------
-def buscar_usuario_no_diretorio(id_usuario, engine=None):
+def buscar_usuario_no_diretorio(id_usuario):
     """PONTO ÚNICO de ligação do modo terminal com o diretório de funcionários do mock (O12).
 
     Devolve o `governanca.Usuario` montado pelo cargo (nível, área e carteiras vêm do cargo e do
     time do diretório) ou None se o id não existe ou o funcionário não está ativo (desligado,
-    afastado ou qualquer outra situação): negar por padrão. Sem `engine`, usa o SQLite local do mock.
-    Diretório fora do ar não vira "não encontrado": levanta ValueError.
+    afastado ou qualquer outra situação): negar por padrão. O banco é o da fachada
+    `ferramentas.dados_sinteticos` (`MOCK_DATABASE_URL` ou o SQLite local); quem quiser outro chama
+    `dados_sinteticos.configurar(...)`. Diretório fora do ar não vira "não encontrado": levanta ValueError.
     """
     try:
-        funcionario = buscar_funcionario(engine or criar_engine(url_padrao()), id_usuario)
-    except (ConnectionError, SQLAlchemyError):
+        funcionario = dados_sinteticos.buscar_funcionario(id_usuario)
+    except ConnectionError:
         raise ValueError("Diretório de funcionários indisponível.") from None
     if funcionario is None or funcionario["situacao"] != SITUACAO_ATIVA:
         return None

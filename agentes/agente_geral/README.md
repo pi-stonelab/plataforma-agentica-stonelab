@@ -8,7 +8,7 @@ ferramenta que a plataforma libere para a pessoa que está conversando.
 - Dono: a plataforma. Em `seguranca/` ele nasce com `Agente.da_plataforma(nome)`: sem área, público,
   ninguém é dono. Todo Colaborador e Supervisor vê e executa; o Admin só pausa (`desativar`).
 - Id para log e registro: `AGENTE_ID = "agente_geral"`.
-- Ferramentas: `FERRAMENTAS_DO_AGENTE = tuple(catalogo.carregar())`, todas as do catálogo. Tem que ser
+- Ferramentas: `FERRAMENTAS_DO_AGENTE = tuple(catalogo.nomes())`, todas as do catálogo. Tem que ser
   tupla de nomes; a string `"todas"` viraria uma tupla de letras.
 - Prompt: `SISTEMA`, genérico, em português. Mesmo protocolo LER, USAR, PERGUNTAR, FINAL do atendimento.
 - Motor: o mesmo `rodar_turno` do `agente_atendimento`, com os mesmos limites da KAN-38 (10 passos, 3

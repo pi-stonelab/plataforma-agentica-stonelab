@@ -9,8 +9,9 @@ Runtime dos agentes. Roda no mesmo processo do back-end. O agente só pede ferra
   do agente de atendimento (`AGENTE_ID`, `FERRAMENTAS_DO_AGENTE`, `SISTEMA`). Não importa `mock/`, SQLAlchemy,
   `requests` nem `dotenv` (tem teste); só `ferramentas/`.
 - `agente_geral/agente.py`: o agente padrão do chat. Só configuração, sobre o mesmo motor. Veja o README dele.
-- `terminal.py`: modo terminal dos dois agentes, com o diretório de funcionários do mock e a chamada direta ao
-  modelo (`chamar_llm`). É o único arquivo de `agentes/` que importa `mock/`. Veja "Modo terminal".
+- `terminal.py`: modo terminal dos dois agentes, com o diretório de funcionários e a chamada direta ao
+  modelo (`chamar_llm`). Nenhum arquivo de `agentes/` importa `mock/` (tem teste): o diretório vem da fachada
+  `ferramentas.dados_sinteticos`. Veja "Modo terminal".
 - Testes: `backend/tests/test_agente_*.py` (motor, geral, terminal), com os apoios em
   `backend/tests/apoio_agente.py`.
 
@@ -27,6 +28,11 @@ roda um turno e devolve um `Turno(resposta, tipo, trajetoria, estado, motivo)`.
   (ferramenta + JSON), `PERGUNTAR` (devolve a pergunta e encerra o turno, sem `input()`) ou `FINAL`.
 - Travas do código, não do prompt: só se lê um caminho depois do índice; só se usa uma ferramenta que foi
   lida e estava liberada; `FINAL` antes de ler o índice é recusado.
+  `USAR` de ferramenta não lida não chega a executar, mas deixa registro de recusa (`catalogo.registrar_bloqueio`,
+  `camada_bloqueio="agente"`, sem argumentos nem dados); a resposta à pessoa é a mesma de antes (MED-2).
+- O índice lista as ferramentas liberadas como `area/nome: primeira frase`. Os prompts mandam escolher nessa
+  lista e ler a ficha (`LER: <area>/<ferramenta>`) direto; ler a área é opcional. Os nomes para log vêm de
+  `catalogo.nomes_e_areas()` e a lista do agente geral de `catalogo.nomes()`: o agente nunca pega a ferramenta.
 - `Turno.tipo`: `"final"`, `"pergunta"` ou `"limite"`. No limite, `motivo` é `"max_passos"`, `"repeticao"`,
   `"tempo"` ou `"modelo_indisponivel"`. Em todos a resposta é uma mensagem fixa, sem conteúdo.
 - Prazo do turno: `SEGUNDOS_POR_TURNO` (120 s). SEM FONTE: o valor não vem de requisito nem de medição, foi
@@ -98,9 +104,7 @@ Código em `agentes/terminal.py`, fora do motor. Só com `MODO_TERMINAL=1`:
 (`python -m agentes.agente_atendimento.agente` continua funcionando: é um atalho para o primeiro.)
 
 O `.env` tem `ID_USUARIO` (e `LLM_URL`, `LLM_MODELO` e as credenciais do modelo); nível, área e carteira vêm do
-diretório do mock (SQLite local), por `buscar_usuario_no_diretorio`; funcionário desligado, afastado ou
+diretório do mock, por `buscar_usuario_no_diretorio`, que usa `dados_sinteticos.buscar_funcionario` (banco
+de `MOCK_DATABASE_URL` ou o SQLite local; para outro banco, `dados_sinteticos.configurar(...)`); funcionário desligado, afastado ou
 inexistente não entra. `chamar_llm` troca qualquer erro de rede por `ModeloIndisponivel` sem a URL. Não use
 isso no produto: o back-end monta o `Usuario` e o `LLMClient` por conta própria.
-
-Ponto de troca: o diretório é lido por `mock.consultas.buscar_funcionario` dentro de
-`buscar_usuario_no_diretorio`. Quando `ferramentas/` expuser essa busca na fachada, troque só essa função.

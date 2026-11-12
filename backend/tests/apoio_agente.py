@@ -2,7 +2,7 @@
 
 import importlib
 
-from ferramentas import dados_sinteticos
+from ferramentas import dados_sinteticos, governanca
 from mock.banco import criar_engine
 from mock.gerar import recriar
 
@@ -55,6 +55,14 @@ def limpar():
     """Religa o mock e zera registros, destinos, falhas e pedidos de ferramenta entre os testes."""
     mundo()
     limpar_estado()
+
+
+def so_recusas_do_agente():
+    """True se nada rodou: o registro só tem recusas do agente (MED-2), com metadados e sem dado."""
+    return all(
+        r["status"] == "erro" and r["camada_bloqueio"] == "agente" and r["tipo_erro"] == "ferramenta_inexistente"
+        for r in governanca.REGISTROS
+    )
 
 
 def modelo_roteirizado(linhas, prompts=None, sistemas=None):

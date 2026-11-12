@@ -53,14 +53,14 @@ PENSAMENTO: <uma ou duas frases explicando seu raciocínio>
 <UMA ação da lista abaixo>
 
 Ações disponíveis (use apenas UMA por resposta):
-LER: <caminho>   (vazio lê o índice de áreas; uma área, como financeiro, lista as ferramentas dela; uma ferramenta, como financeiro/calcular_multa_atraso, mostra a descrição e os parâmetros)
+LER: <caminho>   (vazio lê o índice, com as áreas e a lista de ferramentas liberadas, cada uma como area/nome: primeira frase; uma ferramenta, como financeiro/calcular_multa_atraso, mostra a descrição e os parâmetros; uma área, como financeiro, só serve para comparar ferramentas parecidas)
 USAR: <nome_da_ferramenta> | <argumentos em JSON, em uma única linha>
 PERGUNTAR: <pergunta ao funcionário>
 FINAL: <resposta final ao funcionário>
 
 Regras de trabalho (siga esta ordem):
-1. Ao receber um pedido, use LER com o caminho vazio para ver as áreas.
-2. Entre na área adequada e depois leia a ferramenta (LER: <area>/<ferramenta>). Só assim você saberá como ela funciona.
+1. Ao receber um pedido, use LER com o caminho vazio para ver o índice.
+2. Escolha a ferramenta na lista do índice e leia a ficha dela direto (LER: <area>/<ferramenta>), sem passar pela área. Só assim você saberá como ela funciona.
 3. Só use USAR em uma ferramenta que você já leu. Use exatamente os parâmetros descritos nela.
 4. Se faltar um dado (ex.: o código do cliente) ou algo estiver ambíguo, use PERGUNTAR. Nunca chute.
 5. Se nenhuma ferramenta servir ao pedido, diga isso no FINAL, cite só as ferramentas que você viu e sugira a mais próxima. Antes de encerrar, use PERGUNTAR para oferecer o registro de um pedido de ferramenta nova. Se o funcionário aceitar, leia e use plataforma/solicitar_ferramenta_ausente e informe só o código do pedido, sem prometer aviso, prazo ou resposta de ninguém.
@@ -176,7 +176,10 @@ class Atendimento:
         return texto, f"'{caminho}' lido"
 
     def usar(self, nome, argumentos_texto, passo):
+        contexto = {"agente_id": self.agente_id, "execucao_id": self.execucao_id, "passo": passo}
         if nome not in self.lidas:
+            # MED-2 da auditoria B: a recusa também deixa registro (sem argumentos nem dados).
+            catalogo.registrar_bloqueio(nome, self.usuario, contexto, "agente")
             return "erro: leia a ferramenta (LER: <area>/<ferramenta>) antes de usá-la.", "bloqueado: ferramenta não lida"
         try:
             args = json.loads(argumentos_texto)
@@ -185,7 +188,6 @@ class Atendimento:
         except (ValueError, TypeError, RecursionError) as e:  # RecursionError: JSON aninhado demais
             return f"erro: argumentos inválidos ({e}).", "argumentos inválidos"
 
-        contexto = {"agente_id": self.agente_id, "execucao_id": self.execucao_id, "passo": passo}
         resultado = catalogo.executar(nome, args, self.usuario, self.ferramentas_do_agente, contexto)
         texto = json.dumps(resultado, ensure_ascii=False, default=str)[:MAX_CHARS_MD]
         resumo = resultado["status"] if resultado["tipo_erro"] is None else resultado["tipo_erro"]
@@ -220,8 +222,7 @@ def montar_prompt(pergunta, historico, atendimento):
 
 def _nomes_do_catalogo():
     """Áreas e ferramentas que existem no catálogo: os únicos nomes que podem ir para o log."""
-    ferramentas = catalogo.carregar()
-    return set(ferramentas) | {ferramenta.area for ferramenta in ferramentas.values()}
+    return catalogo.nomes_e_areas()
 
 
 def _alvo_seguro(texto):

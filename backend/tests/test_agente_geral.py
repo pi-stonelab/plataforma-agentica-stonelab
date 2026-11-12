@@ -35,10 +35,26 @@ class TestConfiguracao(unittest.TestCase):
     def test_ferramentas_do_agente_sao_todas_as_do_catalogo_em_tupla_de_nomes(self):
         ferramentas = geral.FERRAMENTAS_DO_AGENTE
         self.assertIsInstance(ferramentas, tuple)
-        self.assertEqual(ferramentas, tuple(catalogo.carregar()))
+        self.assertEqual(ferramentas, tuple(catalogo.nomes()))
         self.assertGreater(len(ferramentas), 5)
         self.assertNotEqual(ferramentas, tuple("todas"))
         self.assertTrue(all(isinstance(nome, str) and len(nome) > 1 for nome in ferramentas))
+
+    def test_prompt_manda_escolher_na_lista_do_indice_e_ler_a_ficha_direto(self):
+        for sistema in (geral.SISTEMA, motor.SISTEMA):
+            self.assertIn("lista do índice", sistema)
+            self.assertIn("sem passar pela área", sistema)
+            self.assertIn("area/nome: primeira frase", sistema)
+
+    def test_ler_a_ficha_direto_depois_do_indice_funciona_sem_ler_a_area(self):
+        apoio.limpar()
+        resultado = geral.rodar_turno_geral(
+            "p", apoio.atendente_n1(),
+            modelo_roteirizado(INDICE + ["LER: atendimento/consultar_cliente", CONSULTA, "FINAL: ok"]),
+        )
+        self.assertEqual(resultado.tipo, "final")
+        self.assertIn("'atendimento/consultar_cliente' lido", resultado.trajetoria[1])
+        self.assertIn("executada: ok", resultado.trajetoria[2])
 
     def test_prompt_tem_o_protocolo_do_motor(self):
         for acao in ("LER:", "USAR:", "PERGUNTAR:", "FINAL:", "PENSAMENTO:"):
@@ -171,7 +187,7 @@ class TestSoOQueOCargoLibera(unittest.TestCase):
         resultado = turno_geral(linhas, apoio.analista_cobranca())
         self.assertIn("não encontrado", resultado.trajetoria[1])
         self.assertIn("ferramenta não lida", resultado.trajetoria[2])
-        self.assertEqual(governanca.REGISTROS, [])
+        self.assertTrue(apoio.so_recusas_do_agente())
         self.assertEqual(resultado.estado["ferramentas_lidas"], [])
 
     def test_o_mesmo_pedido_funciona_para_quem_tem_a_categoria(self):
@@ -205,7 +221,7 @@ class TestSoOQueOCargoLibera(unittest.TestCase):
                     [TRANSACOES, "FINAL: ok"], apoio.usuario_do_cargo(cargo), estado=estado
                 )
                 self.assertIn("ferramenta não lida", resultado.trajetoria[0])
-                self.assertEqual(governanca.REGISTROS, [])
+                self.assertTrue(apoio.so_recusas_do_agente())
 
 
 class TestPrazoDoTurno(unittest.TestCase):
@@ -252,7 +268,7 @@ class TestCargoSemFerramentas(unittest.TestCase):
         self.assertIn("não encontrado", resultado.trajetoria[1])
         self.assertIn("não encontrado", resultado.trajetoria[2])
         self.assertIn("ferramenta não lida", resultado.trajetoria[3])
-        self.assertEqual(governanca.REGISTROS, [])
+        self.assertTrue(apoio.so_recusas_do_agente())
 
     def test_cargo_desconhecido_ou_ausente_nao_executa_nada(self):
         for cargo in ("cargo_que_nao_existe", None, ""):
