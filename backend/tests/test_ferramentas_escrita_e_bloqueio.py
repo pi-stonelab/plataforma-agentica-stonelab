@@ -169,23 +169,12 @@ def _achados_de_acesso_direto(codigo, nome):
             yield f"{nome}:{no.lineno} {achado}"
 
 
-# Os dois agentes ainda usam `catalogo.carregar()` só para listar nomes e áreas. A troca por
-# `catalogo.nomes()` e `catalogo.nomes_e_areas()` é de uma linha cada, do F2. Enquanto isso, só
-# estes arquivos são tolerados, e só nisso.
-TOLERADOS = {
-    "agentes/agente_geral/agente.py": "usa catalogo.carregar",
-    "agentes/agente_atendimento/agente.py": "usa catalogo.carregar",
-}
-
-
 def test_nenhum_modulo_fora_de_ferramentas_chama_rodar_ou_importa_func():
     achados = []
     for arquivo in _arquivos_de_producao_fora_de_ferramentas():
         relativo = arquivo.relative_to(RAIZ).as_posix()
         codigo = arquivo.read_text(encoding="utf-8")
-        for achado in _achados_de_acesso_direto(codigo, relativo):
-            if not achado.endswith(TOLERADOS.get(relativo, "\0")):
-                achados.append(achado)
+        achados += _achados_de_acesso_direto(codigo, relativo)
     assert achados == []
 
 

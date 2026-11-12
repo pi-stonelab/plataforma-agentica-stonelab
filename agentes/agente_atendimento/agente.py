@@ -220,8 +220,7 @@ def montar_prompt(pergunta, historico, atendimento):
 
 def _nomes_do_catalogo():
     """Áreas e ferramentas que existem no catálogo: os únicos nomes que podem ir para o log."""
-    ferramentas = catalogo.carregar()
-    return set(ferramentas) | {ferramenta.area for ferramenta in ferramentas.values()}
+    return catalogo.nomes_e_areas()
 
 
 def _alvo_seguro(texto):

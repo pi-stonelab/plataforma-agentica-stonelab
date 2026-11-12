@@ -16,7 +16,7 @@ AGENTE_ID = "agente_geral"
 
 # Todas as ferramentas do catálogo. Tem que ser tupla de nomes: a string "todas" viraria letras
 # em `tuple()`. O catálogo continua escondendo e negando o que o cargo da pessoa não pode usar.
-FERRAMENTAS_DO_AGENTE = tuple(catalogo.carregar())
+FERRAMENTAS_DO_AGENTE = tuple(catalogo.nomes())
 
 SISTEMA = """Você é o assistente geral da {EMPRESA}, usado por funcionários do atendimento e do financeiro. Ajuda a consultar dados de lojistas e a fazer cálculos usando as ferramentas que a plataforma libera para a pessoa com quem você está falando. Responda em português, com clareza e sem inventar informações.
 

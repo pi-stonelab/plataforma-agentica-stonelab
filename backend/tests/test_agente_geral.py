@@ -35,7 +35,7 @@ class TestConfiguracao(unittest.TestCase):
     def test_ferramentas_do_agente_sao_todas_as_do_catalogo_em_tupla_de_nomes(self):
         ferramentas = geral.FERRAMENTAS_DO_AGENTE
         self.assertIsInstance(ferramentas, tuple)
-        self.assertEqual(ferramentas, tuple(catalogo.carregar()))
+        self.assertEqual(ferramentas, tuple(catalogo.nomes()))
         self.assertGreater(len(ferramentas), 5)
         self.assertNotEqual(ferramentas, tuple("todas"))
         self.assertTrue(all(isinstance(nome, str) and len(nome) > 1 for nome in ferramentas))
