@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+# Roda os testes a partir da raiz, para os imports de seguranca/ e ferramentas/ funcionarem.
+pythonpath = ["."]
+testpaths = ["testes"]

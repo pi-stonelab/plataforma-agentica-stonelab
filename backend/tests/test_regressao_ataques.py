@@ -598,6 +598,8 @@ def test_a13_mascara_de_texto_livre_termina_rapido_em_entrada_patologica(texto):
 @pytest.mark.parametrize("texto", CARACTERES_ESPECIAIS)
 def test_a13_caracteres_especiais_passam_e_voltam_como_dado_sem_quebrar(texto):
     with reg.mundo_privado() as engine:
+        if engine.dialect.name == "postgresql" and "\x00" in texto:
+            pytest.skip("o Postgres não guarda o byte NUL em texto; o dado nem chega a existir lá")
         with Session(engine) as sessao:
             sessao.add(
                 Interacao(

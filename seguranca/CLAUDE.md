@@ -48,8 +48,8 @@ classe é do back-end: `{classe.__name__: classe for classe in ROLES}`. Perfil d
 
 O dono escolhe, e publicar não exige aprovação (D3):
 
-- `PRIVADO` (padrão): só o dono.
-- `CONVIDADOS`: o dono e quem ele convidou.
+- `PRIVADO` (padrão): o dono e quem ele convidar.
+- `CONVIDADOS`: o dono e quem ele convidou (hoje se comporta como `PRIVADO`; ver H5).
 - `PUBLICO`: todos os Colaboradores e Supervisores das duas áreas.
 
 No banco, a visibilidade é o texto (`privado`, `convidados`, `publico`). `Agente(...)` aceita esse texto e recusa
@@ -62,10 +62,10 @@ Tabela para agente ATIVO. "tudo" = ver, executar, editar, convidar e deprecar. "
 | Quem é a pessoa | PRIVADO | CONVIDADOS | PUBLICO |
 | --- | --- | --- | --- |
 | Dono (Colaborador ou Supervisor) | tudo | tudo | tudo |
-| Colaborador convidado pelo dono | nada | usar | usar |
+| Colaborador convidado pelo dono | usar | usar | usar |
 | Colaborador que não é dono nem convidado | nada | nada | usar |
 | Supervisor, agente de uma das suas áreas (não é dono) | nada | tudo | tudo |
-| Supervisor, agente de outra área, convidado | nada | usar | usar |
+| Supervisor, agente de outra área, convidado | usar | usar | usar |
 | Supervisor, agente de outra área, não convidado | nada | nada | usar |
 | AdminGlobal | só deprecar | ver e deprecar | ver e deprecar |
 | Auditor | nada | nada | nada |
@@ -73,14 +73,14 @@ Tabela para agente ATIVO. "tudo" = ver, executar, editar, convidar e deprecar. "
 
 Como ler a tabela com o código (`_gerencia`, `_usa` e `pode` de cada perfil):
 
-- "tudo" tem uma exceção: convidar só vale quando o agente está em `CONVIDADOS`. Em `PRIVADO` e `PUBLICO` o
-  convite é negado para todos. Para convidar alguém, o dono primeiro muda o agente para `CONVIDADOS`.
-- Agente inativo (`ativo=False`): ninguém executa, nem o dono. Quem só usa deixa de ver. Quem gerencia continua
-  vendo e gerenciando.
+- "tudo" tem uma exceção: convidar é negado em `PUBLICO`, que todos já usam. Em `PRIVADO` e `CONVIDADOS` o dono
+  convida direto (H5).
+- Agente inativo (`ativo=False`): só `VER` é permitido, para todos, inclusive o dono e o Admin. Quem só usa deixa
+  de ver. Vale em `pode` e de novo em `autorizar`.
 - O Supervisor não vê agente privado de outra pessoa. Nos abertos da sua área ele gerencia e executa sem precisar de
   convite. Se o grupo quiser que ele só gerencie, a mudança é em `_gerencia` (README, decisão 3 a confirmar).
 - O `AdminGlobal` pode deprecar até um agente privado, mas precisa do id: ele não aparece em `agentes_visiveis`.
-- `Plataforma.autorizar` ainda nega `EXECUTAR` quando o agente está inativo, mesmo que um perfil novo esqueça disso.
+- `Plataforma.autorizar` nega tudo que não é `VER` quando o agente está inativo, mesmo que um perfil novo esqueça disso.
 
 ## Plataforma: cadastro e auditoria de um pedido
 
@@ -93,9 +93,9 @@ vale para UM pedido (ver abaixo).
 - `carregar_agente(agente)`: põe um agente que já existe no banco, sem evento `CRIAR` e sem criador. Só o back-end
   usa, com o que leu do banco. Id repetido com outro agente é erro. Serve também para o agente geral.
 - `autorizar(usuario, acao, agente, execucao_id=None)`: decide e grava UM evento. Decide sempre sobre o agente
-  REGISTRADO. Agente não registrado, ou igual no id mas diferente no dono ou na visibilidade, é negado. O objeto
-  que você passa só serve de chave.
-- `alterar_visibilidade(quem, agente, nova)`: exige `EDITAR`. `desativar(quem, agente)`: exige `DEPRECAR`.
+  REGISTRADO e o devolve (o decorator passa esse agente para a função). Agente não registrado é negado. Do objeto
+  que você passa só vale o id.
+- `alterar_visibilidade(quem, agente, nova)`: exige `EDITAR`. `deprecar(quem, agente)`: exige `DEPRECAR`.
   `convidar(quem, convidado, agente)`: exige `CONVIDAR` e que o convidado esteja cadastrado. Em todos, o evento é
   gravado antes da mudança.
 - `agentes_visiveis(usuario)`: só dos agentes carregados.
@@ -114,13 +114,13 @@ removido perde o acesso na hora.
 - Só o id da pessoa. Nunca o objeto, nunca o nome. O `repr` de `Usuario` e as mensagens de `AcessoNegado` também
   não levam nome. A mensagem leva a ação e o id do agente.
 - `acao` é `VER`, `EXECUTAR`, `EDITAR`, `CONVIDAR`, `DEPRECAR`, e também `CRIAR`, `ALTERAR_VISIBILIDADE:<valor>`,
-  `DESATIVAR`, `CONVIDAR_PESSOA_DESCONHECIDA`, `ATRIBUIR_ROLE:<perfil>`, `REMOVER_ROLE` e `LER_AUDITORIA`.
+  `DEPRECAR`, `CONVIDAR_PESSOA_DESCONHECIDA`, `ATRIBUIR_ROLE:<perfil>`, `REMOVER_ROLE` e `LER_AUDITORIA`.
 - `execucao_id` só aceita letras, números, `_` e `-`, até 64 caracteres. Valor fora disso nega a ação e o evento sai
   sem ele. É o fio que liga o evento ao registro de chamadas de ferramenta (`governanca.CAMPOS_REGISTRO` tem o mesmo
   campo). O orquestrador precisa passar o MESMO valor nos dois lugares (`pesquisa/critica_B.md`, §6).
 - Gancho (O9): `Plataforma(ao_registrar=funcao)` chama a função a cada evento. Se ela levantar erro, a ação é
   negada com `AcessoNegado` e o evento fica na lista em memória como não permitido. Sem rastro, sem ação. Criar
-  agente, mudar visibilidade, desativar e mudar perfil só acontecem depois que o evento foi gravado.
+  agente, mudar visibilidade, deprecar e mudar perfil só acontecem depois que o evento foi gravado.
 - A lista `plataforma.auditoria` vale só para um pedido. A auditoria da empresa é a tabela do back-end.
 
 ## Decorator `exige_permissao`
@@ -151,7 +151,7 @@ dono é a plataforma.
 - Colaborador e Supervisor das duas áreas veem e executam, enquanto ele está ativo.
 - Ninguém edita nem convida, nem o Supervisor da área (por isso a área é `None`: com área, o Supervisor passaria a
   gerenciar).
-- O Admin o pausa por `desativar` (DEPRECAR). Inativo, ninguém executa.
+- O Admin o pausa por `deprecar`. Inativo, só `VER`.
 - Auditor, Gestor e Admin não executam.
 - Entra na Plataforma só por `carregar_agente`. `registrar` por pessoa é negado.
 - O lado dos dados está em `agentes/agente_geral/` e `docs/agente-geral-e-especificos.md`.
@@ -174,7 +174,7 @@ Nada aqui existe ainda em `backend/`. É o contrato que a etapa do back-end cump
 6. Tratar `AcessoNegado` num `exception_handler` e responder genérico ("Acesso negado."), sem nome de agente nem de
    pessoa. SEM FONTE no código para 404 em vez de 403 quando a pessoa nem pode ver o agente; é proposta de
    `pesquisa/arquitetura.md` §5.5.
-7. Para mudar estado, chamar os métodos que autorizam (`alterar_visibilidade`, `desativar`, `convidar`) e só então
+7. Para mudar estado, chamar os métodos que autorizam (`alterar_visibilidade`, `deprecar`, `convidar`) e só então
    gravar o novo valor no banco.
 8. Para ler a auditoria, chamar `autorizar_leitura_auditoria` e só depois consultar a tabela.
 9. Ligar `ao_registrar` a uma função que grava na tabela `auditoria` com sessão própria. Se a gravação falhar, levante

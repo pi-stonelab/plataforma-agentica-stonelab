@@ -31,9 +31,8 @@ USAR = frozenset({Acao.VER, Acao.EXECUTAR})
 NADA = frozenset()
 PRIV, CONV, PUB = Visibilidade.PRIVADO, Visibilidade.CONVIDADOS, Visibilidade.PUBLICO
 
-# Quem gerencia faz tudo, mas só convida com visibilidade CONVIDADOS (decisão do Pedro, 11/11).
-GERENCIA = {PRIV: TODAS - {Acao.CONVIDAR}, CONV: TODAS, PUB: TODAS - {Acao.CONVIDAR}}
-GERENCIA_SEM_EXECUTAR = {v: acoes - {Acao.EXECUTAR} for v, acoes in GERENCIA.items()}
+# Quem gerencia faz tudo, mas não convida em agente público, que todos já usam (decisão do Pedro, 12/11).
+GERENCIA = {PRIV: TODAS, CONV: TODAS, PUB: TODAS - {Acao.CONVIDAR}}
 
 # relação da pessoa com o agente (a pessoa de teste é sempre da área Financeiro)
 RELACOES = ["dono", "convidado_mesma_area", "convidado_outra_area", "mesma_area", "outra_area"]
@@ -41,13 +40,13 @@ RELACOES = ["dono", "convidado_mesma_area", "convidado_outra_area", "mesma_area"
 # (perfil, relação) -> {visibilidade: ações permitidas com o agente ATIVO}
 ESPERADO_ATIVO = {
     ("Colaborador", "dono"): GERENCIA,
-    ("Colaborador", "convidado_mesma_area"): {PRIV: NADA, CONV: USAR, PUB: USAR},
-    ("Colaborador", "convidado_outra_area"): {PRIV: NADA, CONV: USAR, PUB: USAR},
+    ("Colaborador", "convidado_mesma_area"): {PRIV: USAR, CONV: USAR, PUB: USAR},
+    ("Colaborador", "convidado_outra_area"): {PRIV: USAR, CONV: USAR, PUB: USAR},
     ("Colaborador", "mesma_area"): {PRIV: NADA, CONV: NADA, PUB: USAR},
     ("Colaborador", "outra_area"): {PRIV: NADA, CONV: NADA, PUB: USAR},
     ("Supervisor", "dono"): GERENCIA,
-    ("Supervisor", "convidado_mesma_area"): {PRIV: NADA, CONV: TODAS, PUB: GERENCIA[PUB]},
-    ("Supervisor", "convidado_outra_area"): {PRIV: NADA, CONV: USAR, PUB: USAR},
+    ("Supervisor", "convidado_mesma_area"): {PRIV: USAR, CONV: TODAS, PUB: GERENCIA[PUB]},
+    ("Supervisor", "convidado_outra_area"): {PRIV: USAR, CONV: USAR, PUB: USAR},
     ("Supervisor", "mesma_area"): {PRIV: NADA, CONV: TODAS, PUB: GERENCIA[PUB]},
     ("Supervisor", "outra_area"): {PRIV: NADA, CONV: NADA, PUB: USAR},
 }
@@ -57,20 +56,16 @@ for _rel in RELACOES:
     ESPERADO_ATIVO[("Auditor", _rel)] = {PRIV: NADA, CONV: NADA, PUB: NADA}
     ESPERADO_ATIVO[("GestorDeAcessos", _rel)] = {PRIV: NADA, CONV: NADA, PUB: NADA}
 
-# Agente INATIVO: quem gerencia perde só o EXECUTAR; quem só usa perde tudo (some da lista).
-ESPERADO_INATIVO = {
-    ("Colaborador", "dono"): GERENCIA_SEM_EXECUTAR,
-    ("Supervisor", "dono"): GERENCIA_SEM_EXECUTAR,
-    ("Supervisor", "convidado_mesma_area"): {**GERENCIA_SEM_EXECUTAR, PRIV: NADA},
-    ("Supervisor", "mesma_area"): {**GERENCIA_SEM_EXECUTAR, PRIV: NADA},
-}
+# Agente INATIVO: só VER continua permitido, e só para quem gerencia ou é o Admin (regra do Brenno, PR #10).
+# Quem só usa deixa de ver (some da lista).
+ESPERADO_INATIVO = {}
 for _chave, _por_vis in ESPERADO_ATIVO.items():
-    if _chave in ESPERADO_INATIVO:
-        continue
     if _chave[0] in {"Colaborador", "Supervisor"}:
-        ESPERADO_INATIVO[_chave] = {v: NADA for v in Visibilidade}
-    else:  # Admin, Auditor e Gestor: ativo não muda nada (Admin nunca executa mesmo)
-        ESPERADO_INATIVO[_chave] = _por_vis
+        ESPERADO_INATIVO[_chave] = {
+            v: (frozenset({Acao.VER}) if Acao.EDITAR in acoes else NADA) for v, acoes in _por_vis.items()
+        }
+    else:  # Admin só vê e deprecar muda; Auditor e Gestor continuam sem nada
+        ESPERADO_INATIVO[_chave] = {v: frozenset(acoes & {Acao.VER}) for v, acoes in _por_vis.items()}
 
 
 def montar_cenario(perfil: str, relacao: str, visibilidade: Visibilidade, ativo: bool):
@@ -129,17 +124,28 @@ def test_padrao_do_agente_e_privado_e_ativo():
     assert agente.ativo is True
 
 
-def test_para_convidar_o_dono_muda_para_convidados():
+def test_dono_convida_em_agente_privado_e_o_convidado_usa():
     plataforma = Plataforma()
     dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
     amigo = plataforma.cadastrar(Colaborador("a", Financeiro(), id="amigo"))
     agente = dono.criar_agente("meu", plataforma)  # nasce PRIVADO
     with pytest.raises(AcessoNegado):
-        plataforma.convidar(dono, amigo, agente)
-    assert agente.convidados_ids == set()
-    plataforma.alterar_visibilidade(dono, agente, Visibilidade.CONVIDADOS)
+        plataforma.autorizar(amigo, Acao.EXECUTAR, agente)
     plataforma.convidar(dono, amigo, agente)
     plataforma.autorizar(amigo, Acao.EXECUTAR, agente)
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(amigo, Acao.EDITAR, agente)  # convidado só usa
+
+
+def test_convidar_em_agente_publico_e_negado():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    amigo = plataforma.cadastrar(Colaborador("a", Financeiro(), id="amigo"))
+    agente = dono.criar_agente("meu", plataforma)
+    plataforma.alterar_visibilidade(dono, agente, Visibilidade.PUBLICO)
+    with pytest.raises(AcessoNegado):
+        plataforma.convidar(dono, amigo, agente)
+    assert agente.convidados_ids == set()
 
 
 def test_supervisor_com_area_extra_gerencia_agente_aberto_da_outra_area():
@@ -542,15 +548,17 @@ def test_agente_nao_registrado_e_negado_ate_para_o_dono():
         plataforma.autorizar(dono, Acao.VER, solto)
 
 
-def test_copia_igual_ao_registrado_vale_e_copia_alterada_nao():
+def test_so_o_id_da_copia_vale_e_a_decisao_e_do_registrado():
     plataforma = Plataforma()
     dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    estranho = plataforma.cadastrar(Colaborador("e", Financeiro(), id="estranho"))
     real = dono.criar_agente("x", plataforma)
     copia = Agente("x", Financeiro(), "dono", id=real.id)  # como se viesse de outra leitura do banco
+    assert plataforma.autorizar(dono, Acao.VER, copia) is real
+    copia.visibilidade = PUB  # o que a cópia diz não muda a decisão
     plataforma.autorizar(dono, Acao.VER, copia)
-    copia.visibilidade = PUB  # a cópia agora difere do registrado
     with pytest.raises(AcessoNegado):
-        plataforma.autorizar(dono, Acao.VER, copia)
+        plataforma.autorizar(estranho, Acao.VER, copia)
 
 
 def test_convidar_grava_no_agente_registrado():
@@ -693,18 +701,18 @@ def test_supervisor_da_area_edita_visibilidade_de_agente_aberto_mas_nao_de_priva
     assert agente.visibilidade is PUB
 
 
-def test_desativar_pelo_dono_pelo_supervisor_e_pelo_admin():
+def test_deprecar_pelo_dono_pelo_supervisor_e_pelo_admin():
     plataforma = Plataforma()
     sup = plataforma.cadastrar(Supervisor("s", Financeiro(), id="sup"))
     admin = plataforma.cadastrar(AdminGlobal("a", id="adm"))
     dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
     do_dono, do_supervisor, do_admin = (dono.criar_agente(f"x{i}", plataforma) for i in range(3))
     plataforma.alterar_visibilidade(dono, do_supervisor, PUB)  # o supervisor só gerencia o aberto
-    plataforma.desativar(dono, do_dono)
-    plataforma.desativar(sup, do_supervisor)
-    plataforma.desativar(admin, do_admin)
+    plataforma.deprecar(dono, do_dono)
+    plataforma.deprecar(sup, do_supervisor)
+    plataforma.deprecar(admin, do_admin)
     assert [a.ativo for a in (do_dono, do_supervisor, do_admin)] == [False, False, False]
-    assert [e.acao for e in plataforma.auditoria[-3:]] == ["DESATIVAR"] * 3
+    assert [e.acao for e in plataforma.auditoria[-3:]] == ["DEPRECAR"] * 3
     assert all(e.permitido for e in plataforma.auditoria[-3:])
 
 
@@ -717,11 +725,11 @@ def test_admin_desativa_agente_privado_que_nao_ve_pelo_id():
     assert plataforma.agentes_visiveis(admin) == []
     with pytest.raises(AcessoNegado):
         plataforma.autorizar(admin, Acao.VER, privado)
-    plataforma.desativar(admin, privado)
+    plataforma.deprecar(admin, privado)
     assert privado.ativo is False
 
 
-def test_desativar_negado_para_quem_so_usa_e_agente_inativo_nao_executa():
+def test_deprecar_negado_para_quem_so_usa_e_agente_inativo_nao_executa():
     plataforma = Plataforma()
     dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
     outro = plataforma.cadastrar(Colaborador("o", Financeiro(), id="outro"))
@@ -730,9 +738,9 @@ def test_desativar_negado_para_quem_so_usa_e_agente_inativo_nao_executa():
     plataforma.alterar_visibilidade(dono, agente, PUB)
     for intruso in (outro, auditor):
         with pytest.raises(AcessoNegado):
-            plataforma.desativar(intruso, agente)
+            plataforma.deprecar(intruso, agente)
     assert agente.ativo is True
-    plataforma.desativar(dono, agente)
+    plataforma.deprecar(dono, agente)
     for pessoa in (dono, outro):
         with pytest.raises(AcessoNegado):
             plataforma.autorizar(pessoa, Acao.EXECUTAR, agente)
@@ -747,7 +755,7 @@ def test_mudanca_com_agente_forjado_ou_solto_e_negada():
     with pytest.raises(AcessoNegado):
         plataforma.alterar_visibilidade(atacante, forjado, PUB)
     with pytest.raises(AcessoNegado):
-        plataforma.desativar(atacante, forjado)
+        plataforma.deprecar(atacante, forjado)
     assert real.visibilidade is PRIV and real.ativo is True
 
 
@@ -762,7 +770,7 @@ def test_gancho_que_falha_impede_a_mudanca_de_estado():
     with pytest.raises(AcessoNegado):
         plataforma.alterar_visibilidade(dono, agente, PUB)
     with pytest.raises(AcessoNegado):
-        plataforma.desativar(dono, agente)
+        plataforma.deprecar(dono, agente)
     assert agente.visibilidade is PRIV and agente.ativo is True  # sem rastro, sem mudança
 
 
@@ -810,7 +818,7 @@ def test_supervisor_de_area_nao_edita_nem_convida_nem_pausa_o_agente_geral():
         with pytest.raises(AcessoNegado):
             plataforma.alterar_visibilidade(pessoas[chave], geral, PRIV)
         with pytest.raises(AcessoNegado):
-            plataforma.desativar(pessoas[chave], geral)
+            plataforma.deprecar(pessoas[chave], geral)
     assert geral.visibilidade is PUB and geral.ativo is True
 
 
@@ -826,7 +834,7 @@ def test_ninguem_edita_o_agente_geral_nem_o_admin():
 def test_admin_pausa_o_agente_geral_e_depois_ninguem_executa():
     plataforma, pessoas, geral = montar_agente_geral()
     plataforma.autorizar(pessoas["adm"], Acao.VER, geral)  # é público, o Admin vê
-    plataforma.desativar(pessoas["adm"], geral)
+    plataforma.deprecar(pessoas["adm"], geral)
     assert geral.ativo is False
     for pessoa in pessoas.values():
         with pytest.raises(AcessoNegado):
@@ -836,7 +844,7 @@ def test_admin_pausa_o_agente_geral_e_depois_ninguem_executa():
 
 def test_agente_geral_inativo_ninguem_ve_exceto_quem_gerencia():
     plataforma, pessoas, geral = montar_agente_geral()
-    plataforma.desativar(pessoas["adm"], geral)
+    plataforma.deprecar(pessoas["adm"], geral)
     for chave in ("col-financeiro", "sup-financeiro", "col-atendimento", "sup-atendimento"):
         assert plataforma.agentes_visiveis(pessoas[chave]) == []  # quem só usa deixa de ver
     assert plataforma.agentes_visiveis(pessoas["adm"]) == [geral]

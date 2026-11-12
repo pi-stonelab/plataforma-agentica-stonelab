@@ -17,10 +17,10 @@ Tabela para agente ATIVO. "tudo" = ver, executar, editar, convidar e deprecar. "
 | Quem é a pessoa | PRIVADO | CONVIDADOS | PUBLICO |
 | --- | --- | --- | --- |
 | Dono (Colaborador ou Supervisor) | tudo | tudo | tudo |
-| Colaborador convidado pelo dono | nada | usar | usar |
+| Colaborador convidado pelo dono | usar | usar | usar |
 | Colaborador que não é dono nem convidado | nada | nada | usar |
-| Supervisor, agente de uma das suas áreas (não é dono) | nada | tudo | tudo |
-| Supervisor, agente de outra área, convidado | nada | usar | usar |
+| Supervisor, agente de uma das suas áreas (não é dono) | nada (convidado: usar) | tudo | tudo |
+| Supervisor, agente de outra área, convidado | usar | usar | usar |
 | Supervisor, agente de outra área, não convidado | nada | nada | usar |
 | AdminGlobal | só deprecar | ver e deprecar | ver e deprecar |
 | Auditor | nada | nada | nada |
@@ -28,9 +28,9 @@ Tabela para agente ATIVO. "tudo" = ver, executar, editar, convidar e deprecar. "
 
 Agente INATIVO (`ativo=False`):
 
-- Ninguém executa, nem o dono. Vale em `pode` e de novo em `Plataforma.autorizar`.
-- Quem só usa (convidado, outro Colaborador, Supervisor fora da área) também deixa de ver.
-- Quem gerencia continua vendo e gerenciando, menos executar: o dono, o Supervisor da área (não privado) e o Admin (ver não privado e deprecar).
+- Só `VER` é permitido, para todos, inclusive o dono e o Admin (regra do Brenno, PR #10). Executar, editar, convidar e deprecar são negados. Vale em `pode` e de novo em `Plataforma.autorizar`.
+- Quem só usa (convidado, outro Colaborador, Supervisor fora da área) deixa de ver.
+- Continuam vendo: o dono, o Supervisor da área (não privado) e o Admin (não privado).
 
 Outras regras:
 
@@ -48,14 +48,13 @@ Outras regras:
 `Agente.da_plataforma(nome)` cria o agente geral: `area=None`, `dono_id=DONO_PLATAFORMA` (`"plataforma"`), `PUBLICO`. Nenhuma pessoa pode ter esse id, então ninguém é dono dele.
 
 - Todo Colaborador e Supervisor das duas áreas vê e executa enquanto ele está ativo (testado nos dois perfis e nas duas áreas).
-- Ninguém edita nem convida, nem o Supervisor da área (por isso a área é `None`: com área, o Supervisor passaria a gerenciar). Pausar é com o Admin, por `desativar` (DEPRECAR). Inativo, ninguém executa.
+- Ninguém edita nem convida, nem o Supervisor da área (por isso a área é `None`: com área, o Supervisor passaria a gerenciar). Pausar é com o Admin, por `deprecar`. Inativo, só `VER`.
 - Auditor, Gestor e Admin não executam (como nos outros agentes).
 - Só o back-end o põe na Plataforma, com `carregar_agente` (ver abaixo). Pessoa nenhuma o registra por `registrar`.
 
 ### Decisões a confirmar com o grupo
 
-1. Níveis separados. A decisão registrada diz "agente privado: só o criador, os convidados..." num texto e "privado / convidados" como níveis diferentes em outro. Implementamos três níveis: privado = só o dono (para convidar alguém, o dono primeiro muda o agente para `CONVIDADOS`; em privado e público o convite é negado. Decisão do Pedro, 11/11), convidados = dono e convidados, público = todos os Colaboradores e Supervisores das duas áreas.
-2. Agente inativo some para quem só usa (ver acima). O texto original só diz "ninguém executa; o dono ainda vê".
+1. Níveis separados. A decisão registrada diz "agente privado: só o criador, os convidados..." num texto e "privado / convidados" como níveis diferentes em outro. Implementamos três níveis. O dono convida em privado e em convidados (decisão de Pedro, 12/11, ver H5); a lista de convidados vale nos dois, então hoje privado e convidados se comportam igual e só o público muda a regra. Fica em aberto se os dois níveis devem continuar separados. O texto original só diz "ninguém executa; o dono ainda vê".
 3. Supervisor executa e gerencia qualquer agente não privado das suas áreas, mesmo sem convite (era o que o código original fazia). Se o grupo quiser que ele só gerencie, é mudar `_gerencia` para não incluir EXECUTAR no caso dele.
 4. Admin e Auditor não criam agentes. O Admin não é dono de nada nem pode ser convidado para usar.
 5. REPLICAR ainda não existe como ação (fica para a Sprint 3).
@@ -105,17 +104,19 @@ O que acontece:
 - Negado: levanta `AcessoNegado`, a função não roda e a tentativa vai para a auditoria.
 - Erro inesperado na checagem: também vira `AcessoNegado` (falha fechada).
 - A função decorada ganha `acao_exigida`, para os testes conferirem a ação.
+- A função recebe o agente do cadastro, não o objeto que foi passado na chamada. Então ela sempre trabalha com a versão atual.
+- Agente desativado só aceita `Acao.VER`, para todos, inclusive o admin.
 
 Trate o `AcessoNegado` onde fizer sentido (por exemplo, responder "você não tem acesso a esse agente"). Não engula o erro para seguir em frente.
 
 ## Cadastro de agentes e mudanças de estado
 
-- A Plataforma decide sempre sobre o agente REGISTRADO nela (`autorizar` ignora o que o objeto recebido diz). Agente não registrado, ou diferente do registrado (por exemplo, mesmo id com outro dono ou outra visibilidade), é negado. Por isso o back-end precisa registrar os agentes antes de autorizar.
+- A Plataforma decide sempre sobre o agente REGISTRADO nela (`autorizar` só usa o id do objeto recebido e devolve o agente do cadastro; o decorator passa esse agente para a função). Agente não registrado é negado. Por isso o back-end precisa registrar os agentes antes de autorizar.
 - `registrar(agente, criador)` cria um agente NOVO e grava o evento `CRIAR`. Só em nome de quem cria, na área dele (o Supervisor também nas suas áreas extras) e com id ainda não usado; nunca sobrescreve.
 - `carregar_agente(agente)` põe na Plataforma um agente que já existe no banco, sem evento `CRIAR` e sem criador. Só o back-end usa, com o que leu do banco (também para o agente geral). Id repetido com outro agente é erro.
-- `alterar_visibilidade(quem, agente, nova)` exige EDITAR e grava o evento `ALTERAR_VISIBILIDADE:<valor>`. `desativar(quem, agente)` exige DEPRECAR e grava `DESATIVAR`. Em ambos o evento é gravado antes da mudança (se o gancho falhar, nada muda). Mudam o objeto registrado; o back-end grava o resultado no banco. Atribuir `agente.visibilidade` ou `agente.ativo` direto fica só para quem monta o objeto lido do banco.
-- Admin e `desativar`: o Admin pode pausar o agente não privado que enxerga e, pela regra da tabela acima, também o privado, mas precisa do id. Ainda não existe listagem de metadados (id, área, dono) para o Admin achar um agente privado: ele não aparece em `agentes_visiveis`. Fica para a Sprint 3, junto com reativar um agente pausado (hoje só o banco).
-- `convidar` grava o convidado no agente registrado.
+- `alterar_visibilidade(quem, agente, nova)` exige EDITAR e grava o evento `ALTERAR_VISIBILIDADE:<valor>`. `deprecar(quem, agente)` exige DEPRECAR e grava `DEPRECAR`. Em ambos o evento é gravado antes da mudança (se o gancho falhar, nada muda). Mudam o objeto registrado; o back-end grava o resultado no banco. Atribuir `agente.visibilidade` ou `agente.ativo` direto fica só para quem monta o objeto lido do banco.
+- Admin e `deprecar`: o Admin pode pausar o agente não privado que enxerga e, pela regra da tabela acima, também o privado, mas precisa do id. Ainda não existe listagem de metadados (id, área, dono) para o Admin achar um agente privado: ele não aparece em `agentes_visiveis`. Fica para a Sprint 3, junto com reativar um agente pausado (hoje só o banco).
+- `convidar` grava o convidado no agente registrado. Vale em privado e em convidados; em público é negado, porque todos já usam.
 
 ## Limites atuais
 

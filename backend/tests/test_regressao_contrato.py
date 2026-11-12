@@ -14,7 +14,6 @@ from agentes.agente_atendimento import agente as motor
 from agentes.agente_geral import agente as geral
 from ferramentas import catalogo, governanca
 from mock import regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
-from mock.banco import criar_engine
 from mock.gerar import recriar
 from mock.modelos import Funcionario, Lojista, Time
 from seguranca import permissoes
@@ -24,7 +23,7 @@ from sqlalchemy.orm import Session
 from . import apoio_agente as apoio
 from . import gabaritos as gab
 from . import test_regressao_ataques as ataques
-from .apoio_ferramentas import FUNCIONARIO_DO_CARGO, NEGADO_PELO_CATALOGO
+from .apoio_ferramentas import FUNCIONARIO_DO_CARGO, NEGADO_PELO_CATALOGO, novo_engine_do_mock
 
 RAIZ = Path(__file__).resolve().parents[2]
 FERRAMENTAS = catalogo.carregar()
@@ -121,7 +120,7 @@ def test_areas_batem_entre_mock_governanca_e_seguranca():
 
 
 def test_carteiras_batem_entre_regras_e_mundo_gerado():
-    engine = criar_engine("sqlite://")
+    engine = novo_engine_do_mock()
     recriar(engine)
     with Session(engine) as sessao:
         dos_lojistas = set(sessao.scalars(select(Lojista.carteira)))
@@ -142,7 +141,7 @@ def test_categorias_batem_entre_mock_governanca_e_fichas():
 
 
 def test_cargos_batem_entre_gabarito_mock_diretorio_e_apoio_dos_testes():
-    engine = criar_engine("sqlite://")
+    engine = novo_engine_do_mock()
     recriar(engine)
     with Session(engine) as sessao:
         no_diretorio = set(sessao.scalars(select(Funcionario.cargo)))

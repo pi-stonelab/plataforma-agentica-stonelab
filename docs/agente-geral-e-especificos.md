@@ -58,7 +58,7 @@ O motor é um só: `rodar_turno`, em `agentes/agente_atendimento/agente.py`. O a
 
 Na segurança, o agente geral nasce com `Agente.da_plataforma(nome)` (`seguranca/permissoes.py`): sem área, dono
 `plataforma`, público. Quem usa são Colaboradores e Supervisores (os perfis que executam agentes). O Admin só pausa
-(`desativar`). O Auditor e o Gestor de acessos não executam. O back-end carrega o agente na `Plataforma` do pedido com
+(`deprecar`). O Auditor e o Gestor de acessos não executam. O back-end carrega o agente na `Plataforma` do pedido com
 `carregar_agente`.
 
 Listar todas as ferramentas não dá poder a ninguém. O que a pessoa alcança é decidido pelo cargo, em duas voltas:
@@ -115,7 +115,7 @@ Tudo abaixo é lista de pendências com a fonte de cada uma.
   escreve: SEM FONTE.
 - Lista de ferramentas do agente de atendimento (KAN-55). Está fixa em 5, sem as seis novas. O comentário no código
   diz que virá da configuração do agente.
-- Reativar um agente pausado. Existe `desativar`; não existe o contrário. Nenhuma fonte diz se pode.
+- Reativar um agente pausado. Existe `deprecar`; não existe o contrário. Nenhuma fonte diz se pode.
 - Contexto (o segundo bloco do molde): fontes de dado que o agente usa. Não há campo hoje.
 - Custo por execução, tokens e limite de gasto (KAN-57, KAN-16). O motor ainda não lê o consumo do modelo.
 

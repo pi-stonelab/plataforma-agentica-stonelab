@@ -77,14 +77,14 @@ Oi, Brenno. Mexemos em `seguranca/` com a liberação do Pedro, para encaixar co
 
 O que mudou:
 
-- Visibilidade: `PRIVADO`, `CONVIDADOS` e `PUBLICO`, escolhida pelo dono. Convidar só vale em `CONVIDADOS`.
+- Visibilidade: `PRIVADO`, `CONVIDADOS` e `PUBLICO`, escolhida pelo dono. O dono convida em privado e em convidados; em público o convite é negado.
 - Dois perfis novos: `Auditor`, que lê a auditoria e mais nada, e `AdminGlobal` mais restrito, que pausa agentes
   e não executa nem vê privado. Área é opcional para os dois.
 - A `Plataforma` agora vale para um pedido. O back-end cria uma por pedido, com `carregar_agente` para agentes que vêm
   do banco e `ao_registrar` para gravar a auditoria.
 - `Evento` guarda só o id da pessoa, mais o `execucao_id`. Nunca o nome.
 - `autorizar` decide sobre o agente registrado e nega agente forjado ou não registrado.
-- Mudar visibilidade e desativar passam por métodos que autorizam e gravam evento.
+- Mudar visibilidade e `deprecar` passam por métodos que autorizam e gravam evento.
 - Existe agente geral: `Agente.da_plataforma(nome)`.
 - O decorator aceita `plataforma` e `execucao_id` como parâmetros da função decorada.
 
@@ -98,6 +98,20 @@ O que pode quebrar:
 Para você decidir: o `README` ainda marca como "a confirmar" se o Supervisor da área executa os agentes abertos ou só os
 gerencia (hoje executa). A mudança, se vier, é em `_gerencia`.
 Pendências para a Sprint 3: `REPLICAR`, limpar convidados ao sair de `CONVIDADOS`, reativar agente pausado.
+
+Atualização de 12/11, depois que o seu PR #10 entrou na `main`: alinhamos o nosso `seguranca/` com as suas duas
+correções (`e0b5eac` e `827290c`). O que ficou igual ao seu: agente desativado só aceita `VER`, para todos;
+`autorizar` devolve o agente do cadastro e o decorator o passa para a função; só o id do objeto recebido vale; o método
+de pausar é `deprecar` (evento `DEPRECAR`; o nosso `desativar` saiu). Os seus testes em `testes/seguranca/` continuam
+lá e passam, com três ajustes que precisamos fazer neles por causa do modelo com ids:
+
+- `dono=`, `convidados=` e `Evento.usuario` viraram `dono_id=`, `convidados_ids=` e `Evento.id_usuario`.
+- `test_supervisor_da_area_desativa`: o Supervisor não vê agente privado de outra pessoa (decisão do grupo), então o
+  teste abre o agente (`CONVIDADOS`) antes. Se você preferir que o Supervisor possa pausar até o privado da área dele,
+  é uma mudança pequena em `_gerencia`; diga qual você quer.
+- Agora o dono convida mesmo em agente privado, como os seus testes esperavam. Por isso `PRIVADO` e `CONVIDADOS` se
+  comportam igual hoje. Fica para a gente decidir se juntamos os dois níveis.
+
 O resumo de tudo está em `seguranca/CLAUDE.md`.
 
 ## Para o Christopher e o Isack

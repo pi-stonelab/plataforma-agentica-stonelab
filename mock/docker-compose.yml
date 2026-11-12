@@ -1,0 +1,25 @@
+# Postgres só do mock (a Stone simulada). Separado do docker-compose.yml da raiz, que é o banco da
+# plataforma: aqui o volume, a porta, o usuário e a senha são outros. Veja mock/README.md.
+name: stonelab-mock
+
+services:
+  mock-db:
+    image: postgres:16-alpine   # tem versão ARM64 (Raspberry Pi)
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: stonelab_mock
+      POSTGRES_USER: mock
+      POSTGRES_PASSWORD: ${MOCK_POSTGRES_PASSWORD:?defina MOCK_POSTGRES_PASSWORD no .env}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "127.0.0.1:5433:5432"   # só acessível da própria máquina; 5432 é a da plataforma
+    volumes:
+      - dados_postgres_mock:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mock -d stonelab_mock"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  dados_postgres_mock:
