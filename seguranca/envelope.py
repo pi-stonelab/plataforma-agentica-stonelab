@@ -58,13 +58,15 @@ def exige_permissao(acao: Acao, plataforma: Plataforma | None = None):
             except (TypeError, KeyError):
                 raise AcessoNegado(f"{funcao.__name__}: chamada sem usuario/agente") from None
             try:
-                p.autorizar(usuario, acao, agente)  # registra na auditoria
+                registrado = p.autorizar(usuario, acao, agente)  # registra na auditoria
             except AcessoNegado:
                 raise
             except Exception:  # noqa: BLE001 (falha fechado de propósito)
                 p._log(usuario, acao.name, getattr(agente, "id", agente), False)
                 raise AcessoNegado(f"{funcao.__name__}: checagem falhou") from None
-            return funcao(*args, **kwargs)
+            # a função recebe o agente do cadastro, nunca a cópia que o chamador passou
+            chamada.arguments["agente"] = registrado
+            return funcao(*chamada.args, **chamada.kwargs)
 
         envelope.acao_exigida = acao  # permite conferir em testes qual ação a função exige
         return envelope

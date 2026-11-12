@@ -241,16 +241,40 @@ class Plataforma:
         self._agentes[agente.id] = agente
         self._log(criador, "CRIAR", agente.id, True)
 
-    def autorizar(self, usuario: Usuario, acao: Acao, agente: Agente) -> None:
+    def _agente_atual(self, agente: Agente) -> Agente | None:
+        """Agente do cadastro. Do objeto recebido só vale o id (mesma ideia do _atual)."""
+        try:
+            return self._agentes.get(getattr(agente, "id", None))
+        except TypeError:  # id que não pode ser chave de dict
+            return None
+
+    def autorizar(self, usuario: Usuario, acao: Acao, agente: Agente) -> Agente:
+        """Confere a permissão no agente do cadastro e devolve esse agente.
+
+        Agente inativo (deprecado) só aceita VER, para todos, inclusive o admin.
+        """
         atual = self._atual(usuario)
-        ok = atual is not None and atual.pode(acao, agente)
-        self._log(usuario, acao.name, agente.id, ok)
+        registrado = self._agente_atual(agente)
+        ok = (
+            atual is not None
+            and registrado is not None
+            and (registrado.ativo or acao is Acao.VER)
+            and atual.pode(acao, registrado)
+        )
+        self._log(usuario, acao.name, getattr(agente, "id", agente), ok)
         if not ok:
-            raise AcessoNegado(f"{usuario} não pode {acao.name} em '{agente.nome}'")
+            nome = getattr(agente, "nome", agente)
+            raise AcessoNegado(f"{usuario} não pode {acao.name} em '{nome}'")
+        return registrado
 
     def convidar(self, quem: Usuario, convidado: Usuario, agente: Agente) -> None:
-        self.autorizar(quem, Acao.CONVIDAR, agente)
-        agente.convidados.add(convidado)
+        registrado = self.autorizar(quem, Acao.CONVIDAR, agente)
+        registrado.convidados.add(convidado)
+
+    def deprecar(self, usuario: Usuario, agente: Agente) -> None:
+        """Desativa o agente do cadastro. Depois disso, só VER continua permitido."""
+        registrado = self.autorizar(usuario, Acao.DEPRECAR, agente)
+        registrado.ativo = False
 
     def agentes_visiveis(self, usuario: Usuario) -> list[Agente]:
         atual = self._atual(usuario)

@@ -43,6 +43,9 @@ O que acontece:
 - Permitido: a função roda e a tentativa vai para a auditoria.
 - Negado: levanta `AcessoNegado`, a função não roda e a tentativa vai para a auditoria.
 - Erro inesperado na checagem: também vira `AcessoNegado` (falha fechado).
+- A checagem usa o agente do cadastro, buscado pelo id. Agente que não foi registrado na plataforma é negado.
+- A função recebe o agente do cadastro, não o objeto que foi passado na chamada. Então ela sempre trabalha com a versão atual.
+- Agente desativado só aceita `Acao.VER`, para todos, inclusive o admin.
 
 Trate o `AcessoNegado` onde fizer sentido (por exemplo, responder "você não tem acesso a esse agente"). Não engula o erro para seguir em frente.
 
@@ -56,6 +59,12 @@ from seguranca.permissoes import Colaborador, Financeiro
 
 joao = PLATAFORMA.cadastrar(Colaborador("João", Financeiro()))
 agente = joao.criar_agente("Relatório de carteira", PLATAFORMA)
+```
+
+Para desativar um agente, use a plataforma (exige permissão de DEPRECAR e vai para a auditoria):
+
+```python
+PLATAFORMA.deprecar(usuario, agente)
 ```
 
 Nunca monte o usuário a partir do que vem na requisição ou no prompt. O perfil vem do login (back-end).
