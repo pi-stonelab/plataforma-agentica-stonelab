@@ -4,10 +4,13 @@ O back-end entrega o funcionário já validado, a lista de ferramentas do agente
 O agente não conhece banco, login nem a camada de acesso ao agente (`seguranca/`).
 """
 
+import inspect
 import json
 import logging
+import math
 import os
 import re
+import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -33,6 +36,10 @@ MAX_REPETICOES = 3      # KAN-38: mesma ferramenta e mesmos argumentos 3 vezes s
 MAX_CHARS_MD = 6000     # limite de texto de cada leitura e de cada resultado enviado ao modelo
 MAX_TURNOS_HISTORICO = 10  # quantos pares pergunta/resposta anteriores entram no prompt
 MAX_CHARS_PERGUNTA = 4000  # a pergunta do funcionário é cortada aqui (BAIXO-4 da auditoria A1-A3)
+# Prazo total de um turno, em segundos. SEM FONTE: não vem de requisito nem de medição; é um valor
+# escolhido para a demo (até 10 chamadas a um modelo local de 27B). Troque por turno com
+# `contexto["segundos_por_turno"]` e revise depois de medir com o modelo real.
+SEGUNDOS_POR_TURNO = 120
 
 NOME_EMPRESA = "Stone"
 AGENTE_ID = "agente_atendimento"
@@ -83,6 +90,10 @@ MENSAGEM_LIMITE_PASSOS = (
 MENSAGEM_REPETICAO = (
     "Interrompi a consulta: repeti a mesma ferramenta com os mesmos dados "
     f"{MAX_REPETICOES} vezes seguidas. Tente reformular o pedido ou abra um chamado interno."
+)
+MENSAGEM_LIMITE_TEMPO = (
+    "Não consegui concluir a consulta no tempo previsto para um atendimento. "
+    "Tente reformular o pedido ou abra um chamado interno."
 )
 
 # Encontra a primeira ação escrita pelo modelo (ignora qualquer coisa inventada depois dela).
@@ -367,6 +378,12 @@ class Rodada:
         )
         return self.terminar(MENSAGEM_REPETICAO, "limite", "repeticao")
 
+    def parar_por_tempo(self, passo):
+        """O prazo do turno acabou: nenhuma ação a partir daqui, nem a resposta que estiver pendente."""
+        self.trajetoria.append(f"Passo {passo}: limite: tempo do turno esgotado")
+        logger.warning("passo=%d execucao_id=%s limite de tempo do turno", passo, self.execucao_id)
+        return self.terminar(MENSAGEM_LIMITE_TEMPO, "limite", "tempo")
+
     def tratar_perguntar(self, passo, primeira_linha):
         """Encerra o turno; o funcionário responde no turno seguinte."""
         if not primeira_linha:
@@ -385,6 +402,22 @@ class Rodada:
         return self.tratar_perguntar(passo, primeira_linha)
 
 
+def _segundos_do_turno(contexto):
+    """`contexto["segundos_por_turno"]` se for um número positivo e finito; senão o padrão."""
+    valor = contexto.get("segundos_por_turno")
+    if isinstance(valor, bool) or not isinstance(valor, int | float):
+        return SEGUNDOS_POR_TURNO
+    return valor if math.isfinite(valor) and valor > 0 else SEGUNDOS_POR_TURNO
+
+
+def _aceita_tempo_limite(chamar_modelo):
+    """True se o `chamar_modelo` declara o parâmetro `tempo_limite` (em segundos)."""
+    try:
+        return "tempo_limite" in inspect.signature(chamar_modelo).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def _separar_acao(resposta, encontro):
     """Da resposta do modelo tira (ação, resto depois dela, primeira linha do resto)."""
     resto = resposta[encontro.end():]
@@ -401,6 +434,7 @@ def rodar_turno(
     estado: dict | None = None,
     contexto: dict | None = None,
     prompt_sistema: str = SISTEMA,
+    relogio: Callable[[], float] = time.monotonic,
 ) -> Turno:
     """Roda um turno: até MAX_PASSOS chamadas ao modelo e devolve um `Turno`.
 
@@ -409,7 +443,11 @@ def rodar_turno(
     `historico`: pares (mensagem do funcionário, resposta do agente) dos turnos anteriores.
     `estado`: o `Turno.estado` do turno anterior, quando ele terminou em "pergunta"; sem ele
     (conversa nova) o agente precisa ler o índice e as ferramentas de novo.
-    `contexto`: pode trazer `execucao_id` (senão gera um) e `agente_id`.
+    `contexto`: pode trazer `execucao_id` (senão gera um), `agente_id` e `segundos_por_turno`.
+    `relogio` devolve segundos (monótonos); os testes injetam um relógio falso.
+    O turno tem prazo total (SEGUNDOS_POR_TURNO): passou dele, termina em "limite" com motivo "tempo".
+    Se o `chamar_modelo` declarar o parâmetro `tempo_limite`, recebe nele o tempo que sobra do turno
+    (em segundos) para usar como timeout; sem o parâmetro, o prazo só é conferido entre as chamadas.
     Nenhum argumento de ferramenta, dado devolvido ou texto do funcionário vai para log ou trajetória.
     """
     contexto = contexto if isinstance(contexto, dict) else {}
@@ -418,9 +456,19 @@ def rodar_turno(
     atendimento = Atendimento(usuario, ferramentas_do_agente, execucao_id, agente_id, estado)
     rodada = Rodada(atendimento, execucao_id, agente_id)
     prompt = montar_prompt(pergunta, historico, atendimento)
+    prazo = relogio() + _segundos_do_turno(contexto)
+    informar_tempo = _aceita_tempo_limite(chamar_modelo)
 
     for passo in range(1, MAX_PASSOS + 1):
-        resposta = chamar_modelo(prompt_sistema, prompt)
+        restante = prazo - relogio()
+        if restante <= 0:
+            return rodada.parar_por_tempo(passo)
+        if informar_tempo:
+            resposta = chamar_modelo(prompt_sistema, prompt, tempo_limite=restante)
+        else:
+            resposta = chamar_modelo(prompt_sistema, prompt)
+        if relogio() >= prazo:  # a chamada passou do prazo: a resposta dela não vira ação
+            return rodada.parar_por_tempo(passo)
         if not isinstance(resposta, str):  # contrato: texto; qualquer outra coisa é resposta inválida
             resposta = ""
         encontro = ACAO_RE.search(resposta)

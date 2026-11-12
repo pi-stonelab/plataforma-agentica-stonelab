@@ -368,6 +368,102 @@ class RegistroDeLogs(unittest.TestCase):
         self.addCleanup(agente.logger.setLevel, self.nivel_antigo)
 
 
+class RelogioFalso:
+    """Relógio que só anda quando o teste manda: nenhum teste espera tempo de verdade."""
+
+    def __init__(self):
+        self.agora = 1000.0
+
+    def __call__(self):
+        return self.agora
+
+    def passar(self, segundos):
+        self.agora += segundos
+
+
+def modelo_lento(linhas, relogio, segundos_por_chamada, tempos=None):
+    """Modelo roteirizado que gasta `segundos_por_chamada` do relógio falso e anota o `tempo_limite`."""
+    respostas = iter(linhas)
+
+    def chamar(prompt_sistema, prompt, tempo_limite=None):
+        if tempos is not None:
+            tempos.append(tempo_limite)
+        relogio.passar(segundos_por_chamada)
+        return next(respostas)
+
+    return chamar
+
+
+class TestLimiteDeTempo(RegistroDeLogs):
+    """P1 da crítica B: prazo total por turno, com relógio injetado (sem sleep)."""
+
+    def setUp(self):
+        super().setUp()
+        self.relogio = RelogioFalso()
+
+    def rodar(self, linhas, segundos_por_chamada, contexto=None, pergunta="pergunta de teste", tempos=None):
+        modelo = modelo_lento(linhas, self.relogio, segundos_por_chamada, tempos)
+        return agente.rodar_turno(
+            pergunta, apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, modelo,
+            contexto=contexto, relogio=self.relogio,
+        )
+
+    def test_o_prazo_padrao_e_uma_constante_nomeada(self):
+        self.assertEqual(agente.SEGUNDOS_POR_TURNO, 120)
+
+    def test_estourar_o_prazo_termina_em_limite_tempo(self):
+        resultado = self.rodar(["LER:"] * 10, segundos_por_chamada=50)
+        self.assertEqual((resultado.tipo, resultado.motivo), ("limite", "tempo"))
+        self.assertEqual(resultado.resposta, agente.MENSAGEM_LIMITE_TEMPO)
+        self.assertIn("tempo do turno esgotado", resultado.trajetoria[-1])
+        self.assertEqual(len(resultado.trajetoria), 3)  # 2 passos de 50 s e o 3º, que passou de 120 s
+
+    def test_o_motivo_de_tempo_nao_se_confunde_com_o_de_passos(self):
+        resultado = self.rodar(["LER:"] * 10, segundos_por_chamada=1)
+        self.assertEqual(resultado.motivo, "max_passos")
+
+    def test_prazo_de_contexto_vale_no_lugar_do_padrao(self):
+        resultado = self.rodar(["LER:"] * 10, 5, contexto={"segundos_por_turno": 12})
+        self.assertEqual((resultado.tipo, resultado.motivo), ("limite", "tempo"))
+
+    def test_prazo_invalido_no_contexto_volta_ao_padrao(self):
+        for valor in (0, -5, True, "30", None, float("inf"), float("nan")):
+            with self.subTest(valor=valor):
+                self.assertEqual(agente._segundos_do_turno({"segundos_por_turno": valor}), 120)
+        self.assertEqual(agente._segundos_do_turno({"segundos_por_turno": 7.5}), 7.5)
+
+    def test_o_modelo_recebe_o_tempo_que_sobra_como_timeout(self):
+        tempos = []
+        self.rodar(["LER:"] * 10, 50, tempos=tempos)
+        self.assertEqual(tempos, [120, 70, 20])
+
+    def test_modelo_sem_o_parametro_tempo_limite_continua_funcionando(self):
+        chamadas = []
+
+        def modelo(prompt_sistema, prompt):
+            chamadas.append(prompt)
+            self.relogio.passar(60)
+            return "LER:"
+
+        resultado = agente.rodar_turno(
+            "p", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, modelo, relogio=self.relogio
+        )
+        self.assertEqual(resultado.motivo, "tempo")
+        self.assertEqual(len(chamadas), 2)
+
+    def test_resposta_que_chega_depois_do_prazo_nao_vira_acao(self):
+        linhas = ["LER:", LER_MULTA, MULTA, "FINAL: nunca"]
+        resultado = self.rodar(linhas, 40)  # a 3ª chamada termina em 120 s: a ferramenta não roda
+        self.assertEqual(resultado.motivo, "tempo")
+        self.assertEqual(governanca.REGISTROS, [])
+
+    def test_o_limite_de_tempo_nao_expoe_conteudo(self):
+        resultado = self.rodar(["LER:"] * 10, 50, pergunta=f"{CANARIO} do lojista")
+        saidas = [resultado.resposta, *resultado.trajetoria, *self.mensagens]
+        self.assertTrue(any("tempo" in saida for saida in self.mensagens))
+        self.assertNotIn(CANARIO, "\n".join(saidas))
+
+
 class TestLgpd(RegistroDeLogs):
     def test_argumentos_dados_e_resposta_do_funcionario_nao_vazam(self):
         cliente = f'USAR: consultar_cliente | {{"id_cliente": "{CANARIO}"}}'
