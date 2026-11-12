@@ -118,10 +118,10 @@ def test_a02_id_de_outro_funcionario_no_corpo_e_ignorado():
 
 
 def test_a03_diretorio_nao_entrega_funcionario_desligado_ou_afastado():
-    engine = apoio.mundo()
-    assert terminal.buscar_usuario_no_diretorio(gab.ANA, engine) is not None
+    apoio.mundo()  # liga a fachada de ferramentas ao mock de teste
+    assert terminal.buscar_usuario_no_diretorio(gab.ANA) is not None
     for id_funcionario in (gab.DESLIGADO, gab.AFASTADO, "F9999", "", "F0001' OR '1'='1"):
-        assert terminal.buscar_usuario_no_diretorio(id_funcionario, engine) is None, id_funcionario
+        assert terminal.buscar_usuario_no_diretorio(id_funcionario) is None, id_funcionario
 
 
 @pytest.mark.skip(reason=PRECISA_DO_BACKEND)
@@ -1079,7 +1079,8 @@ def test_a24_sem_modo_terminal_ligado_o_agente_nao_sobe_no_terminal():
 
 def test_a24_nivel_area_e_carteira_do_ambiente_sao_ignorados():
     def diretorio(id_usuario):
-        return terminal.buscar_usuario_no_diretorio(id_usuario, apoio.mundo())
+        apoio.mundo()
+        return terminal.buscar_usuario_no_diretorio(id_usuario)
 
     ambiente = {"ID_USUARIO": gab.ANA, "NIVEL": "N2", "AREA": "financeiro", "CARTEIRA": "todas"}
     usuario = terminal.usuario_do_ambiente(ambiente, diretorio)
@@ -1091,7 +1092,8 @@ def test_a24_nivel_area_e_carteira_do_ambiente_sao_ignorados():
 @pytest.mark.parametrize("id_usuario", [gab.DESLIGADO, gab.AFASTADO, "F9999", "F0001; ls", "", "../x"])
 def test_a24_id_desligado_afastado_desconhecido_ou_malformado_nao_sobe(id_usuario):
     def diretorio(identificador):
-        return terminal.buscar_usuario_no_diretorio(identificador, apoio.mundo())
+        apoio.mundo()
+        return terminal.buscar_usuario_no_diretorio(identificador)
 
     with pytest.raises(ValueError):
         terminal.usuario_do_ambiente({"ID_USUARIO": id_usuario}, diretorio)
