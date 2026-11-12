@@ -10,6 +10,9 @@ Perfis (cada um é uma subclasse de Usuario e decide em `pode()`):
   GestorDeAcessos:  só atribui e remove perfis; não vê nem cria agentes e não pode
                     alterar o próprio perfil (separação de funções).
 
+Negar por padrão: por isso há `try/except Exception` em `_log`, `autorizar` e no envelope
+(`# noqa: BLE001`). Qualquer erro inesperado na checagem vira AcessoNegado, nunca permissão.
+
 A tabela completa de regras está em seguranca/README.md. Pessoas são guardadas por id
 (nunca o objeto), e nenhuma mensagem de erro nem evento de auditoria leva nome.
 Adicionar um novo perfil = criar uma nova subclasse de Usuario.
@@ -19,10 +22,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import Enum, auto
 from itertools import count
+from re import fullmatch
 from uuid import uuid4
 
 
@@ -141,7 +145,7 @@ def _gerencia(acao: Acao, agente: Agente) -> bool:
 
     - Agente inativo ninguém executa.
     - Convidar só vale com visibilidade CONVIDADOS: para convidar alguém, o dono
-      primeiro muda o agente para "convidados" (decisão do Pedro, 11/11).
+      primeiro muda o agente para "convidados" (decisão do grupo, ver README).
     """
     if acao is Acao.EXECUTAR:
         return agente.ativo
@@ -172,6 +176,8 @@ class Usuario(ABC):
         self.id = id or str(uuid4())
         if self.id == DONO_PLATAFORMA:
             raise ValueError("Este id é reservado ao agente da plataforma")
+        if area is not None and not isinstance(area, Area):
+            raise ValueError("Área inválida: use Financeiro() ou AtendimentoCliente()")
         self.nome = nome
         self.area = area
 
@@ -221,7 +227,10 @@ class Supervisor(Usuario):
         if area is None:
             raise ValueError("Supervisor precisa de área")
         super().__init__(nome, area, id)
-        self.areas = {area} | (areas_extras or set())
+        extras = set(areas_extras or ())
+        if not all(isinstance(extra, Area) for extra in extras):
+            raise ValueError("Área inválida em areas_extras")
+        self.areas = {area} | extras
 
     def pode(self, acao: Acao, agente: Agente) -> bool:
         if agente.dono_id == self.id:
@@ -277,13 +286,23 @@ ROLES: set[type[Usuario]] = {AdminGlobal, Supervisor, Colaborador, Auditor, Gest
 
 
 # ---------------------------------------------------------------- Plataforma
-@dataclass
+def execucao_id_valido(valor: object) -> bool:
+    """Id de execução seguro para auditoria e log: letras, números, '_' e '-', até 64 caracteres."""
+    return isinstance(valor, str) and fullmatch(r"[A-Za-z0-9_-]{1,64}", valor) is not None
+
+
+@dataclass(frozen=True)  # imutável: o gancho recebe o evento e não consegue alterá-lo
 class Evento:
     quando: datetime
     id_usuario: str  # só o id: o evento não carrega nome nem o objeto da pessoa
     acao: str
     alvo: str  # id do agente ou do usuário afetado
     permitido: bool
+    execucao_id: str | None = None  # liga o acesso ao registro de chamadas de ferramenta
+
+    def __post_init__(self) -> None:
+        if self.execucao_id is not None and not execucao_id_valido(self.execucao_id):
+            raise ValueError("execucao_id inválido")
 
 
 def _id_de(usuario: object) -> str:
@@ -312,14 +331,15 @@ class Plataforma:
         self.auditoria: list[Evento] = []
         self._ao_registrar = ao_registrar
 
-    def _log(self, usuario: object, acao: str, alvo: object, ok: bool) -> None:
-        evento = Evento(datetime.now(UTC), _id_de(usuario), acao, str(alvo), ok)
+    def _log(self, usuario: object, acao: str, alvo: object, ok: bool,
+             execucao_id: str | None = None) -> None:
+        evento = Evento(datetime.now(UTC), _id_de(usuario), acao, str(alvo), ok, execucao_id)
         if self._ao_registrar is not None:
             try:
                 self._ao_registrar(evento)
             except Exception:  # noqa: BLE001 (falha fechada de propósito)
-                evento.permitido = False  # nunca fica como "permitido" um evento não gravado
-                self.auditoria.append(evento)
+                # nunca fica como "permitido" um evento não gravado
+                self.auditoria.append(replace(evento, permitido=False))
                 raise AcessoNegado(f"{acao} negado: auditoria indisponível") from None
         self.auditoria.append(evento)
 
@@ -427,22 +447,28 @@ class Plataforma:
             return registrado
         return None
 
-    def autorizar(self, usuario: Usuario, acao: Acao, agente: Agente) -> None:
-        self._decidir(usuario, acao, agente, acao.name)
+    def autorizar(self, usuario: Usuario, acao: Acao, agente: Agente,
+                  execucao_id: str | None = None) -> None:
+        """Decide e grava o evento. `execucao_id` (opcional) liga o evento à execução; inválido nega."""
+        self._decidir(usuario, acao, agente, acao.name, execucao_id)
 
-    def _decidir(self, usuario: Usuario, acao: Acao, agente: Agente, nome_do_evento: str) -> Agente:
+    def _decidir(self, usuario: Usuario, acao: Acao, agente: Agente, nome_do_evento: str,
+                 execucao_id: str | None = None) -> Agente:
         """Decide sobre o agente registrado, grava UM evento e devolve o registrado."""
         atual = self._atual(usuario)
         registrado = self._registrado(agente)
+        id_ok = execucao_id is None or execucao_id_valido(execucao_id)
         try:
             # agente não registrado ou diferente do registrado: negado (falha fechada)
             ok = registrado is not None and atual is not None and atual.pode(acao, registrado)
+            ok = ok and id_ok
             if acao is Acao.EXECUTAR and (registrado is None or not registrado.ativo):
                 ok = False  # cinto de segurança: vale mesmo para um perfil novo que esqueça disso
         except Exception:  # noqa: BLE001 (agente ou regra com defeito: nega)
             ok = False
         alvo = getattr(agente, "id", "desconhecido")
-        self._log(usuario, nome_do_evento, alvo, ok)
+        # id de execução inválido nunca vai para o evento (nem para o gancho): grava sem ele
+        self._log(usuario, nome_do_evento, alvo, ok, execucao_id if id_ok else None)
         if not ok:
             raise AcessoNegado(f"{acao.name} negado no agente {alvo}")
         return registrado

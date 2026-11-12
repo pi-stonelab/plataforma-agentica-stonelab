@@ -23,6 +23,7 @@ from seguranca.permissoes import (
     Supervisor,
     Visibilidade,
     area_do_slug,
+    execucao_id_valido,
 )
 
 TODAS = frozenset(Acao)
@@ -858,3 +859,100 @@ def test_pessoa_nao_registra_agente_em_nome_da_plataforma():
         with pytest.raises(AcessoNegado):
             plataforma.registrar(falso, pessoa)
     assert "outro-geral" not in plataforma._agentes
+
+
+# ---------------------------------------------------------------- baixos: tipo da área
+def test_area_precisa_ser_uma_area_e_nao_texto():
+    with pytest.raises(ValueError):
+        Colaborador("c", "financeiro")
+    with pytest.raises(ValueError):
+        Supervisor("s", "financeiro")
+    with pytest.raises(ValueError):
+        Supervisor("s", Financeiro(), areas_extras={"atendimento"})
+    with pytest.raises(ValueError):
+        AdminGlobal("a", area=1)
+
+
+def test_atribuir_role_com_area_em_texto_falha_e_e_registrado_e_o_repr_nao_quebra():
+    plataforma = Plataforma()
+    gestor = plataforma.cadastrar(GestorDeAcessos("g", Financeiro(), id="gestor"))
+    maria = plataforma.cadastrar(Colaborador("m", AtendimentoCliente(), id="maria"))
+    with pytest.raises(ValueError):
+        gestor.atribuir_role(maria, Supervisor, plataforma, area="financeiro")
+    assert type(plataforma.usuario("maria")) is Colaborador
+    assert plataforma.auditoria[-1].permitido is False
+    assert "maria" in repr(plataforma.usuario("maria"))
+
+
+# ---------------------------------------------------------------- baixos: Evento imutável
+def test_evento_e_imutavel_e_o_gancho_nao_o_altera():
+    from dataclasses import FrozenInstanceError
+
+    tentativas = []
+
+    def gancho_malicioso(evento):
+        try:
+            evento.permitido = True
+        except FrozenInstanceError:
+            tentativas.append("bloqueado")
+
+    plataforma = Plataforma(ao_registrar=gancho_malicioso)
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    outro = plataforma.cadastrar(Colaborador("o", Financeiro(), id="outro"))
+    agente = dono.criar_agente("x", plataforma)
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(outro, Acao.EDITAR, agente)
+    assert tentativas == ["bloqueado", "bloqueado"]  # CRIAR e EDITAR
+    assert plataforma.auditoria[-1].permitido is False
+    with pytest.raises(FrozenInstanceError):
+        plataforma.auditoria[-1].acao = "VER"
+
+
+def test_evento_de_gancho_que_falha_fica_negado_sem_alterar_o_original():
+    recebidos = []
+
+    def gancho(evento):
+        recebidos.append(evento)
+        raise RuntimeError("falha")
+
+    plataforma = Plataforma(ao_registrar=gancho)
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    plataforma.carregar_agente(Agente("x", Financeiro(), "dono", id="ag"))
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(dono, Acao.VER, plataforma._agentes["ag"])
+    assert recebidos[0].permitido is True  # o que o gancho viu não foi mexido
+    assert plataforma.auditoria[-1].permitido is False  # o que ficou registrado é negado
+
+
+# ---------------------------------------------------------------- baixos: execucao_id
+@pytest.mark.parametrize("valor", ["exec-0001", "a", "A_b-9", "x" * 64])
+def test_execucao_id_valido(valor):
+    assert execucao_id_valido(valor)
+
+
+@pytest.mark.parametrize(
+    "valor", ["", "x" * 65, "abc\nFAKE", "a b", "../x", "x;y", None, 5, b"abc", ["a"]]
+)
+def test_execucao_id_invalido(valor):
+    assert not execucao_id_valido(valor)
+
+
+def test_autorizar_grava_execucao_id_valido_e_nega_o_invalido_sem_gravar():
+    plataforma = Plataforma()
+    dono = plataforma.cadastrar(Colaborador("d", Financeiro(), id="dono"))
+    agente = dono.criar_agente("x", plataforma)
+    plataforma.autorizar(dono, Acao.EXECUTAR, agente, execucao_id="exec-1")
+    assert plataforma.auditoria[-1].execucao_id == "exec-1"
+    with pytest.raises(AcessoNegado):
+        plataforma.autorizar(dono, Acao.EXECUTAR, agente, execucao_id="abc\nFAKE LINHA")
+    assert plataforma.auditoria[-1].permitido is False
+    assert plataforma.auditoria[-1].execucao_id is None
+
+
+def test_evento_recusa_execucao_id_invalido():
+    from datetime import UTC, datetime
+
+    from seguranca.permissoes import Evento
+
+    with pytest.raises(ValueError):
+        Evento(datetime.now(UTC), "u", "VER", "a", True, execucao_id="a\nb")
