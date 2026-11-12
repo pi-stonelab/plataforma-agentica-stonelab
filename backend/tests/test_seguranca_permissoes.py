@@ -763,3 +763,98 @@ def test_gancho_que_falha_impede_a_mudanca_de_estado():
     with pytest.raises(AcessoNegado):
         plataforma.desativar(dono, agente)
     assert agente.visibilidade is PRIV and agente.ativo is True  # sem rastro, sem mudança
+
+
+# ---------------------------------------------------------------- agente geral (da plataforma)
+def montar_agente_geral():
+    """Plataforma com 2 pessoas por perfil de uso em cada área, o Admin e o agente geral."""
+    plataforma = Plataforma()
+    pessoas = {}
+    for area in (Financeiro(), AtendimentoCliente()):
+        pessoas[f"col-{area.slug}"] = Colaborador("c", area, id=f"col-{area.slug}")
+        pessoas[f"sup-{area.slug}"] = Supervisor("s", area, id=f"sup-{area.slug}")
+    pessoas["sup-extra"] = Supervisor(
+        "e", Financeiro(), id="sup-extra", areas_extras={AtendimentoCliente()}
+    )
+    pessoas["adm"] = AdminGlobal("a", id="adm")
+    for pessoa in pessoas.values():
+        plataforma.cadastrar(pessoa)
+    geral = Agente.da_plataforma("Assistente Stone", id="agente-geral")
+    plataforma.carregar_agente(geral)
+    return plataforma, pessoas, geral
+
+
+def test_agente_geral_tem_dono_plataforma_sem_area_e_publico():
+    geral = Agente.da_plataforma("Assistente Stone")
+    assert geral.dono_id == DONO_PLATAFORMA and geral.area is None
+    assert geral.visibilidade is PUB and geral.ativo is True
+
+
+def test_todo_funcionario_das_duas_areas_ve_e_executa_o_agente_geral_ativo():
+    plataforma, pessoas, geral = montar_agente_geral()
+    funcionarios = [p for chave, p in pessoas.items() if chave != "adm"]
+    assert len(funcionarios) == 5
+    for pessoa in funcionarios:
+        plataforma.autorizar(pessoa, Acao.VER, geral)
+        plataforma.autorizar(pessoa, Acao.EXECUTAR, geral)
+        assert geral in plataforma.agentes_visiveis(pessoa)
+
+
+def test_supervisor_de_area_nao_edita_nem_convida_nem_pausa_o_agente_geral():
+    plataforma, pessoas, geral = montar_agente_geral()
+    for chave in ("sup-financeiro", "sup-atendimento", "sup-extra", "col-financeiro"):
+        for acao in (Acao.EDITAR, Acao.CONVIDAR, Acao.DEPRECAR):
+            with pytest.raises(AcessoNegado):
+                plataforma.autorizar(pessoas[chave], acao, geral)
+        with pytest.raises(AcessoNegado):
+            plataforma.alterar_visibilidade(pessoas[chave], geral, PRIV)
+        with pytest.raises(AcessoNegado):
+            plataforma.desativar(pessoas[chave], geral)
+    assert geral.visibilidade is PUB and geral.ativo is True
+
+
+def test_ninguem_edita_o_agente_geral_nem_o_admin():
+    plataforma, pessoas, geral = montar_agente_geral()
+    for acao in (Acao.EDITAR, Acao.CONVIDAR, Acao.EXECUTAR):
+        with pytest.raises(AcessoNegado):
+            plataforma.autorizar(pessoas["adm"], acao, geral)
+    with pytest.raises(AcessoNegado):
+        plataforma.alterar_visibilidade(pessoas["adm"], geral, PRIV)
+
+
+def test_admin_pausa_o_agente_geral_e_depois_ninguem_executa():
+    plataforma, pessoas, geral = montar_agente_geral()
+    plataforma.autorizar(pessoas["adm"], Acao.VER, geral)  # é público, o Admin vê
+    plataforma.desativar(pessoas["adm"], geral)
+    assert geral.ativo is False
+    for pessoa in pessoas.values():
+        with pytest.raises(AcessoNegado):
+            plataforma.autorizar(pessoa, Acao.EXECUTAR, geral)
+    assert plataforma.auditoria[-1].permitido is False
+
+
+def test_agente_geral_inativo_ninguem_ve_exceto_quem_gerencia():
+    plataforma, pessoas, geral = montar_agente_geral()
+    plataforma.desativar(pessoas["adm"], geral)
+    for chave in ("col-financeiro", "sup-financeiro", "col-atendimento", "sup-atendimento"):
+        assert plataforma.agentes_visiveis(pessoas[chave]) == []  # quem só usa deixa de ver
+    assert plataforma.agentes_visiveis(pessoas["adm"]) == [geral]
+
+
+def test_auditor_e_gestor_nao_executam_o_agente_geral():
+    plataforma, _, geral = montar_agente_geral()
+    auditor = plataforma.cadastrar(Auditor("u", id="aud"))
+    gestor = plataforma.cadastrar(GestorDeAcessos("g", Financeiro(), id="ges"))
+    for pessoa in (auditor, gestor):
+        for acao in Acao:
+            with pytest.raises(AcessoNegado):
+                plataforma.autorizar(pessoa, acao, geral)
+
+
+def test_pessoa_nao_registra_agente_em_nome_da_plataforma():
+    plataforma, pessoas, _ = montar_agente_geral()
+    falso = Agente.da_plataforma("Falso", id="outro-geral")
+    for pessoa in pessoas.values():
+        with pytest.raises(AcessoNegado):
+            plataforma.registrar(falso, pessoa)
+    assert "outro-geral" not in plataforma._agentes

@@ -122,6 +122,11 @@ class Agente:
         self.visibilidade = Visibilidade(self.visibilidade)
         self.convidados_ids = set(self.convidados_ids)
 
+    @classmethod
+    def da_plataforma(cls, nome: str, id: int | str | None = None) -> Agente:
+        """Agente geral: sem área, dono = plataforma, público. Ninguém o edita; o Admin o pausa."""
+        return cls(nome, None, DONO_PLATAFORMA, id=id, visibilidade=Visibilidade.PUBLICO)
+
     def __hash__(self) -> int:
         return hash(self.id)
 
