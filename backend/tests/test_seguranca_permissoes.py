@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from seguranca.permissoes import (
+    DONO_PLATAFORMA,
     Acao,
     AcessoNegado,
     AdminGlobal,
@@ -557,3 +558,52 @@ def test_convidar_grava_no_agente_registrado():
     real.visibilidade = Visibilidade.CONVIDADOS
     plataforma.convidar(dono, amigo, real)
     assert plataforma._agentes[real.id].convidados_ids == {"amigo"}
+
+
+# ---------------------------------------------------------------- MED-4: registrar
+def test_registrar_nao_sobrescreve_agente_com_id_existente():
+    plataforma = Plataforma()
+    ana = plataforma.cadastrar(Colaborador("a", Financeiro(), id="ana"))
+    bia = plataforma.cadastrar(Colaborador("b", Financeiro(), id="bia"))
+    original = ana.criar_agente("original", plataforma)
+    colide = Agente("colide", Financeiro(), "bia", id=original.id)
+    with pytest.raises(AcessoNegado):
+        plataforma.registrar(colide, bia)
+    assert plataforma._agentes[original.id] is original
+    assert plataforma.auditoria[-1].acao == "CRIAR" and plataforma.auditoria[-1].permitido is False
+
+
+def test_registrar_so_na_area_do_criador():
+    plataforma = Plataforma()
+    ana = plataforma.cadastrar(Colaborador("a", AtendimentoCliente(), id="ana"))
+    de_outra_area = Agente("x", Financeiro(), "ana")
+    with pytest.raises(AcessoNegado):
+        plataforma.registrar(de_outra_area, ana)
+    assert plataforma._agentes == {}
+    # a própria área é aceita
+    plataforma.registrar(Agente("y", AtendimentoCliente(), "ana"), ana)
+
+
+def test_supervisor_registra_nas_suas_areas_extras_e_so_nelas():
+    plataforma = Plataforma()
+    sup = plataforma.cadastrar(
+        Supervisor("s", Financeiro(), id="sup", areas_extras={AtendimentoCliente()})
+    )
+    plataforma.registrar(Agente("a", AtendimentoCliente(), "sup"), sup)
+    plataforma.registrar(Agente("f", Financeiro(), "sup"), sup)
+
+
+def test_agente_sem_area_so_existe_para_a_plataforma():
+    with pytest.raises(ValueError):
+        Agente("x", None, "ana")  # sem área e com dono pessoa
+    with pytest.raises(ValueError):
+        Agente("x", Financeiro(), DONO_PLATAFORMA)  # dono plataforma com área
+    with pytest.raises(ValueError):
+        Agente("x", "financeiro", "ana")  # área precisa ser uma Area
+
+
+def test_pessoa_nao_pode_ter_o_id_da_plataforma():
+    with pytest.raises(ValueError):
+        Colaborador("c", Financeiro(), id=DONO_PLATAFORMA)
+    with pytest.raises(ValueError):
+        AdminGlobal("a", id=DONO_PLATAFORMA)

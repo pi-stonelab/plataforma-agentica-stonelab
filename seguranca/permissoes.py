@@ -94,11 +94,15 @@ class AcessoNegado(Exception):
 # ---------------------------------------------------------------- Agente
 _ids = count(1)
 
+# Dono do agente geral. Não é id de pessoa: nenhum Usuario pode ter este id (ver Usuario.__init__),
+# então ninguém é "dono" desse agente e ninguém o edita.
+DONO_PLATAFORMA = "plataforma"
+
 
 @dataclass
 class Agente:
     nome: str
-    area: Area
+    area: Area | None  # None só para o agente da plataforma (dono_id == DONO_PLATAFORMA)
     dono_id: str
     id: int | str | None = None  # vem do banco; só sem valor usamos o contador (demo e testes)
     convidados_ids: set[str] = field(default_factory=set)
@@ -110,6 +114,10 @@ class Agente:
             self.id = next(_ids)
         if not isinstance(self.dono_id, str) or not self.dono_id:
             raise ValueError("Agente precisa do id do dono")
+        if (self.area is None) != (self.dono_id == DONO_PLATAFORMA):
+            raise ValueError("Só o agente da plataforma fica sem área, e ele nunca tem área")
+        if self.area is not None and not isinstance(self.area, Area):
+            raise ValueError("Área inválida")
         # aceita o valor guardado no banco ("privado") e recusa qualquer outro
         self.visibilidade = Visibilidade(self.visibilidade)
         self.convidados_ids = set(self.convidados_ids)
@@ -157,10 +165,15 @@ class Usuario(ABC):
     def __init__(self, nome: str, area: Area | None = None, id: str | None = None):
         # o id é a identidade da pessoa: continua o mesmo quando o perfil muda
         self.id = id or str(uuid4())
+        if self.id == DONO_PLATAFORMA:
+            raise ValueError("Este id é reservado ao agente da plataforma")
         self.nome = nome
         self.area = area
 
     def criar_agente(self, nome: str, plataforma: Plataforma) -> Agente:
+        if self.area is None:  # sem área não há agente para criar (Admin, Auditor...)
+            plataforma._log(self, "CRIAR", "novo", False)
+            raise AcessoNegado("CRIAR negado: perfil sem área")
         agente = Agente(nome=nome, area=self.area, dono_id=self.id)
         plataforma.registrar(agente, self)
         return agente
@@ -274,6 +287,13 @@ def _id_de(usuario: object) -> str:
     return id_usuario if isinstance(id_usuario, str) else "desconhecido"
 
 
+def _areas_do_usuario(usuario: Usuario | None) -> set[Area]:
+    """Áreas em que a pessoa atua: as do Supervisor, ou a única área dos demais perfis."""
+    if usuario is None:
+        return set()
+    return set(getattr(usuario, "areas", None) or ({usuario.area} if usuario.area else set()))
+
+
 class Plataforma:
     """Cadastro e auditoria de UM pedido (no back-end, uma instância nova por pedido).
 
@@ -356,12 +376,20 @@ class Plataforma:
 
     # ---- agentes
     def registrar(self, agente: Agente, criador: Usuario) -> None:
+        """Cria um agente NOVO em nome de quem tem perfil que cria (grava o evento CRIAR)."""
         atual = self._atual(criador)
-        # só cria quem tem perfil que cria, e só em nome de si mesmo
-        if atual is None or not atual.cria_agentes or agente.dono_id != atual.id:
-            self._log(criador, "CRIAR", agente.id, False)
+        # só cria quem tem perfil que cria, em nome de si mesmo, na própria área, com id novo
+        permitido = (
+            atual is not None
+            and atual.cria_agentes
+            and agente.dono_id == atual.id
+            and agente.area is not None
+            and agente.area in _areas_do_usuario(atual)
+            and agente.id not in self._agentes  # nunca sobrescreve um agente existente
+        )
+        self._log(criador, "CRIAR", agente.id, permitido)
+        if not permitido:
             raise AcessoNegado(f"CRIAR negado no agente {agente.id}")
-        self._log(criador, "CRIAR", agente.id, True)
         self._agentes[agente.id] = agente
 
     def _registrado(self, agente: object) -> Agente | None:
