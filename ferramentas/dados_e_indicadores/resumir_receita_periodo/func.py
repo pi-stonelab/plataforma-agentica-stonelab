@@ -7,7 +7,7 @@ class ResumirReceitaPeriodo(Ferramenta):
     acesso = "leitura"
     integracoes = ("bigquery",)
     nivel_minimo = "N1"
-    areas_permitidas = ("dados", "financeiro")
+    areas_permitidas = ("financeiro",)
     categorias_dados = ("indicador_agregado",)
     sensibilidade = "interna"
     conteudo_terceiros = False
