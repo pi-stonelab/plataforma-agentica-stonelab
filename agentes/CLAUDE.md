@@ -21,6 +21,8 @@ Runtime dos agentes. Roda no mesmo processo do back-end. O agente só pede ferra
 roda um turno e devolve um `Turno(resposta, tipo, trajetoria, estado, motivo)`.
 
 - `chamar_modelo(prompt_sistema, prompt)` devolve texto. Quem fala com o Ollama é o back-end (`LLMClient`).
+  Também vale `chamar_modelo(prompt)`, que é o que `LLMClient.como_chamar_modelo(sistema=SISTEMA)` devolve: o
+  motor vê que só há um parâmetro de texto e não repete o prompt de sistema, que já está dentro dele.
   Se ele declarar também o parâmetro `tempo_limite` (segundos), o motor passa nele o tempo que sobra do
   turno, para usar como timeout da chamada. Sem esse parâmetro nada muda, mas o prazo só é conferido entre
   as chamadas.

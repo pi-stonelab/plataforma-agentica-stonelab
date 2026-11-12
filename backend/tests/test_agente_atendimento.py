@@ -677,6 +677,58 @@ class TestEntradasHostis(RegistroDeLogs):
         for valor in (None, "", "a b", "a\nb", "x" * 65):
             self.assertEqual(agente._identificador_seguro(valor, "padrao"), "padrao")
 
+class TestFormatosDoChamarModelo(unittest.TestCase):
+    """O motor aceita `(prompt_sistema, prompt)` e também `(prompt)`, o de `LLMClient.como_chamar_modelo`."""
+
+    def setUp(self):
+        apoio.limpar()
+
+    def rodar_com(self, modelo):
+        return agente.rodar_turno(
+            "p", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, modelo
+        )
+
+    def test_formato_de_um_argumento_recebe_so_o_prompt(self):
+        recebidos = []
+
+        def modelo(prompt):
+            recebidos.append(prompt)
+            return "LER:" if len(recebidos) == 1 else "FINAL: ok"
+
+        resultado = self.rodar_com(modelo)
+        self.assertEqual((resultado.tipo, resultado.resposta), ("final", "ok"))
+        self.assertEqual(len(recebidos), 2)
+        self.assertTrue(all(agente.SISTEMA not in prompt for prompt in recebidos))
+
+    def test_formato_de_um_argumento_com_tempo_limite(self):
+        tempos = []
+
+        def modelo(prompt, tempo_limite=None):
+            tempos.append(tempo_limite)
+            return "LER:" if len(tempos) == 1 else "FINAL: ok"
+
+        resultado = self.rodar_com(modelo)
+        self.assertEqual(resultado.tipo, "final")
+        self.assertTrue(all(isinstance(t, float) and t > 0 for t in tempos))
+
+    def test_formato_de_dois_argumentos_continua_recebendo_o_sistema(self):
+        sistemas = []
+        respostas = iter(["LER:", "FINAL: ok"])
+
+        def modelo(prompt_sistema, prompt):
+            sistemas.append(prompt_sistema)
+            return next(respostas)
+
+        resultado = self.rodar_com(modelo)
+        self.assertEqual(resultado.tipo, "final")
+        self.assertEqual(sistemas, [agente.SISTEMA, agente.SISTEMA])
+
+    def test_varargs_e_assinatura_ilegivel_valem_como_dois_argumentos(self):
+        self.assertTrue(agente._aceita_prompt_de_sistema(lambda *args: ""))
+        self.assertTrue(agente._aceita_prompt_de_sistema(print))
+        self.assertFalse(agente._aceita_prompt_de_sistema(lambda prompt: ""))
+
+
 
 if __name__ == "__main__":
     unittest.main()
