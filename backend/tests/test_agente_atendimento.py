@@ -1,16 +1,11 @@
-import contextlib
-import io
 import json
 import logging
 import unittest
-from pathlib import Path
-from unittest import mock
 from uuid import uuid4
 
+import requests
 from agentes.agente_atendimento import agente
 from ferramentas import governanca
-from mock.banco import criar_engine
-from mock.falhas import desligar_todas, ligar
 
 from . import apoio_agente as apoio
 from .apoio_agente import modelo_roteirizado
@@ -196,23 +191,6 @@ class TestPromptDeSistema(unittest.TestCase):
         )
         self.assertEqual(set(recebidos), {"outro"})
 
-    def test_chamar_llm_envia_o_sistema_e_a_parada(self):
-        resposta = mock.Mock()
-        resposta.json.return_value = {"response": "<think>x</think>FINAL: ok"}
-        ambiente = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "segredo"}
-        with (
-            mock.patch.dict("os.environ", ambiente),
-            mock.patch.object(agente, "LLM_URL", "http://modelo.teste"),
-            mock.patch.object(agente.requests, "post", return_value=resposta) as post,
-        ):
-            texto = agente.chamar_llm("SISTEMA DE TESTE", "prompt de teste")
-        enviado = post.call_args.kwargs["json"]
-        self.assertEqual(texto, "FINAL: ok")
-        self.assertEqual(enviado["system"], "SISTEMA DE TESTE")
-        self.assertEqual(enviado["prompt"], "prompt de teste")
-        self.assertEqual(enviado["options"]["stop"], [agente.PARADA_DO_MODELO])
-
-
 class TestTurno(unittest.TestCase):
     def setUp(self):
         apoio.limpar()
@@ -368,6 +346,165 @@ class RegistroDeLogs(unittest.TestCase):
         self.addCleanup(agente.logger.setLevel, self.nivel_antigo)
 
 
+def modelo_lento(linhas, relogio, segundos_por_chamada, tempos=None):
+    """Modelo roteirizado que gasta `segundos_por_chamada` do relógio falso e anota o `tempo_limite`."""
+    respostas = iter(linhas)
+
+    def chamar(prompt_sistema, prompt, tempo_limite=None):
+        if tempos is not None:
+            tempos.append(tempo_limite)
+        relogio.passar(segundos_por_chamada)
+        return next(respostas)
+
+    return chamar
+
+
+class TestLimiteDeTempo(RegistroDeLogs):
+    """P1 da crítica B: prazo total por turno, com relógio injetado (sem sleep)."""
+
+    def setUp(self):
+        super().setUp()
+        self.relogio = apoio.RelogioFalso()
+
+    def rodar(self, linhas, segundos_por_chamada, contexto=None, pergunta="pergunta de teste", tempos=None):
+        modelo = modelo_lento(linhas, self.relogio, segundos_por_chamada, tempos)
+        return agente.rodar_turno(
+            pergunta, apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, modelo,
+            contexto=contexto, relogio=self.relogio,
+        )
+
+    def test_o_prazo_padrao_e_uma_constante_nomeada(self):
+        self.assertEqual(agente.SEGUNDOS_POR_TURNO, 120)
+
+    def test_estourar_o_prazo_termina_em_limite_tempo(self):
+        resultado = self.rodar(["LER:"] * 10, segundos_por_chamada=50)
+        self.assertEqual((resultado.tipo, resultado.motivo), ("limite", "tempo"))
+        self.assertEqual(resultado.resposta, agente.MENSAGEM_LIMITE_TEMPO)
+        self.assertIn("tempo do turno esgotado", resultado.trajetoria[-1])
+        self.assertEqual(len(resultado.trajetoria), 3)  # 2 passos de 50 s e o 3º, que passou de 120 s
+
+    def test_o_motivo_de_tempo_nao_se_confunde_com_o_de_passos(self):
+        resultado = self.rodar(["LER:"] * 10, segundos_por_chamada=1)
+        self.assertEqual(resultado.motivo, "max_passos")
+
+    def test_prazo_de_contexto_vale_no_lugar_do_padrao(self):
+        resultado = self.rodar(["LER:"] * 10, 5, contexto={"segundos_por_turno": 12})
+        self.assertEqual((resultado.tipo, resultado.motivo), ("limite", "tempo"))
+
+    def test_prazo_invalido_no_contexto_volta_ao_padrao(self):
+        for valor in (0, -5, True, "30", None, float("inf"), float("nan")):
+            with self.subTest(valor=valor):
+                self.assertEqual(agente._segundos_do_turno({"segundos_por_turno": valor}), 120)
+        self.assertEqual(agente._segundos_do_turno({"segundos_por_turno": 7.5}), 7.5)
+
+    def test_o_modelo_recebe_o_tempo_que_sobra_como_timeout(self):
+        tempos = []
+        self.rodar(["LER:"] * 10, 50, tempos=tempos)
+        self.assertEqual(tempos, [120, 70, 20])
+
+    def test_modelo_sem_o_parametro_tempo_limite_continua_funcionando(self):
+        chamadas = []
+
+        def modelo(prompt_sistema, prompt):
+            chamadas.append(prompt)
+            self.relogio.passar(60)
+            return "LER:"
+
+        resultado = agente.rodar_turno(
+            "p", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, modelo, relogio=self.relogio
+        )
+        self.assertEqual(resultado.motivo, "tempo")
+        self.assertEqual(len(chamadas), 2)
+
+    def test_resposta_que_chega_depois_do_prazo_nao_vira_acao(self):
+        linhas = ["LER:", LER_MULTA, MULTA, "FINAL: nunca"]
+        resultado = self.rodar(linhas, 40)  # a 3ª chamada termina em 120 s: a ferramenta não roda
+        self.assertEqual(resultado.motivo, "tempo")
+        self.assertEqual(governanca.REGISTROS, [])
+
+    def test_o_limite_de_tempo_nao_expoe_conteudo(self):
+        resultado = self.rodar(["LER:"] * 10, 50, pergunta=f"{CANARIO} do lojista")
+        saidas = [resultado.resposta, *resultado.trajetoria, *self.mensagens]
+        self.assertTrue(any("tempo" in saida for saida in self.mensagens))
+        self.assertNotIn(CANARIO, "\n".join(saidas))
+
+
+URL_DO_MODELO = "https://modelo-secreto.exemplo.invalid"
+
+
+def modelo_que_falha(erro):
+    def chamar(prompt_sistema, prompt):
+        raise erro
+
+    return chamar
+
+
+class TestModeloIndisponivel(RegistroDeLogs):
+    """BAIXO-2 da auditoria B: falha do modelo não sobe, e a URL dele nunca aparece."""
+
+    def rodar_com_falha(self, erro):
+        modelo = modelo_que_falha(erro)
+        return agente.rodar_turno(
+            "pergunta de teste", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, modelo
+        )
+
+    def test_excecao_do_modelo_vira_limite_sem_subir(self):
+        for erro in (
+            ConnectionError(f"falha ao conectar em {URL_DO_MODELO}/api/generate"),
+            TimeoutError(URL_DO_MODELO),
+            requests.exceptions.ReadTimeout(f"{URL_DO_MODELO} demorou"),
+            RuntimeError("qualquer outra falha"),
+        ):
+            with self.subTest(erro=type(erro).__name__):
+                resultado = self.rodar_com_falha(erro)
+                self.assertEqual((resultado.tipo, resultado.motivo), ("limite", "modelo_indisponivel"))
+                self.assertEqual(resultado.resposta, agente.MENSAGEM_MODELO_INDISPONIVEL)
+                self.assertIn("modelo indisponível", resultado.trajetoria[-1])
+
+    def test_a_url_nao_aparece_em_resposta_trajetoria_nem_log_e_o_log_so_tem_o_tipo(self):
+        erro = ConnectionError(f"Max retries exceeded with url: {URL_DO_MODELO}/api/generate")
+        resultado = self.rodar_com_falha(erro)
+        saidas = "\n".join([resultado.resposta, *resultado.trajetoria, *self.mensagens])
+        self.assertNotIn("modelo-secreto", saidas)
+        self.assertNotIn("Max retries", saidas)
+        self.assertTrue(any("tipo_erro=ConnectionError" in linha for linha in self.mensagens))
+
+    def test_falha_depois_do_prazo_conta_como_tempo(self):
+        relogio = apoio.RelogioFalso()
+
+        def modelo(prompt_sistema, prompt):
+            relogio.passar(130)
+            raise TimeoutError(URL_DO_MODELO)
+
+        resultado = agente.rodar_turno(
+            "p", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, modelo, relogio=relogio
+        )
+        self.assertEqual(resultado.motivo, "tempo")
+
+class TestLimitacoesConhecidas(unittest.TestCase):
+    def setUp(self):
+        apoio.limpar()
+
+    def test_alternar_duas_chamadas_nao_aciona_a_regra_de_repeticao(self):
+        """KAN-69 A-11 (aceita): só o teto de passos para o laço A, B, A, B."""
+        outra = 'USAR: calcular_multa_atraso | {"valor_fatura": 2000, "dias_atraso": 30}'
+        linhas = INDICE + [LER_MULTA] + [MULTA, outra] * 4
+        resultado = turno(linhas, apoio.coordenador_financeiro())
+        self.assertEqual(resultado.motivo, "max_passos")
+
+    def test_indice_lido_forjado_so_economiza_o_passo_e_nao_libera_nada(self):
+        forjado = {"indice_lido": True, "ferramentas_lidas": ["financeiro/consultar_transacoes_cliente"]}
+        linhas = [
+            'USAR: consultar_transacoes_cliente | {"id_cliente": "M00001"}',
+            "FINAL: sem acesso",
+        ]
+        resultado = turno(linhas, apoio.analista_cobranca(), estado=forjado)
+        self.assertEqual(resultado.tipo, "final")  # pulou o índice
+        self.assertIn("ferramenta não lida", resultado.trajetoria[0])
+        self.assertEqual(governanca.REGISTROS, [])
+        self.assertEqual(resultado.estado["ferramentas_lidas"], [])
+
+
 class TestLgpd(RegistroDeLogs):
     def test_argumentos_dados_e_resposta_do_funcionario_nao_vazam(self):
         cliente = f'USAR: consultar_cliente | {{"id_cliente": "{CANARIO}"}}'
@@ -507,144 +644,6 @@ class TestEntradasHostis(RegistroDeLogs):
             self.assertEqual(agente._identificador_seguro(valor, "padrao"), valor)
         for valor in (None, "", "a b", "a\nb", "x" * 65):
             self.assertEqual(agente._identificador_seguro(valor, "padrao"), "padrao")
-
-
-class TestModoTerminal(unittest.TestCase):
-    def test_pergunta_vira_input_e_o_turno_seguinte_continua(self):
-        apoio.limpar()
-        modelo = modelo_roteirizado(
-            INDICE + [LER_MULTA, "PERGUNTAR: Qual a fatura?", MULTA, "FINAL: R$ 1030,00."]
-        )
-        digitado = iter(["quanto fica a multa?", "1000 e 30 dias", "sair"])
-        saida = io.StringIO()
-        with (
-            mock.patch.object(agente, "chamar_llm", modelo),
-            mock.patch("builtins.input", lambda *_: next(digitado)),
-            contextlib.redirect_stdout(saida),
-        ):
-            agente.conversar_no_terminal(apoio.coordenador_financeiro())
-        self.assertIn("Agente: Qual a fatura?", saida.getvalue())
-        self.assertIn("Agente: R$ 1030,00.", saida.getvalue())
-        self.assertIn("PERGUNTAR -> aguardando o funcionário", saida.getvalue())
-
-
-class TestUsuarioDoAmbiente(unittest.TestCase):
-    """O12: o modo terminal lê só ID_USUARIO; o perfil vem do diretório."""
-
-    def setUp(self):
-        apoio.limpar()
-
-    def test_so_o_id_vai_para_a_busca_no_diretorio(self):
-        pedidos = []
-
-        def diretorio(id_usuario):
-            pedidos.append(id_usuario)
-            return apoio.coordenador_financeiro()
-
-        ambiente = {"ID_USUARIO": " USR-9 ", "NIVEL": "N2", "AREA": "tecnologia", "CARTEIRA": "CLI-1"}
-        usuario = agente.usuario_do_ambiente(ambiente, diretorio)
-        self.assertEqual(pedidos, ["USR-9"])
-        self.assertEqual((usuario.nivel, usuario.area, usuario.carteiras), ("N2", "financeiro", ()))
-
-    def test_nivel_area_e_carteira_do_ambiente_sao_ignorados(self):
-        apenas_id = agente.usuario_do_ambiente({"ID_USUARIO": "USR-9"}, lambda _: apoio.atendente_n1())
-        com_extras = agente.usuario_do_ambiente(
-            {"ID_USUARIO": "USR-9", "NIVEL": "N2", "AREA": "financeiro", "CARTEIRA": "CLI-9"},
-            lambda _: apoio.atendente_n1(),
-        )
-        self.assertEqual(
-            (apenas_id.nivel, apenas_id.area, apenas_id.carteiras),
-            (com_extras.nivel, com_extras.area, com_extras.carteiras),
-        )
-
-    def test_id_ausente_invalido_ou_desconhecido_nao_sobe(self):
-        for ambiente in ({}, {"ID_USUARIO": ""}, {"ID_USUARIO": "a b"}, {"ID_USUARIO": "x\ny"}):
-            with self.assertRaises(ValueError):
-                agente.usuario_do_ambiente(ambiente, lambda _: apoio.coordenador_financeiro())
-        with self.assertRaises(ValueError):
-            agente.usuario_do_ambiente({"ID_USUARIO": "USR-404"}, lambda _: None)
-
-
-class TestDiretorioDoMock(unittest.TestCase):
-    """O ponto único de ligação com o diretório (DOC-MOCK §8.4): ativo entra; o resto, não."""
-
-    def setUp(self):
-        apoio.limpar()
-        self.engine = apoio.mundo()
-
-    def buscar(self, id_usuario):
-        return agente.buscar_usuario_no_diretorio(id_usuario, self.engine)
-
-    def usuario(self, id_usuario, ambiente_extra=None):
-        ambiente = {"ID_USUARIO": id_usuario, **(ambiente_extra or {})}
-        return agente.usuario_do_ambiente(ambiente, self.buscar)
-
-    def test_ana_vira_atendente_n1_com_a_carteira_do_time(self):
-        ana = self.usuario("F0001")
-        self.assertEqual(
-            (ana.id_usuario, ana.cargo, ana.nivel, ana.area, ana.carteiras),
-            ("F0001", "atendente_n1", "N1", "atendimento", ("varejo",)),
-        )
-
-    def test_o_perfil_vem_do_cargo_e_nao_do_ambiente(self):
-        extras = {"NIVEL": "N1", "AREA": "atendimento", "CARTEIRA": "varejo"}
-        renata = self.usuario("F0011", extras)
-        self.assertEqual(
-            (renata.cargo, renata.nivel, renata.area, renata.carteiras),
-            ("coordenador_financeiro", "N2", "financeiro", ()),
-        )
-
-    def test_funcionario_desligado_ou_afastado_e_usuario_invalido(self):
-        for id_usuario in ("F0014", "F0015"):  # desligado, afastado
-            self.assertIsNone(self.buscar(id_usuario))
-            with self.assertRaises(ValueError):
-                self.usuario(id_usuario)
-
-    def test_id_bem_formado_que_nao_existe_e_usuario_invalido(self):
-        self.assertIsNone(self.buscar("F9999"))
-        with self.assertRaises(ValueError):
-            self.usuario("F9999")
-
-    def test_diretorio_fora_do_ar_nao_sobe_e_nao_vira_nao_encontrado(self):
-        ligar("diretorio")
-        self.addCleanup(desligar_todas)
-        with self.assertRaisesRegex(ValueError, "indisponível"):
-            self.usuario("F0001")
-
-    def test_banco_sem_as_tabelas_do_mock_nao_sobe(self):
-        vazio = criar_engine("sqlite://")
-        with self.assertRaisesRegex(ValueError, "indisponível"):
-            agente.buscar_usuario_no_diretorio("F0001", vazio)
-
-    def test_usuario_do_diretorio_so_usa_o_que_o_catalogo_libera_para_o_cargo(self):
-        ana = self.usuario("F0001")
-        linhas = INDICE + [
-            "LER: atendimento/consultar_cliente",
-            'USAR: consultar_cliente | {"id_cliente": "M00002"}',
-            "FINAL: sem acesso",
-        ]
-        resultado = turno(linhas, ana)
-        self.assertIn("permissao_negada", resultado.trajetoria[2])  # M00002 é da carteira pme
-
-
-class TestEnvExample(unittest.TestCase):
-    def test_env_example_sem_perfil_do_funcionario_e_com_url_do_modelo(self):
-        raiz = Path(__file__).resolve().parents[2]
-        chaves = {
-            linha.split("=")[0].strip()
-            for linha in (raiz / ".env.example").read_text(encoding="utf-8").splitlines()
-            if "=" in linha and not linha.lstrip().startswith("#")
-        }
-        self.assertTrue({"ID_USUARIO", "LLM_URL", "LLM_MODELO"} <= chaves)
-        self.assertFalse(chaves & {"NIVEL", "AREA", "CARTEIRA"})
-
-
-class TestConfiguracaoDoModelo(unittest.TestCase):
-    def test_url_do_modelo_nao_tem_valor_no_codigo(self):
-        with mock.patch.object(agente, "LLM_URL", ""), self.assertRaises(RuntimeError):
-            agente.chamar_llm("sistema", "prompt")
-        codigo = Path(agente.__file__).read_text(encoding="utf-8")
-        self.assertNotIn("https://", codigo)
 
 
 if __name__ == "__main__":

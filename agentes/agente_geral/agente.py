@@ -6,6 +6,8 @@ configuração: id, prompt de sistema e lista de ferramentas. O dono é a plataf
 permissão por cargo do catálogo, nunca esta lista.
 """
 
+import time
+
 from agentes.agente_atendimento.agente import rodar_turno
 from ferramentas import catalogo
 
@@ -49,14 +51,16 @@ SISTEMA = SISTEMA.replace("{EMPRESA}", NOME_EMPRESA)
 
 
 def rodar_turno_geral(
-    pergunta, usuario, chamar_modelo, historico=(), estado=None, contexto=None
+    pergunta, usuario, chamar_modelo, historico=(), estado=None, contexto=None, relogio=time.monotonic
 ):
     """Um turno do agente geral. Mesmo retorno e mesmos limites de `rodar_turno` (KAN-38).
 
-    `contexto` pode trazer `execucao_id` e `agente_id`; sem `agente_id`, vale `AGENTE_ID`.
+    `contexto` pode trazer `execucao_id`, `agente_id` e `segundos_por_turno`; sem `agente_id`, vale
+    `AGENTE_ID`. `relogio` só existe para os testes injetarem um relógio falso.
     O estado é da conversa: guarde o `Turno.estado` por conversa, nunca neste módulo.
     """
     contexto = {"agente_id": AGENTE_ID, **(contexto if isinstance(contexto, dict) else {})}
     return rodar_turno(
-        pergunta, usuario, FERRAMENTAS_DO_AGENTE, chamar_modelo, historico, estado, contexto, SISTEMA
+        pergunta, usuario, FERRAMENTAS_DO_AGENTE, chamar_modelo, historico, estado, contexto, SISTEMA,
+        relogio,
     )

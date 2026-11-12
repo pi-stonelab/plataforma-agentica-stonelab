@@ -69,3 +69,16 @@ def modelo_roteirizado(linhas, prompts=None, sistemas=None):
         return next(respostas)
 
     return chamar
+
+
+class RelogioFalso:
+    """Relógio que só anda quando o teste manda: nenhum teste espera tempo de verdade."""
+
+    def __init__(self):
+        self.agora = 1000.0
+
+    def __call__(self):
+        return self.agora
+
+    def passar(self, segundos):
+        self.agora += segundos

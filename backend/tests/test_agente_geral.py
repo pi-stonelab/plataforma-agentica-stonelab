@@ -208,6 +208,21 @@ class TestSoOQueOCargoLibera(unittest.TestCase):
                 self.assertEqual(governanca.REGISTROS, [])
 
 
+class TestPrazoDoTurno(unittest.TestCase):
+    def test_o_agente_geral_aceita_prazo_e_relogio_e_termina_em_limite_de_tempo(self):
+        agora = [0.0]
+
+        def modelo(prompt_sistema, prompt, tempo_limite=None):
+            agora[0] += 30
+            return "LER:"
+
+        turno = geral.rodar_turno_geral(
+            "p", apoio.atendente_n1(), modelo,
+            contexto={"segundos_por_turno": 100}, relogio=lambda: agora[0],
+        )
+        self.assertEqual((turno.tipo, turno.motivo), ("limite", "tempo"))
+
+
 class TestCargoSemFerramentas(unittest.TestCase):
     def setUp(self):
         apoio.limpar()

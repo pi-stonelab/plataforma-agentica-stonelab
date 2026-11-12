@@ -1,42 +1,38 @@
 """Agente de atendimento: um turno de conversa por chamada de `rodar_turno`.
 
 O back-end entrega o funcionário já validado, a lista de ferramentas do agente e o `chamar_modelo`.
-O agente não conhece banco, login nem a camada de acesso ao agente (`seguranca/`).
+O agente não conhece banco, login nem a camada de acesso ao agente (`seguranca/`). O modo terminal
+(modelo direto e diretório de funcionários do mock) fica em `agentes/terminal.py`, fora do motor.
 """
 
+import inspect
 import json
 import logging
-import os
+import math
 import re
+import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
-import requests
-from dotenv import load_dotenv
-from sqlalchemy.exc import SQLAlchemyError
-
-from ferramentas import catalogo, governanca
-from mock.banco import criar_engine, url_padrao
-from mock.consultas import buscar_funcionario
-
-load_dotenv()
+from ferramentas import catalogo
 
 logger = logging.getLogger("agente_atendimento")
 logger.addHandler(logging.NullHandler())  # quem usa o agente decide para onde vão os logs
 
 # ---------- CONFIGURAÇÃO ----------
-LLM_URL = os.environ.get("LLM_URL", "")  # só do .env; sem valor padrão no código
-LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3.8:27b")
 MAX_PASSOS = 10         # KAN-38: mais de 10 etapas sem terminar interrompe o turno
 MAX_REPETICOES = 3      # KAN-38: mesma ferramenta e mesmos argumentos 3 vezes seguidas = loop
 MAX_CHARS_MD = 6000     # limite de texto de cada leitura e de cada resultado enviado ao modelo
 MAX_TURNOS_HISTORICO = 10  # quantos pares pergunta/resposta anteriores entram no prompt
 MAX_CHARS_PERGUNTA = 4000  # a pergunta do funcionário é cortada aqui (BAIXO-4 da auditoria A1-A3)
+# Prazo total de um turno, em segundos. SEM FONTE: não vem de requisito nem de medição; é um valor
+# escolhido para a demo (até 10 chamadas a um modelo local de 27B). Troque por turno com
+# `contexto["segundos_por_turno"]` e revise depois de medir com o modelo real.
+SEGUNDOS_POR_TURNO = 120
 
 NOME_EMPRESA = "Stone"
 AGENTE_ID = "agente_atendimento"
-SITUACAO_ATIVA = "ativo"  # DOC-MOCK §8.4: desligado e afastado não usam a plataforma
 
 # Ferramentas que este agente pode usar. O catálogo ainda confere o nível e a área do funcionário.
 # [aqui conectamos com agentes: lista vinda da configuração do agente, KAN-55]
@@ -73,7 +69,7 @@ Regras de trabalho (siga esta ordem):
 8. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
 SISTEMA = SISTEMA.replace("{EMPRESA}", NOME_EMPRESA)
 # O modelo deve parar aqui, senão inventa o resultado da ferramenta. Todo `chamar_modelo` (inclusive o
-# `LLMClient` do back-end) precisa passar isto como "stop" ao Ollama.
+# `LLMClient` do back-end e o `chamar_llm` do terminal) precisa passar isto como "stop" ao Ollama.
 PARADA_DO_MODELO = "Observação:"
 
 MENSAGEM_LIMITE_PASSOS = (
@@ -84,44 +80,22 @@ MENSAGEM_REPETICAO = (
     "Interrompi a consulta: repeti a mesma ferramenta com os mesmos dados "
     f"{MAX_REPETICOES} vezes seguidas. Tente reformular o pedido ou abra um chamado interno."
 )
+MENSAGEM_MODELO_INDISPONIVEL = (
+    "O modelo está indisponível no momento. Tente novamente em instantes ou abra um chamado interno."
+)
+MENSAGEM_LIMITE_TEMPO = (
+    "Não consegui concluir a consulta no tempo previsto para um atendimento. "
+    "Tente reformular o pedido ou abra um chamado interno."
+)
 
 # Encontra a primeira ação escrita pelo modelo (ignora qualquer coisa inventada depois dela).
 ACAO_RE = re.compile(r"^\s*(LER|USAR|PERGUNTAR|FINAL)\b[ \t]*:?[ \t]*", flags=re.MULTILINE)
 
 
-# ---------- QUEM ESTÁ USANDO O AGENTE ----------
-def buscar_usuario_no_diretorio(id_usuario, engine=None):
-    """PONTO ÚNICO de ligação do modo terminal com o diretório de funcionários do mock (O12).
-
-    Devolve o `governanca.Usuario` montado pelo cargo (nível, área e carteiras vêm do cargo e do
-    time do diretório) ou None se o id não existe ou o funcionário não está ativo (desligado,
-    afastado ou qualquer outra situação): negar por padrão. Sem `engine`, usa o SQLite local do mock.
-    Diretório fora do ar não vira "não encontrado": levanta ValueError.
-    """
-    try:
-        funcionario = buscar_funcionario(engine or criar_engine(url_padrao()), id_usuario)
-    except (ConnectionError, SQLAlchemyError):
-        raise ValueError("Diretório de funcionários indisponível.") from None
-    if funcionario is None or funcionario["situacao"] != SITUACAO_ATIVA:
-        return None
-    return governanca.usuario_do_cargo(
-        funcionario["id"], funcionario["cargo"], tuple(funcionario["carteiras"])
-    )
-
-
-def usuario_do_ambiente(ambiente=os.environ, buscar_no_diretorio=buscar_usuario_no_diretorio):
-    """Monta o funcionário do modo terminal só pelo ID_USUARIO do .env; o perfil vem do diretório.
-
-    Nível, área e carteira NÃO são lidos do ambiente (O12). No produto real, o back-end valida
-    o login e entrega o Usuario já pronto ao agente. ID ausente, inválido ou desconhecido: não sobe.
-    """
-    id_usuario = ambiente.get("ID_USUARIO", "").strip()
-    if not IDENTIFICADOR_SEGURO_RE.match(id_usuario):
-        raise ValueError("Defina ID_USUARIO no .env (letras, dígitos, '_' ou '-').")
-    usuario = buscar_no_diretorio(id_usuario)
-    if usuario is None:
-        raise ValueError("ID_USUARIO não encontrado no diretório de funcionários.")
-    return usuario
+class ModeloIndisponivel(Exception):
+    """O modelo não respondeu (conexão, timeout, resposta ilegível). A mensagem é sempre genérica:
+    ela nunca leva o endereço do modelo. Quem chama o modelo pode levantar esta exceção, mas o
+    motor trata qualquer `Exception` do `chamar_modelo` do mesmo jeito (veja `parar_por_modelo`)."""
 
 
 # ---------- RESULTADO DE UM TURNO ----------
@@ -130,7 +104,8 @@ class Turno:
     """O que o back-end recebe de volta.
 
     tipo: "final" (resposta pronta), "pergunta" (o agente precisa de um dado do funcionário)
-    ou "limite" (KAN-38: passos ou repetições estouraram; `motivo` diz qual).
+    ou "limite" (`motivo` diz qual: "max_passos" e "repeticao" são da KAN-38; "tempo" é o prazo
+    do turno; "modelo_indisponivel" é o modelo que não respondeu).
     trajetoria: só ação + nome/caminho + status; nunca argumentos, dados ou textos do funcionário.
     estado: dicionário JSON para o próximo turno, depois de uma "pergunta".
     """
@@ -175,6 +150,9 @@ class Atendimento:
                 self.descricoes_retomadas.append(f"[{caminho}]\n{texto}")
 
     def estado(self):
+        """Estado para o próximo turno. `indice_lido` só economiza o passo de reler o índice: quem
+        forja um estado com ele verdadeiro pula esse passo e nada mais, porque a autorização é
+        refeita no catálogo a cada caminho (BAIXO-1 da auditoria B)."""
         return {"indice_lido": self.indice_lido, "ferramentas_lidas": list(self.caminhos_lidos)}
 
     def ler(self, caminho):
@@ -212,35 +190,6 @@ class Atendimento:
         texto = json.dumps(resultado, ensure_ascii=False, default=str)[:MAX_CHARS_MD]
         resumo = resultado["status"] if resultado["tipo_erro"] is None else resultado["tipo_erro"]
         return texto, f"'{nome}' executada: {resumo}"
-
-
-# ---------- CHAMADA AO LLM ----------
-def montar_headers():
-    return {
-        "CF-Access-Client-Id": os.environ["CF_ACCESS_CLIENT_ID"],
-        "CF-Access-Client-Secret": os.environ["CF_ACCESS_CLIENT_SECRET"],
-        "Content-Type": "application/json",
-    }
-
-
-def chamar_llm(prompt_sistema: str, prompt: str) -> str:
-    """Chamada direta ao Ollama, para o terminal. No produto quem chama é o `LLMClient` do back-end."""
-    if not LLM_URL:
-        raise RuntimeError("Defina LLM_URL no .env para usar o modelo direto (modo terminal).")
-    payload = {
-        "model": LLM_MODELO,
-        "system": prompt_sistema,
-        "prompt": prompt,
-        "stream": False,
-        "think": False,
-        "options": {"temperature": 0, "stop": [PARADA_DO_MODELO]},
-    }
-    r = requests.post(
-        f"{LLM_URL}/api/generate", headers=montar_headers(), json=payload, timeout=120
-    )
-    r.raise_for_status()
-    texto = r.json()["response"]
-    return re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
 
 
 # ---------- O PROMPT DO TURNO ----------
@@ -350,7 +299,11 @@ class Rodada:
         return obs, resumo, _alvo_seguro(nome)
 
     def _repetiu(self, nome, args):
-        """Quantas vezes seguidas esta mesma ferramenta com os mesmos argumentos apareceu."""
+        """Quantas vezes seguidas esta mesma ferramenta com os mesmos argumentos apareceu.
+
+        Limitação conhecida (KAN-69, A-11, aceita): alternar A, B, A, B zera a contagem a cada
+        troca e não aciona esta regra; só o teto de MAX_PASSOS e o prazo do turno param esse laço.
+        """
         assinatura = _assinatura(nome, args)
         self.repeticoes = self.repeticoes + 1 if assinatura == self.ultima_assinatura else 1
         self.ultima_assinatura = assinatura
@@ -366,6 +319,22 @@ class Rodada:
             passo, self.execucao_id, _alvo_seguro(nome), self.repeticoes,
         )
         return self.terminar(MENSAGEM_REPETICAO, "limite", "repeticao")
+
+    def parar_por_tempo(self, passo):
+        """O prazo do turno acabou: nenhuma ação a partir daqui, nem a resposta que estiver pendente."""
+        self.trajetoria.append(f"Passo {passo}: limite: tempo do turno esgotado")
+        logger.warning("passo=%d execucao_id=%s limite de tempo do turno", passo, self.execucao_id)
+        return self.terminar(MENSAGEM_LIMITE_TEMPO, "limite", "tempo")
+
+    def parar_por_modelo(self, passo, erro):
+        """O `chamar_modelo` levantou uma exceção. Só o TIPO dela vai para o log: a mensagem de
+        uma exceção de rede costuma trazer a URL do modelo, e a URL nunca sai daqui (BAIXO-2)."""
+        self.trajetoria.append(f"Passo {passo}: modelo indisponível")
+        logger.warning(
+            "passo=%d execucao_id=%s modelo indisponivel tipo_erro=%s",
+            passo, self.execucao_id, type(erro).__name__,
+        )
+        return self.terminar(MENSAGEM_MODELO_INDISPONIVEL, "limite", "modelo_indisponivel")
 
     def tratar_perguntar(self, passo, primeira_linha):
         """Encerra o turno; o funcionário responde no turno seguinte."""
@@ -385,6 +354,22 @@ class Rodada:
         return self.tratar_perguntar(passo, primeira_linha)
 
 
+def _segundos_do_turno(contexto):
+    """`contexto["segundos_por_turno"]` se for um número positivo e finito; senão o padrão."""
+    valor = contexto.get("segundos_por_turno")
+    if isinstance(valor, bool) or not isinstance(valor, int | float):
+        return SEGUNDOS_POR_TURNO
+    return valor if math.isfinite(valor) and valor > 0 else SEGUNDOS_POR_TURNO
+
+
+def _aceita_tempo_limite(chamar_modelo):
+    """True se o `chamar_modelo` declara o parâmetro `tempo_limite` (em segundos)."""
+    try:
+        return "tempo_limite" in inspect.signature(chamar_modelo).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def _separar_acao(resposta, encontro):
     """Da resposta do modelo tira (ação, resto depois dela, primeira linha do resto)."""
     resto = resposta[encontro.end():]
@@ -401,6 +386,7 @@ def rodar_turno(
     estado: dict | None = None,
     contexto: dict | None = None,
     prompt_sistema: str = SISTEMA,
+    relogio: Callable[[], float] = time.monotonic,
 ) -> Turno:
     """Roda um turno: até MAX_PASSOS chamadas ao modelo e devolve um `Turno`.
 
@@ -409,7 +395,11 @@ def rodar_turno(
     `historico`: pares (mensagem do funcionário, resposta do agente) dos turnos anteriores.
     `estado`: o `Turno.estado` do turno anterior, quando ele terminou em "pergunta"; sem ele
     (conversa nova) o agente precisa ler o índice e as ferramentas de novo.
-    `contexto`: pode trazer `execucao_id` (senão gera um) e `agente_id`.
+    `contexto`: pode trazer `execucao_id` (senão gera um), `agente_id` e `segundos_por_turno`.
+    `relogio` devolve segundos (monótonos); os testes injetam um relógio falso.
+    O turno tem prazo total (SEGUNDOS_POR_TURNO): passou dele, termina em "limite" com motivo "tempo".
+    Se o `chamar_modelo` declarar o parâmetro `tempo_limite`, recebe nele o tempo que sobra do turno
+    (em segundos) para usar como timeout; sem o parâmetro, o prazo só é conferido entre as chamadas.
     Nenhum argumento de ferramenta, dado devolvido ou texto do funcionário vai para log ou trajetória.
     """
     contexto = contexto if isinstance(contexto, dict) else {}
@@ -418,9 +408,24 @@ def rodar_turno(
     atendimento = Atendimento(usuario, ferramentas_do_agente, execucao_id, agente_id, estado)
     rodada = Rodada(atendimento, execucao_id, agente_id)
     prompt = montar_prompt(pergunta, historico, atendimento)
+    prazo = relogio() + _segundos_do_turno(contexto)
+    informar_tempo = _aceita_tempo_limite(chamar_modelo)
 
     for passo in range(1, MAX_PASSOS + 1):
-        resposta = chamar_modelo(prompt_sistema, prompt)
+        restante = prazo - relogio()
+        if restante <= 0:
+            return rodada.parar_por_tempo(passo)
+        try:
+            if informar_tempo:
+                resposta = chamar_modelo(prompt_sistema, prompt, tempo_limite=restante)
+            else:
+                resposta = chamar_modelo(prompt_sistema, prompt)
+        except Exception as erro:  # noqa: BLE001 - qualquer falha do modelo encerra o turno
+            if relogio() >= prazo:  # o timeout que demos ao modelo foi o do prazo do turno
+                return rodada.parar_por_tempo(passo)
+            return rodada.parar_por_modelo(passo, erro)
+        if relogio() >= prazo:  # a chamada passou do prazo: a resposta dela não vira ação
+            return rodada.parar_por_tempo(passo)
         if not isinstance(resposta, str):  # contrato: texto; qualquer outra coisa é resposta inválida
             resposta = ""
         encontro = ACAO_RE.search(resposta)
@@ -448,52 +453,17 @@ def rodar_turno(
 
 
 def agente(
-    pergunta, usuario, chamar_modelo=chamar_llm, ferramentas_do_agente=FERRAMENTAS_DO_AGENTE,
+    pergunta, usuario, chamar_modelo, ferramentas_do_agente=FERRAMENTAS_DO_AGENTE,
     prompt_sistema=SISTEMA,
 ):
-    """Um turno sem histórico, para o terminal e os testes. Devolve (resposta, trajetoria)."""
+    """Um turno sem histórico, para os testes e o terminal. Devolve (resposta, trajetoria)."""
     turno = rodar_turno(
         pergunta, usuario, ferramentas_do_agente, chamar_modelo, prompt_sistema=prompt_sistema
     )
     return turno.resposta, turno.trajetoria
 
 
-# ---------- MODO TERMINAL ----------
-def conversar_no_terminal(funcionario):
-    """Conversa de teste: aqui sim se usa input(); a resposta do funcionário vira o próximo turno."""
-    historico = []
-    while True:
-        mensagem = input("\nVocê: ").strip()
-        if mensagem.lower() in ("sair", "exit"):
-            break
-        if not mensagem:
-            continue
-        estado, contexto = None, {"execucao_id": uuid.uuid4().hex}
-        while True:
-            turno = rodar_turno(
-                mensagem, funcionario, FERRAMENTAS_DO_AGENTE, chamar_llm, historico, estado, contexto
-            )
-            print("\n=== TRAJETÓRIA ===")
-            for linha in turno.trajetoria:
-                print(" •", linha)
-            print("\nAgente:", turno.resposta)
-            historico.append((mensagem, turno.resposta))
-            if turno.tipo != "pergunta":
-                break
-            mensagem, estado = input("\nVocê: ").strip(), turno.estado
-            contexto = {"execucao_id": uuid.uuid4().hex}
+if __name__ == "__main__":  # mantém `python -m agentes.agente_atendimento.agente` funcionando
+    from agentes.terminal import principal
 
-
-if __name__ == "__main__":
-    if os.environ.get("MODO_TERMINAL") != "1":  # O12
-        raise SystemExit("Modo terminal desligado. Defina MODO_TERMINAL=1 para usar.")
-    logging.basicConfig(level=logging.INFO, format="  [%(levelname)s] %(message)s")
-    try:
-        funcionario = usuario_do_ambiente()
-    except ValueError as erro:
-        raise SystemExit(str(erro)) from erro
-    print(
-        f"Assistente {NOME_EMPRESA} (funcionário {funcionario.id_usuario}, "
-        f"{funcionario.nivel}, {funcionario.area}). Digite 'sair' para encerrar."
-    )
-    conversar_no_terminal(funcionario)
+    principal(["atendimento"])
