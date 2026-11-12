@@ -83,6 +83,12 @@ ferramentas e o diretório de funcionários usam essa função.
 - Teste: `criar_engine("sqlite://")` cria um banco em memória compartilhado entre threads (`StaticPool`).
   O engine usa `hide_parameters=True`, então valores não aparecem em erros do SQLAlchemy.
 
+Postgres sem Docker: `python -m mock.instalar_postgres` (README, "Sem Docker") instala o mesmo mundo num Postgres que já
+roda na máquina. Só aceita host local, valida os nomes, não imprime senha, para sem mexer se o banco já existe
+(`--recriar` apaga e refaz) e confere a instalação lendo pelo papel de leitura. As permissões do papel de leitura estão
+em `papeis_sql` e espelham `03_papeis.sh`; um teste barra divergência. Teste de verdade: `MOCK_TESTE_POSTGRES_ADMIN_URL`
+(superusuário de um Postgres de teste; usa banco e papéis próprios e os apaga no fim).
+
 Postgres local: `mock/docker-compose.yml` sobe um Postgres 16 só do mock (porta 5433, banco `stonelab_mock`, volume
 próprio) e, na primeira subida, roda sozinho `sql/postgres/` (esquema, dados e o papel `mock_leitura`, só `SELECT`).
 `MOCK_DATABASE_URL` usa o papel de leitura; recriar só com a URL do dono em `--url` (com a de leitura, o gerador sai

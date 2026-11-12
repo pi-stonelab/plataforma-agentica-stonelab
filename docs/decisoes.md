@@ -195,6 +195,18 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
   sentido quando o back-end conectar com um papel por cargo; hoje as quatro camadas ficam na aplicação.
 - A fonte da verdade continua sendo o código; o SQL é gerado (`python -m mock.exportar`) e um teste barra divergência.
 
+### H12. Instalador do Postgres do mock, sem Docker
+- Decisão: `python -m mock.instalar_postgres` instala o mock num Postgres que já roda na máquina, com o mesmo resultado
+  do compose (banco `stonelab_mock`, dono `mock`, papel `mock_leitura`). O padrão do repositório continua o SQLite local;
+  o Postgres único para todos fica para depois, quando o back-end conectar com um papel por cargo.
+- Quem e quando: Pedro, 12/11 (sem Docker na máquina; instalou o Postgres oficial na porta 5433).
+- Motivo: o `pgserver` não tem pacote para o Python 3.15 e o Docker não é dependência do `requirements.txt`; o
+  Postgres oficial dispensa os dois.
+- No código: `mock/instalar_postgres.py`, `backend/tests/test_mock_instalar_postgres.py`. Só aceita host local, valida
+  nomes de banco e papéis, não imprime senha e não altera nada se o banco já existe sem `--recriar`.
+- Verificado: contra um Postgres 16 em Linux (instalação, repetição, `--recriar`, leitura pelas ferramentas, escrita
+  negada). Não foi rodado no Windows; a primeira execução real é a do Pedro.
+
 ## Decisões do orquestrador (O1 a O13)
 
 Todas de 11/11, PLANO v2, escritas depois da crítica ao plano. "Para o Pedro ver" quer dizer que ele leu; só a O10

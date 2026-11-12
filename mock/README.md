@@ -55,8 +55,33 @@ São 10 tabelas e 1559 linhas, 100% sintéticas (sem pessoa real de teste). A fo
 (`modelos.py` e `gerar.py`); um teste falha se o SQL do Git ficar diferente do que o código gera. Mudou o esquema ou o
 gerador: suba `VERSAO_DO_ESQUEMA` em `modelos.py` (se mudou o esquema) e rode `python -m mock.exportar`.
 
-## Postgres local do mock (opcional, precisa de Docker)
-O padrão continua o SQLite local. Quem tem Docker sobe um Postgres só do mock, já preenchido. Ele é separado do banco
+## Postgres local do mock (opcional)
+O padrão continua o SQLite local. Há dois caminhos para um Postgres só do mock: o instalador, para quem já tem um
+Postgres na máquina (sem Docker), e o Docker. Os dois dão o mesmo resultado: banco `stonelab_mock`, dono `mock` e
+papel `mock_leitura`.
+
+### Sem Docker: instalador
+Precisa de um Postgres 13 ou mais novo rodando na própria máquina (no Windows, o instalador oficial da EDB) e da senha
+do superusuário `postgres`. O mock fica em outra porta que a da plataforma: use 5433, que é o padrão do instalador.
+
+1. No `.env`, escolha duas senhas diferentes (só letras e números) para o dono e para a leitura do mock:
+
+        MOCK_POSTGRES_PASSWORD=<senha do dono>
+        MOCK_LEITURA_PASSWORD=<senha da leitura>
+
+2. Da raiz do repositório, rode (a senha do superusuário é pedida no terminal e não é gravada em lugar nenhum):
+
+        python -m mock.instalar_postgres --porta 5433
+
+   Ele cria o dono, o papel de leitura e o banco, carrega `sql/postgres/` e confere, lendo pelo papel de leitura, que
+   as tabelas têm as linhas esperadas e que o papel não escreve. Só aceita `127.0.0.1`, `localhost` e `::1`: o mock
+   nunca é instalado no banco da plataforma nem no de outra pessoa. Com o banco já criado ele para sem mexer em nada;
+   `--recriar` apaga o banco do mock e instala de novo.
+
+3. Coloque no `.env` a URL que ele imprime, com a senha da leitura no lugar indicado (passo 3 do Docker, abaixo).
+
+### Com Docker
+Quem tem Docker sobe um Postgres só do mock, já preenchido. Ele é separado do banco
 da plataforma: `mock/docker-compose.yml` tem outro container, outra porta (5433), outro volume e outro banco
 (`stonelab_mock`). Tem dois papéis:
 
