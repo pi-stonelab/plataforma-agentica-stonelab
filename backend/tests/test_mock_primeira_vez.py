@@ -2,6 +2,7 @@
 
 import hashlib
 import sqlite3
+from contextlib import closing
 
 import pytest
 from ferramentas import dados_sinteticos
@@ -53,7 +54,7 @@ def test_arquivo_vazio_sem_tabelas_e_preenchido(tmp_path):
 
 def test_nunca_mexe_em_arquivo_que_ja_tem_outras_tabelas(tmp_path):
     caminho = tmp_path / "outro.sqlite"
-    with sqlite3.connect(caminho) as conexao:
+    with closing(sqlite3.connect(caminho)) as conexao, conexao:
         conexao.execute("CREATE TABLE anotacoes (texto TEXT)")
     antes = _sha(caminho)
     assert garantir_mundo_local(_url(caminho)) is False
@@ -63,18 +64,18 @@ def test_nunca_mexe_em_arquivo_que_ja_tem_outras_tabelas(tmp_path):
 def test_mock_de_versao_antiga_e_refeito(tmp_path):
     caminho = tmp_path / "mock.sqlite"
     garantir_mundo_local(_url(caminho))
-    with sqlite3.connect(caminho) as conexao:
+    with closing(sqlite3.connect(caminho)) as conexao, conexao:
         conexao.execute("PRAGMA user_version = 1")
         conexao.execute("DELETE FROM interacoes")
     assert garantir_mundo_local(_url(caminho)) is True
-    with sqlite3.connect(caminho) as conexao:
+    with closing(sqlite3.connect(caminho)) as conexao:
         assert conexao.execute("PRAGMA user_version").fetchone()[0] == VERSAO_DO_ESQUEMA
         assert conexao.execute("SELECT count(*) FROM interacoes").fetchone()[0] > 0
 
 
 def test_mock_pela_metade_e_refeito(tmp_path):
     caminho = tmp_path / "mock.sqlite"
-    with sqlite3.connect(caminho) as conexao:
+    with closing(sqlite3.connect(caminho)) as conexao, conexao:
         conexao.execute("CREATE TABLE lojistas (codigo TEXT)")  # só uma tabela do mock, nenhuma outra
     assert garantir_mundo_local(_url(caminho)) is True
     assert _total_de_lojistas(caminho) == 20
