@@ -21,13 +21,12 @@ from dotenv import load_dotenv
 
 from agentes.agente_atendimento import agente as motor
 from agentes.agente_geral import agente as geral
-from ferramentas import dados_sinteticos, governanca
+from ferramentas import diretorio
 
 load_dotenv()
 
 LLM_URL = os.environ.get("LLM_URL", "")  # só do .env; sem valor padrão no código
 LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3.8:27b")
-SITUACAO_ATIVA = "ativo"  # DOC-MOCK §8.4: desligado e afastado não usam a plataforma
 SEGUNDOS_POR_CHAMADA = 120  # timeout de uma chamada avulsa; dentro de um turno vale o tempo que sobra
 
 
@@ -50,21 +49,16 @@ AGENTES = {
 def buscar_usuario_no_diretorio(id_usuario):
     """PONTO ÚNICO de ligação do modo terminal com o diretório de funcionários do mock (O12).
 
-    Devolve o `governanca.Usuario` montado pelo cargo (nível, área e carteiras vêm do cargo e do
-    time do diretório) ou None se o id não existe ou o funcionário não está ativo (desligado,
-    afastado ou qualquer outra situação): negar por padrão. O banco é o da fachada
-    `ferramentas.dados_sinteticos` (`MOCK_DATABASE_URL` ou o SQLite local); quem quiser outro chama
-    `dados_sinteticos.configurar(...)`. Diretório fora do ar não vira "não encontrado": levanta ValueError.
+    Devolve o `governanca.Usuario` montado pelo cargo ou None se o id não existe ou o funcionário não
+    está ativo (a regra é de `ferramentas.diretorio`, a mesma que o back-end usa): negar por padrão.
+    O banco é o da fachada `ferramentas.dados_sinteticos` (`MOCK_DATABASE_URL` ou o SQLite local);
+    quem quiser outro chama `dados_sinteticos.configurar(...)`. Diretório fora do ar não vira "não
+    encontrado": levanta ValueError.
     """
     try:
-        funcionario = dados_sinteticos.buscar_funcionario(id_usuario)
+        return diretorio.buscar_usuario(id_usuario)
     except ConnectionError:
         raise ValueError("Diretório de funcionários indisponível.") from None
-    if funcionario is None or funcionario["situacao"] != SITUACAO_ATIVA:
-        return None
-    return governanca.usuario_do_cargo(
-        funcionario["id"], funcionario["cargo"], tuple(funcionario["carteiras"])
-    )
 
 
 def usuario_do_ambiente(ambiente=os.environ, buscar_no_diretorio=buscar_usuario_no_diretorio):

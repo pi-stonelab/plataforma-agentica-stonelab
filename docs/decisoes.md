@@ -97,6 +97,16 @@ Como ler:
 - No código: `ferramentas/catalogo.py`. Consequência: não existe tabela `ferramentas` nem rota que liste fichas para a
   interface.
 
+### D11. Funcionário inativo é barrado em um lugar só
+- Decisão: a checagem "o funcionário está ativo?" mora em `ferramentas/diretorio.py` (`buscar_usuario`). O modo terminal
+  e o `montar_acesso` do back-end usam essa função. Tudo que não for exatamente `ativo` é negado; diretório fora do ar
+  levanta `ConnectionError` e não vira "não encontrado".
+- Quem e quando: Pedro, 12/11 ("quero", sobre o ponto 2 da revisão de riscos).
+- Motivo: só o `agentes/terminal.py` conferia a situação; `usuario_do_cargo` não. Um `montar_acesso` que montasse o
+  usuário por ele deixaria desligado e afastado entrarem.
+- No código: `ferramentas/diretorio.py`, `agentes/terminal.py`, `backend/tests/test_ferramentas_diretorio.py`.
+  O `montar_acesso` em si é do Marcelo (mensagem pronta em `docs/mensagens-para-o-grupo.md`).
+
 ## Decisões também tomadas na noite de 11/11 e de manhã em 12/11 (Pedro, ao longo das etapas)
 
 Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no `PLANO.md`. A data é a dos commits.

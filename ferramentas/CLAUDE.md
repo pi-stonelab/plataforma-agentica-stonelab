@@ -19,6 +19,14 @@ liste ferramentas para a interface. Quem enxerga o catálogo é o agente, e só 
 apenas as integrações, na aba de conectores (ex.: conectar o Gmail). Conexão por usuário fica para a Sprint 3.
 O banco guarda só os dados do mock.
 
+## Decisão D11: funcionário inativo é barrado em um lugar só
+
+`governanca.usuario_do_cargo` monta o `Usuario` pelo cargo e não olha a situação. Quem monta o usuário por ele
+sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `diretorio.buscar_usuario`: o terminal
+(`agentes/terminal.py`) e o `montar_acesso` do back-end chamam essa função, e a regra não se repete. Tudo que não for
+`ativo` é negado, e diretório fora do ar levanta `ConnectionError` (não vira "não encontrado"). Decidido com o Pedro em
+12/11, a partir da revisão dos pontos de risco; testes em `test_ferramentas_diretorio.py`.
+
 ## Arquivos
 
 - `base.py`: classe `Ferramenta` (a ficha e o método `executar`), os 7 tipos de erro, `ErroFerramenta`, `resposta`.
@@ -30,6 +38,8 @@ O banco guarda só os dados do mock.
   `preparar` junta tudo na ordem certa.
 - `mascara.py`: mascara CPF, telefone, e-mail, conta, cartão, nome e texto livre. Função pura.
 - `dados_sinteticos.py`: fachada do mock. Lê o banco por `mock/consultas.py` e devolve dicts.
+- `diretorio.py`: `buscar_usuario(id)` monta o `Usuario` do funcionário pelo diretório do mock, e só se a situação for
+  exatamente `ativo`. É o ponto único para o terminal e para o `montar_acesso` do back-end (decisão D11).
 - `agents.md` (raiz e de cada área e ferramenta): o texto que o modelo lê. A parte depois de `## Para quem mantém`
   o código descarta.
 - `<area>/<nome>/func.py`: a ficha e a lógica de uma ferramenta.

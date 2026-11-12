@@ -43,6 +43,12 @@ O que mudou e te afeta:
   `MOCK_POSTGRES_PASSWORD=` e `MOCK_LEITURA_PASSWORD=` (vazias), com o comentário "só para o Postgres opcional do mock".
   Quando o back-end usar o mock em Postgres, a URL dele deve ser a do `mock_leitura`, nunca a do dono.
 
+- Funcionário inativo (12/11): `governanca.usuario_do_cargo` não confere a situação do funcionário. A checagem agora
+  está em `ferramentas/diretorio.py`, `buscar_usuario(id)`, que devolve o `Usuario` só se a situação for exatamente
+  `ativo` e `None` caso contrário. Sugestão para o seu `montar_acesso`: chamar essa função em vez de montar o usuário
+  com `usuario_do_cargo` direto, para desligado e afastado não passarem mesmo com token válido. Se o diretório
+  estiver fora do ar ela levanta `ConnectionError`, que dá o 503 que o `CLAUDE.md` já descreve.
+
 O que pode quebrar:
 
 - O CI (`.github/workflows/ci.yml`) só roda gitleaks e ruff. Os testes novos não rodam lá ainda.

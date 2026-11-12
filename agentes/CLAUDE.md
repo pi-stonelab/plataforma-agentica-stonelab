@@ -108,7 +108,7 @@ Código em `agentes/terminal.py`, fora do motor. Só com `MODO_TERMINAL=1`:
 (`python -m agentes.agente_atendimento.agente` continua funcionando: é um atalho para o primeiro.)
 
 O `.env` tem `ID_USUARIO` (e `LLM_URL`, `LLM_MODELO` e as credenciais do modelo); nível, área e carteira vêm do
-diretório do mock, por `buscar_usuario_no_diretorio`, que usa `dados_sinteticos.buscar_funcionario` (banco
-de `MOCK_DATABASE_URL` ou o SQLite local; para outro banco, `dados_sinteticos.configurar(...)`); funcionário desligado, afastado ou
-inexistente não entra. `chamar_llm` troca qualquer erro de rede por `ModeloIndisponivel` sem a URL. Não use
+diretório do mock, por `buscar_usuario_no_diretorio`, que chama `ferramentas.diretorio.buscar_usuario` (a mesma regra
+que o back-end usa; banco de `MOCK_DATABASE_URL` ou o SQLite local; para outro banco,
+`dados_sinteticos.configurar(...)`); funcionário desligado, afastado ou inexistente não entra. `chamar_llm` troca qualquer erro de rede por `ModeloIndisponivel` sem a URL. Não use
 isso no produto: o back-end monta o `Usuario` e o `LLMClient` por conta própria.
