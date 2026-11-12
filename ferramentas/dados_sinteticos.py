@@ -6,6 +6,8 @@ repassar o texto do erro. Valores em reais saem como texto ("R$ 1.842,30") para 
 converter centavos.
 """
 
+import sqlite3
+
 from mock import consultas
 from mock.banco import criar_engine, url_padrao
 from mock.falhas import SistemaIndisponivel
@@ -48,7 +50,7 @@ def _engine():
             url = url_padrao()
             garantir_mundo_local(url)  # SQLite local novo: gera o mock na primeira vez
             _CONEXAO["engine"] = criar_engine(url)
-        except (ValueError, ArgumentError, OSError, OperationalError):  # a mensagem pode trazer a senha
+        except (ValueError, ArgumentError, OSError, OperationalError, sqlite3.Error):  # a mensagem pode ter a senha
             raise ConnectionError("integração indisponível") from None
     return _CONEXAO["engine"]
 

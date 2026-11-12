@@ -237,6 +237,8 @@ def test_todo_ataque_da_kan69_tem_pelo_menos_um_teste():
 PENDENTES_DE_OUTRAS_ETAPAS = set()
 CANDIDATO_A_CPF = re.compile(r"(?<![\d.])\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?![\d])")
 CANDIDATO_A_CARTAO = re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)")
+# O protocolo do chamado (AAAAMMDD-NNNNNN) tem 14 dígitos e às vezes passa no Luhn: não é cartão.
+PROTOCOLO_DE_CHAMADO = re.compile(regras.FORMATO_DE_IDENTIFICADORES["protocolo"])
 # (?<![...]) evita casar "senha@servidor" dentro de uma URL com usuário:senha, que não é e-mail
 CANDIDATO_A_EMAIL = re.compile(r"(?<![\w.+:/-])[\w.+-]+@([\w-]+(?:\.[\w-]+)+)")
 
@@ -265,6 +267,8 @@ def achados_de_lgpd(texto: str) -> set[tuple[int, str]]:
             if cpf_valido(digitos) and digitos != gab.CPF_VALIDO_PERMITIDO:
                 achados.add((numero, "cpf válido"))
         for casou in CANDIDATO_A_CARTAO.finditer(linha):
+            if PROTOCOLO_DE_CHAMADO.fullmatch(casou.group()):
+                continue
             digitos = re.sub(r"\D", "", casou.group())
             if luhn_valido(digitos) and digitos != gab.CARTAO_DE_TESTE_PERMITIDO:
                 achados.add((numero, "cartão válido"))
@@ -312,6 +316,14 @@ def test_o_detector_de_lgpd_acha_cada_tipo_e_respeita_o_que_e_permitido():
     )
     for texto in permitidos:
         assert achados_de_lgpd(texto) == set(), texto
+
+
+def test_protocolo_de_chamado_nao_e_confundido_com_cartao():
+    protocolo = "20260724-000001"  # 14 dígitos que passam no Luhn
+    assert luhn_valido(protocolo.replace("-", ""))
+    assert achados_de_lgpd(f"protocolo '{protocolo}'") == set()
+    sem_formato = protocolo.replace("-", "")  # montado aqui, nunca escrito no arquivo
+    assert achados_de_lgpd(sem_formato) == {(1, "cartão válido")}  # sem o formato, continua suspeito
 
 
 def test_a_marca_armadilha_permitida_nao_desliga_a_varredura_da_linha():

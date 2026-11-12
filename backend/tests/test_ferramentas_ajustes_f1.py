@@ -59,8 +59,8 @@ def _abrir_chamados(engine, quantidade, lojista_codigo="M00001"):
             sessao.add(
                 Chamado(
                     codigo=f"CH9{i:05d}", protocolo=f"20260101-9{i:05d}", id_lojista=lojista_codigo,
-                    categoria="Recebimento", prioridade="baixa", fila="atendimento",
-                    id_responsavel=None, situacao="aberto", aberto_por="lojista",
+                    categoria="Recebimento", prioridade="baixa", fila="varejo",
+                    id_responsavel=None, situacao="novo", aberto_por="lojista",
                     aberto_em=datetime(2026, 1, 1, 9, 0),
                     resumo="teste",
                 )

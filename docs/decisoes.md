@@ -171,12 +171,29 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
   1 pulado (NUL). O arquivo do compose foi validado com `docker compose config`; o container em si não foi subido.
 
 ### H10. O SQLite local do mock é gerado sozinho na primeira vez
-- Decisão: ninguém precisa rodar `python -m mock.gerar` para começar. A fachada gera `dados_locais/mock.sqlite` na primeira
-  consulta, só se o arquivo não existe ou está sem tabelas.
+- Decisão: ninguém precisa rodar `python -m mock.gerar` para começar. A fachada monta `dados_locais/mock.sqlite` na
+  primeira consulta, a partir do SQL pronto (H11), se o arquivo não existe, está vazio ou é de outra versão do esquema.
 - Quem e quando: Pedro, 12/11 ("a intenção é não ter que gerar toda vez").
 - Motivo: o erro "diretório de funcionários indisponível" no terminal, com o arquivo ainda não gerado.
 - No código: `mock/gerar.py` (`garantir_mundo_local`), `ferramentas/dados_sinteticos.py` (`_engine`), `tests/test_mock_primeira_vez.py`.
 - Não muda: o mundo é o mesmo (mesma semente); banco externo e `--permitir-banco-externo` seguem como antes.
+
+### H11. Esquema redesenhado e SQL pronto no Git
+- Decisão: o mock vira SQL pronto, versionado em `mock/sql/` (esquema e dados, para SQLite e Postgres), que qualquer
+  pessoa carrega sem rodar Python. O esquema foi redesenhado mantendo os nomes de tabela e coluna que ferramentas,
+  consultas e testes usam: chaves estrangeiras de verdade (também no SQLite), listas de valores e regras entre colunas
+  em CHECK, índices nas buscas, nomes previsíveis e comentários de sensibilidade. O Postgres do compose sobe já
+  preenchido e com dois papéis: `mock` (dono) e `mock_leitura` (só SELECT, o das ferramentas).
+- Quem e quando: Pedro, 12/11 ("redesenhar e retestar, mantendo a coesão; SQL pronto para o pessoal baixar e testar
+  sem rodar código; pronto em cada máquina").
+- Motivo: um banco pronto para todo mundo, que se defende sozinho além da aplicação, e com o acesso das ferramentas
+  separado de quem pode alterar o mock.
+- No código: `mock/modelos.py` (`VERSAO_DO_ESQUEMA = 2`), `mock/exportar.py`, `mock/sql/`, `mock/docker-compose.yml`,
+  `mock/gerar.py` (`garantir_mundo_local`), `mock/banco.py` (FK no SQLite); testes `test_mock_esquema.py`,
+  `test_mock_sql.py`, `test_mock_postgres.py`.
+- Não adotado, de propósito: um schema por sistema (DOC-MOCK §11.6) e Row-Level Security para a carteira. Só fazem
+  sentido quando o back-end conectar com um papel por cargo; hoje as quatro camadas ficam na aplicação.
+- A fonte da verdade continua sendo o código; o SQL é gerado (`python -m mock.exportar`) e um teste barra divergência.
 
 ## Decisões do orquestrador (O1 a O13)
 

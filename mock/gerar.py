@@ -13,15 +13,18 @@ import math
 import os
 import random
 import re
+import sqlite3
 import sys
 import unicodedata
 from collections import defaultdict
 from collections.abc import Callable
+from contextlib import closing
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-from sqlalchemy import Engine, func, inspect, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from .banco import (
@@ -34,6 +37,10 @@ from .banco import (
     url_padrao,
 )
 from .modelos import (
+    BANDEIRAS,
+    CANAIS,
+    VERSAO_DO_ESQUEMA,
+    BaseMock,
     Chamado,
     ContaRecebimento,
     ContatoLojista,
@@ -56,6 +63,7 @@ from .regras import (
 )
 
 SEMENTE = 20261015
+TABELAS_DO_MOCK = frozenset(BaseMock.metadata.tables)
 CAMINHO_PESSOAS_TESTE_PADRAO = PASTA_LOCAL / "pessoas_teste.csv"
 
 # Texto exato do cenário 7 (DOC-MOCK §9): instrução escondida na mensagem de um lojista.
@@ -181,7 +189,6 @@ ATENDENTES_POR_CARTEIRA = {
 }
 
 BANCOS = ("Conta Stone", "Conta Stone", "Banco Aurora", "Banco Litoral", "Banco Planalto")
-BANDEIRAS = ("visa", "mastercard", "elo")
 PAPEIS_POR_PORTE = {
     "MEI": ("socio",),
     "ME": ("socio", "financeiro"),
@@ -206,7 +213,6 @@ CATEGORIAS_CHAMADO = (
     ("Contestação", "alta", 5, "Lojista questiona uma venda contestada.",
      ("Recebi um aviso de contestação e quero entender o que fazer.",)),
 )
-CANAIS = ("whatsapp", "telefone", "chat", "email")
 PESOS_CANAIS = (60, 20, 12, 8)  # DOC-MOCK §11.3
 RESPOSTAS_DO_FUNCIONARIO = (
     "Olá, já estou verificando o seu caso e volto em instantes.",
@@ -899,32 +905,65 @@ def recriar(engine: Engine, caminho_pessoas_teste: Path | None = None) -> dict[s
 logger = logging.getLogger("mock")
 
 
-def garantir_mundo_local(url: str) -> bool:
-    """Gera o SQLite local do mock na primeira vez em que alguém o usa. Devolve True se gerou.
+PASTA_SQL_SQLITE = Path(__file__).resolve().parent / "sql" / "sqlite"
+ARQUIVOS_SQL_SQLITE = ("01_esquema.sql", "02_dados.sql")
 
-    Assim ninguém precisa rodar `python -m mock.gerar` à mão. É o mesmo mundo de sempre (mesma
-    semente). Só age em arquivo SQLite que ainda não existe ou está sem nenhuma tabela: nunca em
-    banco externo, nunca em memória, nunca sobre um arquivo que já tem tabelas (do mock ou não).
-    Gera num arquivo temporário e troca de nome no fim, então dois processos juntos não se pisam.
+
+def _estado_do_arquivo(caminho: Path) -> tuple[set[str], int]:
+    """Tabelas e versão do esquema (PRAGMA user_version) de um arquivo SQLite."""
+    with closing(sqlite3.connect(caminho)) as conexao:
+        tabelas = {
+            linha[0]
+            for linha in conexao.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+        versao = conexao.execute("PRAGMA user_version").fetchone()[0]
+    return tabelas, versao
+
+
+def _montar_sqlite(destino: Path) -> None:
+    """Carrega o SQL pronto de mock/sql/sqlite/; sem os arquivos, cai no gerador (mesmo mundo)."""
+    scripts = [PASTA_SQL_SQLITE / nome for nome in ARQUIVOS_SQL_SQLITE]
+    if all(script.exists() for script in scripts):
+        with closing(sqlite3.connect(destino)) as conexao:
+            conexao.execute("PRAGMA foreign_keys = ON")  # confere as chaves enquanto carrega
+            for script in scripts:
+                conexao.executescript(script.read_text(encoding="utf-8"))
+        return
+    engine = criar_engine(f"sqlite:///{destino.as_posix()}")
+    try:
+        recriar(engine)
+    finally:
+        engine.dispose()
+
+
+def garantir_mundo_local(url: str) -> bool:
+    """Deixa o SQLite local do mock pronto para uso. Devolve True se precisou montar.
+
+    Assim ninguém roda `python -m mock.gerar` à mão. Monta a partir do SQL pronto do Git
+    (`mock/sql/sqlite/`) quando o arquivo não existe, está vazio, ou tem só tabelas do mock numa
+    versão de esquema diferente (`VERSAO_DO_ESQUEMA`). Nunca age em banco externo, em memória, ou
+    em arquivo com alguma tabela que não é do mock. Monta num arquivo temporário e troca de nome
+    no fim, então dois processos juntos não se pisam e ninguém lê um banco pela metade.
     """
     if not eh_sqlite(url) or sqlite_em_memoria(url):
         return False
     caminho = Path(make_url(url).database)
     if caminho.exists():
-        engine = criar_engine(url)
-        try:
-            if inspect(engine).get_table_names():
-                return False
-        finally:
-            engine.dispose()
+        tabelas, versao = _estado_do_arquivo(caminho)
+        if not tabelas <= TABELAS_DO_MOCK:
+            return False  # tem tabela que não é do mock: o arquivo não é nosso
+        if tabelas == TABELAS_DO_MOCK and versao == VERSAO_DO_ESQUEMA:
+            return False
     temporario = caminho.with_name(f"{caminho.name}.{os.getpid()}.tmp")
-    engine = criar_engine(f"sqlite:///{temporario.as_posix()}")
+    temporario.unlink(missing_ok=True)
     try:
-        recriar(engine)
+        _montar_sqlite(temporario)
+        os.replace(temporario, caminho)
     finally:
-        engine.dispose()
-    os.replace(temporario, caminho)
-    logger.info("Mock gerado pela primeira vez em %s", caminho.name)
+        temporario.unlink(missing_ok=True)
+    logger.info("Mock local montado em %s (esquema %s)", caminho.name, VERSAO_DO_ESQUEMA)
     return True
 
 
@@ -992,6 +1031,13 @@ def principal(
         contagem = recriar(criar_engine(url), caminho)
     except ErroPessoasTeste as erro:
         print(f"CSV de pessoas de teste recusado: {erro}", file=sys.stderr)
+        return 2
+    except DBAPIError:  # a mensagem do banco pode trazer a URL; não repete
+        print(
+            "O banco recusou recriar o mock. Se a URL é a do papel só de leitura (mock_leitura), "
+            "use a do dono com --url.",
+            file=sys.stderr,
+        )
         return 2
     print("Mundo recriado:", ", ".join(f"{nome}={total}" for nome, total in contagem.items()))
     return 0
