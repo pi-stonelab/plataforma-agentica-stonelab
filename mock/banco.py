@@ -6,7 +6,7 @@ from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from weakref import WeakKeyDictionary
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.pool import StaticPool
@@ -26,14 +26,27 @@ def sqlite_em_memoria(url: str) -> bool:
     return url.startswith("sqlite") and (":memory:" in url or url in ("sqlite://", "sqlite:///"))
 
 
+def _ligar_chaves_estrangeiras(conexao, _registro) -> None:
+    """O SQLite só confere FOREIGN KEY com este PRAGMA, e ele vale por conexão."""
+    cursor = conexao.cursor()
+    cursor.execute("PRAGMA foreign_keys = ON")
+    cursor.close()
+
+
 def criar_engine(url: str) -> Engine:
-    """Cria o engine. `hide_parameters` impede que valores apareçam em mensagens de erro."""
+    """Cria o engine. `hide_parameters` impede que valores apareçam em mensagens de erro.
+
+    No SQLite liga a conferência de chave estrangeira, que ele deixa desligada por padrão.
+    """
     opcoes: dict = {"hide_parameters": True}
     if sqlite_em_memoria(url):
         # Um só banco em memória compartilhado entre threads (senão cada conexão vê um vazio).
         opcoes["poolclass"] = StaticPool
         opcoes["connect_args"] = {"check_same_thread": False}
-    return create_engine(url, **opcoes)
+    engine = create_engine(url, **opcoes)
+    if engine.dialect.name == "sqlite":
+        event.listen(engine, "connect", _ligar_chaves_estrangeiras)
+    return engine
 
 
 _TRAVAS_EM_MEMORIA: WeakKeyDictionary[Engine, threading.RLock] = WeakKeyDictionary()
@@ -115,8 +128,11 @@ def eh_sqlite(url: str) -> bool:
 
 
 def criar_tabelas(engine: Engine) -> None:
-    """Cria as tabelas do mock que ainda não existem."""
+    """Cria as tabelas do mock que ainda não existem. No SQLite grava a versão do esquema."""
     modelos.BaseMock.metadata.create_all(engine)
+    if engine.dialect.name == "sqlite":
+        with engine.begin() as conexao:
+            conexao.exec_driver_sql(f"PRAGMA user_version = {int(modelos.VERSAO_DO_ESQUEMA)}")
 
 
 def apagar_tabelas(engine: Engine) -> None:

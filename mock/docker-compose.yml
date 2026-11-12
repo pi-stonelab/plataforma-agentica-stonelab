@@ -1,5 +1,9 @@
-# Postgres só do mock (a Stone simulada). Separado do docker-compose.yml da raiz, que é o banco da
-# plataforma: aqui o volume, a porta, o usuário e a senha são outros. Veja mock/README.md.
+# Postgres só do mock (a Stone simulada), já preenchido. Separado do docker-compose.yml da raiz, que é o
+# banco da plataforma: aqui o volume, a porta, os usuários e as senhas são outros. Veja mock/README.md.
+#
+# Na primeira subida (volume vazio) o Postgres roda sozinho, em ordem, os arquivos de sql/postgres/:
+# o esquema, os dados e o papel só de leitura (mock_leitura). Para voltar ao mundo original:
+# docker compose --env-file .env -f mock/docker-compose.yml down -v  (e suba de novo).
 name: stonelab-mock
 
 services:
@@ -10,11 +14,13 @@ services:
       POSTGRES_DB: stonelab_mock
       POSTGRES_USER: mock
       POSTGRES_PASSWORD: ${MOCK_POSTGRES_PASSWORD:?defina MOCK_POSTGRES_PASSWORD no .env}
+      MOCK_LEITURA_PASSWORD: ${MOCK_LEITURA_PASSWORD:?defina MOCK_LEITURA_PASSWORD no .env}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8"
     ports:
       - "127.0.0.1:5433:5432"   # só acessível da própria máquina; 5432 é a da plataforma
     volumes:
       - dados_postgres_mock:/var/lib/postgresql/data
+      - ./sql/postgres:/docker-entrypoint-initdb.d:ro   # SQL pronto, lido só na primeira subida
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mock -d stonelab_mock"]
       interval: 5s

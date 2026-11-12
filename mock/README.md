@@ -9,9 +9,14 @@ Stone. Fonte das regras: DOC-MOCK (`§` nos comentários do código). Esta é a 
   acesso, nível de ferramenta, escopo de lojistas, janela de dias, categorias de dado), máscaras por campo
   (`CLASSIFICACAO_CAMPOS`, chaveada pelo NOME DO CAMPO que as consultas devolvem; os campos livres ficam em
   `CAMPOS_NAO_RESTRITOS`; campo fora das duas listas sai mascarado) e taxas. Cargo desconhecido: `regra_do_cargo` devolve `None` (quem chama nega).
-- `modelos.py`: tabelas SQLAlchemy (`BaseMock`, separada da `Base` do back-end). Dinheiro em centavos.
+- `modelos.py`: o esquema, em classes SQLAlchemy (`BaseMock`, separada da `Base` do back-end). Dinheiro em centavos.
+  O próprio banco recusa dado fora das regras: chaves, NOT NULL, listas de valores (CHECK) e regras entre colunas.
+  Cada tabela e coluna tem comentário com a sensibilidade do dado ("RESTRITO" = sai mascarado das ferramentas).
+- `exportar.py`: grava o SQL pronto em `sql/` (esquema e dados, para SQLite e Postgres). `--conferir` só confere.
+- `sql/`: o SQL pronto, que vai para o Git. Gerado, não edite à mão (ver "SQL pronto" abaixo).
 - `banco.py`: `criar_engine`, `url_padrao` (lê `MOCK_DATABASE_URL`), `criar_tabelas`, `apagar_tabelas` (só mexem nas tabelas do mock).
-- `gerar.py`: recria o mundo do zero, sempre igual (semente fixa, sem Faker).
+- `gerar.py`: recria o mundo do zero, sempre igual (semente fixa, sem Faker), e monta o SQLite local a partir do
+  SQL pronto (`garantir_mundo_local`).
 - `consultas.py`: o "conector": leituras com teto de 50 linhas e só as colunas necessárias. Não decide permissão. Já calcula `dias_em_atraso` (faturas) e `dias_em_aberto` (chamados) a partir de `HOJE_DO_MOCK`, e `buscar_interacoes` exige o lojista dono do chamado.
 - `falhas.py`: sistema "fora do ar" (`cadastro`, `core`, `cobranca`, `crm`, `diretorio`).
 
@@ -37,36 +42,57 @@ ferramentas (`ferramentas/dados_sinteticos.py`) e pelo diretório de funcionári
   caminho resolvido. Use um banco ou schema separado para o mock.
 - `--url` no gerador vence a variável. URL inválida nunca é repetida em mensagem de erro.
 
-## Postgres local do mock (opcional)
-O padrão continua o SQLite local. Quem tem Docker pode usar um Postgres só do mock, com o mesmo conteúdo
-(um teste compara os dois). Ele é separado do banco da plataforma: `mock/docker-compose.yml` tem outro container,
-outra porta (5433), outro volume, outro usuário e outro banco (`stonelab_mock`).
+## SQL pronto (`mock/sql/`)
+O mundo do mock já vem pronto no repositório, em SQL comum. Ninguém precisa rodar Python para ter os dados:
 
-1. No `.env` da raiz, escolha uma senha (só letras e números, para não quebrar a URL):
+- `sql/sqlite/01_esquema.sql` e `02_dados.sql`: para SQLite. O `dados_locais/mock.sqlite` é montado sozinho a partir
+  deles na primeira vez em que alguém usa o mock (e de novo se a versão do esquema mudar). Também abrem em qualquer
+  ferramenta de SQLite (por exemplo, DB Browser for SQLite: "Importar > Banco de dados a partir de arquivo SQL").
+- `sql/postgres/01_esquema.sql`, `02_dados.sql` e `03_papeis.sh`: para Postgres. O container do mock roda os três
+  sozinho na primeira subida (ver abaixo).
 
-        MOCK_POSTGRES_PASSWORD=<senha>
+São 10 tabelas e 1559 linhas, 100% sintéticas (sem pessoa real de teste). A fonte da verdade continua sendo o código
+(`modelos.py` e `gerar.py`); um teste falha se o SQL do Git ficar diferente do que o código gera. Mudou o esquema ou o
+gerador: suba `VERSAO_DO_ESQUEMA` em `modelos.py` (se mudou o esquema) e rode `python -m mock.exportar`.
+
+## Postgres local do mock (opcional, precisa de Docker)
+O padrão continua o SQLite local. Quem tem Docker sobe um Postgres só do mock, já preenchido. Ele é separado do banco
+da plataforma: `mock/docker-compose.yml` tem outro container, outra porta (5433), outro volume e outro banco
+(`stonelab_mock`). Tem dois papéis:
+
+- `mock` (dono): cria e recria as tabelas. Só para quem administra o mock.
+- `mock_leitura`: só `SELECT`. É o das ferramentas. Não insere, não altera, não apaga e não cria nada.
+
+1. No `.env` da raiz, escolha duas senhas diferentes (só letras e números, para não quebrar a URL):
+
+        MOCK_POSTGRES_PASSWORD=<senha do dono>
+        MOCK_LEITURA_PASSWORD=<senha da leitura>
 
 2. Suba o container, da raiz do repositório (o `--env-file` é necessário porque o compose fica em `mock/`):
 
         docker compose --env-file .env -f mock/docker-compose.yml up -d
 
-3. Aponte o mock para ele e gere o mundo. O gerador lê a variável do ambiente do terminal, não do `.env`
-   (no PowerShell, `$env:MOCK_DATABASE_URL = "..."`; no bash, `export MOCK_DATABASE_URL=...`):
+   Na primeira subida ele cria as tabelas, carrega os dados e cria o papel de leitura. Não há passo de Python.
 
-        postgresql+psycopg://mock:<senha>@127.0.0.1:5433/stonelab_mock
-        python -m mock.gerar --permitir-banco-externo
+3. No `.env`, aponte as ferramentas para ele com o papel de leitura:
 
-   A porta 5433 é a do mock. A 5432 é a da plataforma e nunca deve ir em `MOCK_DATABASE_URL`.
+        MOCK_DATABASE_URL=postgresql+psycopg://mock_leitura:<senha da leitura>@127.0.0.1:5433/stonelab_mock
 
-Para voltar ao SQLite, esvazie `MOCK_DATABASE_URL`. Para apagar o Postgres do mock:
-`docker compose --env-file .env -f mock/docker-compose.yml down -v`.
+   A porta 5433 é a do mock. A 5432 é a da plataforma e nunca deve ir em `MOCK_DATABASE_URL`. O terminal
+   (`agentes/terminal.py`) lê o `.env`; para o gerador e os testes, a variável precisa estar no ambiente do terminal
+   (no PowerShell, `$env:MOCK_DATABASE_URL = "..."`).
 
-Para rodar os testes do back-end contra ele (recria as tabelas do mock nesse banco, então o nome do banco precisa
-ter "mock" ou "teste"):
+Para voltar ao mundo original (por exemplo, depois de mudar o SQL): `docker compose --env-file .env -f
+mock/docker-compose.yml down -v` e suba de novo. Para voltar ao SQLite, esvazie `MOCK_DATABASE_URL`. O gerador com a
+URL de leitura é recusado de propósito (sai com 2): recriar só com a URL do dono, em `--url`.
 
-        MOCK_TESTE_POSTGRES_URL=<a mesma URL> python -m pytest -q   # dentro de backend/
+Testes do back-end contra o Postgres (recriam as tabelas do mock nesse banco, então o nome do banco precisa ter "mock"
+ou "teste", e a URL é a do dono):
 
-Sem a variável, os testes usam SQLite em memória e `tests/test_mock_postgres.py` é pulado.
+        MOCK_TESTE_POSTGRES_URL=<URL do dono> python -m pytest -q   # dentro de backend/
+
+O teste do papel de leitura pede também `MOCK_TESTE_POSTGRES_LEITURA_URL`, num banco montado pelos três arquivos de
+`sql/postgres/` e que nenhum teste recria. Sem as variáveis, tudo roda em SQLite em memória e esses testes são pulados.
 
 ## Cenários plantados (códigos fixos)
 - 1 (M00001, Padaria Pão da Vila, ME, varejo): conta de recebimento `invalida`; liquidação de 14/10/2026 de

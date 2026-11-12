@@ -37,6 +37,12 @@ O que mudou e te afeta:
   `apoio_agente.mundo()` antes, para ligar o mock às ferramentas. Para o modelo não inventar o resultado da ferramenta,
   passe `opcoes={"temperature": 0, "stop": ["Observação:"]}` ao `como_chamar_modelo`.
 
+- Banco do mock (12/11): o mock agora vem como SQL pronto em `mock/sql/` e tem um Postgres próprio em
+  `mock/docker-compose.yml` (porta 5433, já sobe preenchido, papel `mock_leitura` só com SELECT). Não mexemos no seu
+  `docker-compose.yml` nem no banco da plataforma. Sugestão para você decidir: acrescentar ao `.env.example` as linhas
+  `MOCK_POSTGRES_PASSWORD=` e `MOCK_LEITURA_PASSWORD=` (vazias), com o comentário "só para o Postgres opcional do mock".
+  Quando o back-end usar o mock em Postgres, a URL dele deve ser a do `mock_leitura`, nunca a do dono.
+
 O que pode quebrar:
 
 - O CI (`.github/workflows/ci.yml`) só roda gitleaks e ruff. Os testes novos não rodam lá ainda.

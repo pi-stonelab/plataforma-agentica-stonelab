@@ -48,11 +48,15 @@ Dinheiro é sempre inteiro em centavos (O8). Quem mostra para o modelo converte 
   categorias de dado, os 10 cargos (`CARGOS`, cada um uma `RegraCargo`), taxas (MDR, aluguel), a classificação de
   campos para a máscara (`CLASSIFICACAO_CAMPOS`, `CAMPOS_NAO_RESTRITOS`). `regra_do_cargo(cargo)` devolve `None`
   para cargo desconhecido (quem chama nega).
-- `modelos.py`: 10 tabelas SQLAlchemy numa base própria (`BaseMock`), separada da `Base` do back-end:
+- `modelos.py`: o esquema. 10 tabelas SQLAlchemy numa base própria (`BaseMock`), separada da `Base` do back-end:
   `times`, `funcionarios`, `lojistas`, `contatos_lojista`, `contas_recebimento`, `vendas`, `liquidacoes`,
-  `faturas`, `chamados`, `interacoes`.
+  `faturas`, `chamados`, `interacoes`. Também as listas de valores aceitos e `VERSAO_DO_ESQUEMA`.
+- `exportar.py`: grava o SQL pronto em `sql/` a partir do esquema e do gerador. `--conferir` só confere.
+- `sql/`: o SQL pronto que vai para o Git (`sqlite/` e `postgres/`: `01_esquema.sql`, `02_dados.sql`; no
+  Postgres também `03_papeis.sh`, escrito à mão). Gerado: não edite os `.sql` à mão.
 - `banco.py`: `criar_engine`, `url_padrao`, `criar_tabelas`, `apagar_tabelas` (só mexem nas tabelas do mock).
-- `gerar.py`: recria o mundo (`recriar`) e confere o resultado (`verificar`).
+- `gerar.py`: recria o mundo (`recriar`), confere o resultado (`verificar`) e monta o SQLite local a partir do SQL
+  pronto (`garantir_mundo_local`).
 - `consultas.py`: o "conector". Funções `buscar_*` com teto de 50 linhas e só as colunas necessárias. Não decide
   permissão e não mascara. Já calcula `dias_em_atraso` e `dias_em_aberto`.
 - `falhas.py`: sistema "fora do ar".
@@ -66,9 +70,10 @@ Depende de `mock/` por import: `ferramentas/governanca.py` (listas de cargo, ár
 Uma variável própria, `MOCK_DATABASE_URL`, lida num lugar só (`banco.url_padrao`). O gerador, a fachada das
 ferramentas e o diretório de funcionários usam essa função.
 
-- Variável vazia: SQLite local em `dados_locais/mock.sqlite` (fora do Git). A fachada das ferramentas o gera sozinho na
-  primeira consulta (`gerar.garantir_mundo_local`): só se o arquivo não existe ou não tem nenhuma tabela, nunca em banco
-  externo nem em memória, e por arquivo temporário + troca de nome. Recriar do zero continua sendo `python -m mock.gerar`.
+- Variável vazia: SQLite local em `dados_locais/mock.sqlite` (fora do Git). A fachada das ferramentas o monta sozinha na
+  primeira consulta (`gerar.garantir_mundo_local`), a partir de `sql/sqlite/`: quando o arquivo não existe, está vazio
+  ou tem só tabelas do mock com `PRAGMA user_version` diferente de `VERSAO_DO_ESQUEMA`. Nunca em banco externo, em
+  memória, ou em arquivo com alguma tabela que não é do mock. Monta num temporário e troca de nome no fim.
   O terminal carrega o `.env` e o gerador não: se `MOCK_DATABASE_URL` estiver preenchida no `.env`, o terminal usa essa.
 - `MOCK_DATABASE_URL=<url>` no `.env`: aponta para outro banco. Se não for SQLite, o gerador só recria com
   `--permitir-banco-externo`.
@@ -79,13 +84,42 @@ ferramentas e o diretório de funcionários usam essa função.
   O engine usa `hide_parameters=True`, então valores não aparecem em erros do SQLAlchemy.
 
 Postgres local: `mock/docker-compose.yml` sobe um Postgres 16 só do mock (porta 5433, banco `stonelab_mock`, volume
-próprio). O passo a passo está no `README.md`. O gerador lê `MOCK_DATABASE_URL` do ambiente do terminal, não do `.env`
-(só `agentes/terminal.py` carrega o `.env`). Testes contra ele: `MOCK_TESTE_POSTGRES_URL`, com o nome do banco contendo
-"mock" ou "teste" (`apoio_ferramentas.url_do_postgres_de_teste`); sem a variável, tudo roda em SQLite em memória.
-Diferença conhecida: o Postgres não guarda o byte NUL em texto, então o caso "nulo no meio" do A-13 é pulado nele.
+próprio) e, na primeira subida, roda sozinho `sql/postgres/` (esquema, dados e o papel `mock_leitura`, só `SELECT`).
+`MOCK_DATABASE_URL` usa o papel de leitura; recriar só com a URL do dono em `--url` (com a de leitura, o gerador sai
+com 2). O passo a passo está no `README.md`. O gerador lê `MOCK_DATABASE_URL` do ambiente do terminal, não do `.env`
+(só `agentes/terminal.py` carrega o `.env`). Testes: `MOCK_TESTE_POSTGRES_URL` (dono; nome do banco com "mock" ou
+"teste") e `MOCK_TESTE_POSTGRES_LEITURA_URL` (papel de leitura num banco montado pelos três arquivos). Sem elas, tudo
+roda em SQLite em memória. Diferença conhecida: o Postgres não guarda o byte NUL em texto, então o caso "nulo no meio"
+do A-13 é pulado nele.
 
 O back-end não cria as tabelas do mock. `Base.metadata.create_all()` dele só conhece a `Base` dele. São dois
 criadores, dois comandos.
+
+## Esquema e SQL pronto
+
+O banco se defende sozinho, além das regras da aplicação (`modelos.py`):
+
+- Chave primária, chave estrangeira (no SQLite, `criar_engine` liga `PRAGMA foreign_keys`), NOT NULL e UNIQUE.
+- Listas de valores aceitos (CHECK): situações, portes, carteiras, cargos, categorias, canais etc. As listas moram
+  em `modelos.py` (as que vêm da configuração, em `regras.py`), e o gerador usa as mesmas.
+- Regras entre colunas: Pix sem bandeira nem 4 dígitos (e cartão com os dois); parcelado de 2x a 12x e o resto em
+  1x; líquido entre 0 e o bruto, e 0 quando a venda não foi aprovada; liquidação paga sem motivo de falha (e as
+  outras com motivo); valores de fatura positivos; formatos dos códigos (`M_____`, `T_______`, protocolo).
+- Índices nas buscas que as consultas fazem (lojista + data, chamado + data).
+- Nomes previsíveis (`CONVENCAO_DE_NOMES`: `pk_`, `fk_`, `uq_`, `ix_`, `ck_<tabela>_<regra>`).
+- Comentário em toda tabela e nas colunas sensíveis. "RESTRITO (tipo)" é a mesma classificação de
+  `regras.CLASSIFICACAO_CAMPOS`; um teste confere que as colunas restritas têm o comentário.
+
+Mudou o esquema ou o gerador:
+
+1. Esquema mudou? Suba `VERSAO_DO_ESQUEMA` em `modelos.py` (o SQLite local de todo mundo é refeito sozinho).
+2. `python -m mock.exportar` (regrava `sql/`).
+3. `cd backend && python -m pytest -q`. `test_mock_sql.py` falha se o SQL do Git ficar diferente do código, e
+   `test_mock_esquema.py` confere que o banco recusa dado inválido.
+4. Postgres de quem já subiu o container: `down -v` e `up` de novo.
+
+O SQL pronto nunca tem pessoa real de teste: o exportador gera o mundo só da semente e recusa se aparecer alguém
+com `pessoa_real_teste`. A varredura de CPF, cartão e e-mail reais (`test_regressao_contrato.py`) também passa nele.
 
 ## Como gerar ou recriar
 
@@ -95,8 +129,8 @@ criadores, dois comandos.
     python -m mock.gerar --url <url> --permitir-banco-externo   # só de propósito
 
 Recriar apaga e refaz as tabelas do mock (as outras tabelas do banco ficam). Sai com 0 (ok), 1 (você não
-confirmou) ou 2 (argumento ou CSV recusado). Mudou `modelos.py`? Recrie: não há Alembic, e `create_all` não altera
-tabela que já existe.
+confirmou) ou 2 (argumento ou CSV recusado, ou o banco recusou, como com o papel de leitura). Não há Alembic, e
+`create_all` não altera tabela que já existe: mudar o esquema é recriar (ver "Esquema e SQL pronto").
 
 No fim, `verificar` confere as invariantes (liquidação paga bate com os recebíveis das vendas, sem cartão completo
 fora das interações marcadas, e-mail só `.example`, os quatro cenários plantados, o nome armadilha em um só lojista). Se falhar,
@@ -193,8 +227,8 @@ só técnica.
    `CAMPOS_NAO_RESTRITOS`. O nome do campo tem de ser único entre as tabelas. Campo de texto fora das duas listas
    sai como `***` numa ferramenta de lojista.
 5. `ferramentas/dados_sinteticos.py` e a `func.py` que vai devolver o campo, mais o `agents.md` dela.
-6. Recrie o banco (`python -m mock.gerar`) e rode os testes. O hash do mundo muda; o teste compara duas gerações
-   entre si, então só falha se o gerador deixar de ser determinístico.
+6. Suba `VERSAO_DO_ESQUEMA`, rode `python -m mock.exportar` e os testes. O hash do mundo muda; o teste compara duas
+   gerações entre si, então só falha se o gerador deixar de ser determinístico.
 
 ### Um cenário novo
 
@@ -205,7 +239,10 @@ Plante em `plantar_cenarios` com código fixo, acrescente a verificação em `_v
 
 - Volume pequeno (D5). O volume completo do DOC-MOCK (38 funcionários, mais cenários, 6 falhas por 8 sistemas) fica
   para a Sprint 3 (V12 da KAN-69).
-- Esquema separado por sistema (DOC-MOCK §11.6) não foi adotado: as 10 tabelas ficam juntas. SEM FONTE de decisão.
+- Esquema separado por sistema (DOC-MOCK §11.6: cadastro, core, cobrança, CRM, diretório) não foi adotado: as 10
+  tabelas ficam juntas (H11). O SQLite não tem schemas, e um papel por sistema só ajuda quando o back-end conectar
+  com um papel por cargo, o que hoje não existe. A separação que vale agora é dono x leitura, mais as quatro camadas da
+  aplicação. Fica como próximo passo, junto com Row-Level Security para a carteira.
 - Alçadas (limites de parcelas, desconto) ainda não estão aqui. Moram em `ferramentas/financeiro/calcular_parcelas/`.
 - Chargeback, Pix e antecipação não existem na fase 1.
 - O vocabulário no fim do `README.md` ainda diz que `agentes/` lê `NIVEL`, `AREA` e `CARTEIRA` do `.env`. Já não lê:

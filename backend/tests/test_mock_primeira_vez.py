@@ -7,7 +7,7 @@ import pytest
 from ferramentas import dados_sinteticos
 from mock.banco import criar_engine
 from mock.gerar import garantir_mundo_local
-from mock.modelos import Lojista
+from mock.modelos import VERSAO_DO_ESQUEMA, Lojista
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -60,6 +60,26 @@ def test_nunca_mexe_em_arquivo_que_ja_tem_outras_tabelas(tmp_path):
     assert _sha(caminho) == antes
 
 
+def test_mock_de_versao_antiga_e_refeito(tmp_path):
+    caminho = tmp_path / "mock.sqlite"
+    garantir_mundo_local(_url(caminho))
+    with sqlite3.connect(caminho) as conexao:
+        conexao.execute("PRAGMA user_version = 1")
+        conexao.execute("DELETE FROM interacoes")
+    assert garantir_mundo_local(_url(caminho)) is True
+    with sqlite3.connect(caminho) as conexao:
+        assert conexao.execute("PRAGMA user_version").fetchone()[0] == VERSAO_DO_ESQUEMA
+        assert conexao.execute("SELECT count(*) FROM interacoes").fetchone()[0] > 0
+
+
+def test_mock_pela_metade_e_refeito(tmp_path):
+    caminho = tmp_path / "mock.sqlite"
+    with sqlite3.connect(caminho) as conexao:
+        conexao.execute("CREATE TABLE lojistas (codigo TEXT)")  # só uma tabela do mock, nenhuma outra
+    assert garantir_mundo_local(_url(caminho)) is True
+    assert _total_de_lojistas(caminho) == 20
+
+
 @pytest.mark.parametrize("url", ["sqlite://", "sqlite:///:memory:"])
 def test_banco_em_memoria_nao_gera_arquivo(url, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -85,3 +105,18 @@ def test_a_fachada_gera_o_mundo_na_primeira_consulta(tmp_path, monkeypatch):
         dados_sinteticos._CONEXAO["engine"] = anterior
     assert funcionario["cargo"] == "atendente_n1"
     assert caminho.exists()
+
+
+def test_arquivo_corrompido_vira_integracao_indisponivel(tmp_path, monkeypatch):
+    caminho = tmp_path / "estragado.sqlite"
+    caminho.write_bytes(b"isto nao e um banco sqlite" * 100)
+    monkeypatch.setenv("MOCK_DATABASE_URL", _url(caminho))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    anterior = dados_sinteticos._CONEXAO["engine"]
+    dados_sinteticos._CONEXAO["engine"] = None
+    try:
+        with pytest.raises(ConnectionError):
+            dados_sinteticos.buscar_funcionario("F0001")
+    finally:
+        dados_sinteticos._CONEXAO["engine"] = anterior
+    assert caminho.read_bytes().startswith(b"isto nao e")  # o arquivo de outra coisa não foi tocado
