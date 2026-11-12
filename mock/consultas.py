@@ -13,7 +13,7 @@ from datetime import date, datetime, time, timedelta
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
-from . import falhas
+from . import falhas, regras
 from .modelos import (
     Chamado,
     ContaRecebimento,
@@ -134,7 +134,8 @@ def buscar_liquidacoes(
     """Liquidações do lojista no período (datas inclusivas), da mais recente para a mais antiga."""
     falhas.verificar("core")
     consulta = select(
-        Liquidacao.id, Liquidacao.data, Liquidacao.valor_total_centavos, Liquidacao.situacao
+        Liquidacao.id, Liquidacao.data, Liquidacao.valor_total_centavos, Liquidacao.situacao,
+        Liquidacao.motivo_falha,
     ).where(Liquidacao.id_lojista == codigo)
     if data_inicio is not None:
         consulta = consulta.where(Liquidacao.data >= data_inicio)
@@ -152,7 +153,10 @@ def buscar_liquidacoes(
 
 
 def buscar_faturas(origem: Session | Engine, codigo: str, somente_vencidas: bool = False) -> dict:
-    """Faturas do lojista, da mais recente para a mais antiga."""
+    """Faturas do lojista, da mais recente para a mais antiga.
+
+    `dias_em_atraso` já vem calculado a partir de HOJE_DO_MOCK (só para fatura vencida).
+    """
     falhas.verificar("cobranca")
     consulta = select(
         Fatura.codigo, Fatura.tipo, Fatura.mes_referencia, Fatura.vencimento,
@@ -164,6 +168,8 @@ def buscar_faturas(origem: Session | Engine, codigo: str, somente_vencidas: bool
 
     def formatar(linha) -> dict:
         item = dict(linha._mapping)
+        atraso = (regras.HOJE_DO_MOCK - item["vencimento"]).days
+        item["dias_em_atraso"] = atraso if item["situacao"] == "vencida" and atraso > 0 else None
         item["vencimento"] = _iso(item["vencimento"])
         return item
 
@@ -172,7 +178,10 @@ def buscar_faturas(origem: Session | Engine, codigo: str, somente_vencidas: bool
 
 
 def buscar_chamados(origem: Session | Engine, codigo: str, limite: int | None = None) -> dict:
-    """Chamados do lojista, do mais recente para o mais antigo."""
+    """Chamados do lojista, do mais recente para o mais antigo.
+
+    `dias_em_aberto` já vem calculado a partir de HOJE_DO_MOCK (só para chamado não fechado).
+    """
     falhas.verificar("crm")
     consulta = (
         select(
@@ -186,6 +195,8 @@ def buscar_chamados(origem: Session | Engine, codigo: str, limite: int | None = 
 
     def formatar(linha) -> dict:
         item = dict(linha._mapping)
+        aberto = (regras.HOJE_DO_MOCK - item["aberto_em"].date()).days
+        item["dias_em_aberto"] = aberto if item["situacao"] != "fechado" else None
         item["aberto_em"] = _iso(item["aberto_em"])
         return item
 
@@ -194,15 +205,21 @@ def buscar_chamados(origem: Session | Engine, codigo: str, limite: int | None = 
 
 
 def buscar_interacoes(
-    origem: Session | Engine, codigo_chamado: str, limite: int | None = None
+    origem: Session | Engine, codigo_lojista: str, codigo_chamado: str, limite: int | None = None
 ) -> dict:
-    """Interações de um chamado, em ordem cronológica. Texto livre: conteúdo de terceiros."""
+    """Interações de um chamado DO LOJISTA, em ordem cronológica.
+
+    O join com o chamado garante que o chamado pertence ao lojista informado: a governança
+    decide o escopo do lojista (O13) e nunca recebe interação de chamado de outro lojista.
+    Texto livre: conteúdo de terceiros.
+    """
     falhas.verificar("crm")
     consulta = (
         select(
             Interacao.id, Interacao.autor, Interacao.canal, Interacao.data_hora, Interacao.texto
         )
-        .where(Interacao.id_chamado == codigo_chamado)
+        .join(Chamado, Interacao.id_chamado == Chamado.codigo)
+        .where(Chamado.codigo == codigo_chamado, Chamado.id_lojista == codigo_lojista)
         .order_by(Interacao.data_hora, Interacao.id)
     )
 

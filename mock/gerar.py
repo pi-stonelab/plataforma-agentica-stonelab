@@ -566,7 +566,8 @@ def _plantar_cenario_1(sessao: Session, contador: "_ContadorDeChamados") -> None
     conta.situacao = "invalida"
     dia, valor = LIQUIDACAO_FALHA_CENARIO_1
     liquidacao = Liquidacao(
-        id_lojista="M00001", data=dia, valor_total_centavos=valor, situacao="falhou"
+        id_lojista="M00001", data=dia, valor_total_centavos=valor, situacao="falhou",
+        motivo_falha="conta_invalida",
     )
     sessao.add(liquidacao)
     sessao.flush()

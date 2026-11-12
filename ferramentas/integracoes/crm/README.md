@@ -23,4 +23,4 @@
 
 ## Hoje
 
-Dados simulados em `ferramentas/dados_sinteticos.py` (`buscar_cliente`): clientes inventados, sem CPF, CNPJ, e-mail ou telefone. Trocar pelo real é trocar o corpo dessa função. [aqui conectamos com o back-end: banco simulado do CRM (KAN-32, KAN-28)]
+Dados simulados em `ferramentas/dados_sinteticos.py` (`buscar_cliente`): lê o cadastro do lojista no banco do mock (`mock/consultas.py`); a fachada não devolve contato nem conta. Trocar pelo real é trocar o corpo dessa função.

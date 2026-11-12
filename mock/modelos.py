@@ -144,6 +144,7 @@ class Liquidacao(BaseMock):
     data: Mapped[date] = mapped_column(Date)
     valor_total_centavos: Mapped[int] = mapped_column(Integer)
     situacao: Mapped[str] = mapped_column(String(12))
+    motivo_falha: Mapped[str | None] = mapped_column(String(30))  # só quando situacao != paga
 
 
 class Fatura(BaseMock):

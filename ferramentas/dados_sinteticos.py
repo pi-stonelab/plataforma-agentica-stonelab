@@ -1,79 +1,88 @@
-from datetime import date, timedelta
+"""Fachada do mock para as ferramentas: lê o banco por `mock/consultas.py` e devolve dicts.
 
-NOMES_FANTASIA = (
-    "Padaria Trigo Dourado",
-    "Mercearia Horizonte",
-    "Papelaria Folha Azul",
-    "Oficina Roda Viva",
-    "Floricultura Jardim Claro",
-    "Farmácia Bem Perto",
-    "Livraria Capítulo Dois",
-    "Barbearia Navalha Fina",
-)
-SEGMENTOS = ("alimentação", "varejo", "serviços")
-CIDADES = (("São Paulo", "SP"), ("Rio de Janeiro", "RJ"), ("Belo Horizonte", "MG"))
-TIPOS_TRANSACAO = ("credito", "debito", "pix")
-SITUACOES_TRANSACAO = ("aprovada", "aprovada", "aprovada", "estornada", "aprovada", "contestada")
-QUANTIDADE_TRANSACOES = {"CLI-0001": 60, "CLI-0002": 12, "CLI-0003": 25, "CLI-0004": 8}
+Sem SQL aqui e nenhuma regra de permissão (isso é da governança). Banco ou sistema simulado fora do
+ar vira ConnectionError, que `Ferramenta.executar` responde como `integracao_indisponivel`, sem
+repassar o texto do erro. Valores em reais saem como texto ("R$ 1.842,30") para o modelo não
+converter centavos.
+"""
+
+from mock import consultas
+from mock.banco import criar_engine, url_padrao
+from mock.falhas import SistemaIndisponivel
+from sqlalchemy.exc import InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as TempoEsgotadoNoPool
 
 ENDERECOS = {
     "01310100": ("Avenida Paulista", "Bela Vista", "São Paulo", "SP"),
     "20040020": ("Rua da Quitanda", "Centro", "Rio de Janeiro", "RJ"),
     "30130010": ("Avenida Afonso Pena", "Centro", "Belo Horizonte", "MG"),
 }
+CAMPOS_DO_CADASTRO = (
+    "codigo",
+    "nome_fantasia",
+    "segmento",
+    "porte",
+    "cidade",
+    "uf",
+    "situacao",
+    "data_entrada",
+)
+FALHAS_DE_INTEGRACAO = (SistemaIndisponivel, OperationalError, InterfaceError, TempoEsgotadoNoPool)
+_CONEXAO = {"engine": None}
 
 
-def _montar_clientes():
-    clientes = {}
-    for numero, nome in enumerate(NOMES_FANTASIA, start=1):
-        cidade, uf = CIDADES[numero % len(CIDADES)]
-        clientes[f"CLI-{numero:04d}"] = {
-            "id_cliente": f"CLI-{numero:04d}",
-            "nome_fantasia": nome,
-            "segmento": SEGMENTOS[numero % len(SEGMENTOS)],
-            "cidade": cidade,
-            "uf": uf,
-            "situacao": "inadimplente" if numero % 4 == 0 else "ativo",
-            "cliente_desde": f"{2019 + numero % 6}-0{1 + numero % 9}-15",
-        }
-    return clientes
+def configurar(origem):
+    """Define o banco do mock: URL ou engine. Sem chamar, usa DATABASE_URL ou o SQLite local."""
+    _CONEXAO["engine"] = criar_engine(origem) if isinstance(origem, str) else origem
 
 
-def _montar_transacoes(numero_cliente, quantidade):
-    primeiro_dia = date(2026, 1, 3)
-    return [
+def _ler(consulta, *argumentos):
+    """Roda uma consulta do mock; banco ou sistema fora do ar vira ConnectionError."""
+    try:
+        if _CONEXAO["engine"] is None:
+            _CONEXAO["engine"] = criar_engine(url_padrao())
+        return consulta(_CONEXAO["engine"], *argumentos)
+    except FALHAS_DE_INTEGRACAO:
+        raise ConnectionError("integração indisponível") from None
+
+
+def reais(centavos):
+    """Centavos inteiros em texto no padrão brasileiro: 184230 vira "R$ 1.842,30"."""
+    inteiro, resto = divmod(centavos, 100)
+    return f"R$ {inteiro:,}".replace(",", ".") + f",{resto:02d}"
+
+
+def carteira_do_lojista(codigo):
+    """Só o necessário para decidir o escopo (`carteira`), ou None se o lojista não existe."""
+    return _ler(consultas.carteira_do_lojista, codigo)
+
+
+def buscar_cliente(codigo):
+    """Cadastro do lojista sem contatos nem conta (campos de CAMPOS_DO_CADASTRO), ou None."""
+    lojista = _ler(consultas.buscar_lojista, codigo)
+    return {campo: lojista[campo] for campo in CAMPOS_DO_CADASTRO} if lojista else None
+
+
+def buscar_transacoes(codigo, data_inicio, data_fim, limite):
+    """Vendas do lojista no período: (lista, total no período), da mais recente para a mais antiga."""
+    resposta = _ler(consultas.buscar_vendas, codigo, data_inicio, data_fim, limite)
+    vendas = [
         {
-            "id_transacao": f"TRX-{numero_cliente:04d}{i:03d}",
-            "data": (primeiro_dia + timedelta(days=5 * i + numero_cliente)).isoformat(),
-            "valor": round(40 + (i * 37 + numero_cliente * 11) % 460 + (i % 4) * 0.25, 2),
-            "tipo": TIPOS_TRANSACAO[(i + numero_cliente) % len(TIPOS_TRANSACAO)],
-            "situacao": SITUACOES_TRANSACAO[(i + numero_cliente) % len(SITUACOES_TRANSACAO)],
+            "codigo": venda["codigo"],
+            "data_hora": venda["data_hora"],
+            "modalidade": venda["modalidade"],
+            "parcelas": venda["parcelas"],
+            "valor_bruto": reais(venda["valor_bruto_centavos"]),
+            "valor_liquido": reais(venda["valor_liquido_centavos"]),
+            "situacao": venda["situacao"],
         }
-        for i in range(quantidade)
+        for venda in resposta["itens"]
     ]
-
-
-CLIENTES = _montar_clientes()
-TRANSACOES = {
-    id_cliente: _montar_transacoes(int(id_cliente[-4:]), quantidade)
-    for id_cliente, quantidade in QUANTIDADE_TRANSACOES.items()
-}
-
-
-def buscar_cliente(id_cliente):
-    cliente = CLIENTES.get(id_cliente)
-    return dict(cliente) if cliente else None
-
-
-def buscar_transacoes(id_cliente, data_inicio, data_fim, limite):
-    inicio = data_inicio.isoformat() if data_inicio else ""
-    fim = data_fim.isoformat() if data_fim else "9999-12-31"
-    no_periodo = [t for t in TRANSACOES.get(id_cliente, []) if inicio <= t["data"] <= fim]
-    no_periodo.sort(key=lambda t: (t["data"], t["id_transacao"]), reverse=True)
-    return [dict(t) for t in no_periodo[:limite]], len(no_periodo)
+    return vendas, resposta["total"]
 
 
 def buscar_endereco(cep):
+    """Endereço de um CEP público (3 CEPs de exemplo, sem rede e sem banco)."""
     if cep not in ENDERECOS:
         return None
     logradouro, bairro, cidade, uf = ENDERECOS[cep]

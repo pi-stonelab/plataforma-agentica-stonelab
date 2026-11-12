@@ -2,7 +2,7 @@ import time
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from ferramentas import governanca
+from ferramentas import governanca, mascara
 
 TIPOS_ERRO = (
     "parametro_invalido",
@@ -109,6 +109,7 @@ class Ferramenta:
                 camada = "inativa"
                 raise ErroFerramenta("ferramenta_inativa", "Ferramenta inativa.")
             dados = self.rodar(self.validar(argumentos), usuario)
+            dados = mascara.mascarar(dados, self.categorias_dados)  # uma vez, antes do embrulho
             resultado = resposta("ok", dados, "Concluído.")
             if self.conteudo_terceiros:
                 resultado = resposta("ok", {"conteudo_de_terceiros": dados}, MENSAGEM_TERCEIROS)
@@ -119,5 +120,8 @@ class Ferramenta:
         except Exception:  # noqa: BLE001
             resultado = resposta("erro", None, "Erro interno.", "erro_interno")
         registro = montar_registro(self, usuario, contexto, resultado, camada, inicio)
-        governanca.registrar(registro)
+        try:
+            governanca.registrar(registro)
+        except governanca.RegistroIndisponivel:  # O9: sem rastro, sem resposta
+            return resposta("erro", None, "Registro indisponível.", "integracao_indisponivel")
         return resultado

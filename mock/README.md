@@ -7,11 +7,12 @@ Stone. Fonte das regras: DOC-MOCK (`§` nos comentários do código). Esta é a 
 ## Para que serve cada arquivo
 - `regras.py`: configuração sem banco. `HOJE_DO_MOCK` (15/10/2026), carteiras, os 10 cargos (área, perfil de
   acesso, nível de ferramenta, escopo de lojistas, janela de dias, categorias de dado), máscaras por campo
-  (`CLASSIFICACAO_CAMPOS`) e taxas. Cargo desconhecido: `regra_do_cargo` devolve `None` (quem chama nega).
+  (`CLASSIFICACAO_CAMPOS`, chaveada pelo NOME DO CAMPO que as consultas devolvem; os campos livres ficam em
+  `CAMPOS_NAO_RESTRITOS`; campo fora das duas listas sai mascarado) e taxas. Cargo desconhecido: `regra_do_cargo` devolve `None` (quem chama nega).
 - `modelos.py`: tabelas SQLAlchemy (`BaseMock`, separada da `Base` do back-end). Dinheiro em centavos.
 - `banco.py`: `criar_engine`, `url_padrao`, `criar_tabelas`, `apagar_tabelas` (só mexem nas tabelas do mock).
 - `gerar.py`: recria o mundo do zero, sempre igual (semente fixa, sem Faker).
-- `consultas.py`: o "conector": leituras com teto de 50 linhas e só as colunas necessárias. Não decide permissão.
+- `consultas.py`: o "conector": leituras com teto de 50 linhas e só as colunas necessárias. Não decide permissão. Já calcula `dias_em_atraso` (faturas) e `dias_em_aberto` (chamados) a partir de `HOJE_DO_MOCK`, e `buscar_interacoes` exige o lojista dono do chamado.
 - `falhas.py`: sistema "fora do ar" (`cadastro`, `core`, `cobranca`, `crm`, `diretorio`).
 
 ## Como recriar
@@ -77,3 +78,12 @@ Todos os dados de lojistas e de funcionários do mock são fictícios. Para test
 - Linha inválida recusa o arquivo inteiro; a mensagem diz a linha e o campo, sem repetir o valor.
 - Senha de login não fica no CSV (é definida por comando, na etapa do back-end). Recriar o mundo apaga as
   pessoas importadas e importa de novo do CSV.
+
+## Vocabulário (um nome por conceito; `ferramentas/governanca.py` usa estes)
+- `codigo` do lojista: `M00001`. O parâmetro público das ferramentas continua `id_cliente` (texto para o
+  funcionário: "cliente"), mas só aceita código de lojista.
+- `carteira` do lojista e `carteiras` do funcionário/time: nomes `varejo`, `pme`, `contas_chave`.
+- `cargo` (10, em `regras.CARGOS`), `nivel` N1/N2 como texto, `area` `atendimento`/`financeiro`.
+- Pessoa: `id_usuario` nas ferramentas, `id` no diretório e na segurança, `ID_USUARIO` no `.env`.
+- Onde outras pastas usam outro nome: `seguranca/` tem `nivel` inteiro (hierarquia do perfil) e fala em
+  `role`/`ROLES`; `agentes/` lê `NIVEL`, `AREA` e `CARTEIRA` do `.env` (agora deve ler só `ID_USUARIO`).

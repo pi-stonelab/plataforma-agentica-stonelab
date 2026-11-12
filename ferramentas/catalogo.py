@@ -1,5 +1,6 @@
 import importlib
 import re
+from contextlib import suppress
 from pathlib import Path
 from time import monotonic
 
@@ -107,5 +108,6 @@ def executar(nome, argumentos, usuario, ferramentas_do_agente, contexto=None):
         return carregar()[nome].executar(argumentos, usuario, contexto)
     resultado = resposta("erro", None, "Ferramenta não encontrada.", "ferramenta_inexistente")
     registro = montar_registro(_buscar(nome), usuario, contexto, resultado, camada, monotonic())
-    governanca.registrar(registro)
+    with suppress(governanca.RegistroIndisponivel):  # a resposta já é uma negação
+        governanca.registrar(registro)
     return resultado
