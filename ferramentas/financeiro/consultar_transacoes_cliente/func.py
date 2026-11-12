@@ -1,8 +1,6 @@
 from ferramentas import dados_sinteticos, governanca, lojista
 from ferramentas.base import ErroFerramenta, Ferramenta
 
-LIMITE_PADRAO = 20
-
 
 class ConsultarTransacoesCliente(Ferramenta):
     nome = "consultar_transacoes_cliente"
@@ -26,11 +24,8 @@ class ConsultarTransacoesCliente(Ferramenta):
         codigo = argumentos["id_cliente"]
         data_inicio = argumentos.get("data_inicio")
         data_fim = argumentos.get("data_fim")
-        limite = argumentos.get("limite", LIMITE_PADRAO)
-        if not 1 <= limite <= governanca.LIMITE_LINHAS:
-            raise ErroFerramenta("parametro_invalido", "O limite deve ficar entre 1 e 50.")
-        if data_inicio and data_fim and data_inicio > data_fim:
-            raise ErroFerramenta("parametro_invalido", "A data_inicio vem depois da data_fim.")
+        limite = lojista.limite_pedido(argumentos)
+        lojista.conferir_ordem_das_datas(data_inicio, data_fim)
         lojista.exigir_acesso(usuario, codigo)
         data_inicio, data_fim = lojista.periodo_permitido(usuario, data_inicio, data_fim)
         if dados_sinteticos.buscar_cliente(codigo) is None:

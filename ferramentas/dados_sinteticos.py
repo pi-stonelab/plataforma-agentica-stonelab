@@ -81,6 +81,79 @@ def buscar_transacoes(codigo, data_inicio, data_fim, limite):
     return vendas, resposta["total"]
 
 
+def buscar_liquidacoes(codigo, data_inicio, data_fim, limite):
+    """Liquidações do lojista no período: (lista, total no período), da mais recente à mais antiga."""
+    resposta = _ler(consultas.buscar_liquidacoes, codigo, data_inicio, data_fim, limite)
+    liquidacoes = [
+        {
+            "id_liquidacao": item["id"],
+            "data": item["data"],
+            "valor": reais(item["valor_total_centavos"]),
+            "situacao": item["situacao"],
+            "motivo_falha": item["motivo_falha"],
+        }
+        for item in resposta["itens"]
+    ]
+    return liquidacoes, resposta["total"]
+
+
+def buscar_faturas_em_atraso(codigo):
+    """Faturas vencidas do lojista: (lista, total, soma dos valores da lista em texto)."""
+    resposta = _ler(consultas.buscar_faturas, codigo, True)
+    faturas = [
+        {
+            "codigo": item["codigo"],
+            "tipo": item["tipo"],
+            "mes_referencia": item["mes_referencia"],
+            "vencimento": item["vencimento"],
+            "valor": reais(item["valor_centavos"]),
+            "situacao": item["situacao"],
+            "dias_em_atraso": item["dias_em_atraso"],
+        }
+        for item in resposta["itens"]
+    ]
+    soma = sum(item["valor_centavos"] for item in resposta["itens"])
+    return faturas, resposta["total"], reais(soma)
+
+
+def buscar_chamados(codigo, limite):
+    """Chamados do lojista, sem o resumo (texto livre): (lista, total), do mais recente ao mais antigo."""
+    resposta = _ler(consultas.buscar_chamados, codigo, limite)
+    campos = (
+        "codigo",
+        "protocolo",
+        "categoria",
+        "prioridade",
+        "situacao",
+        "aberto_por",
+        "aberto_em",
+        "dias_em_aberto",
+        "id_liquidacao",
+        "id_fatura",
+    )
+    return [{campo: item[campo] for campo in campos} for item in resposta["itens"]], resposta[
+        "total"
+    ]
+
+
+def chamado_e_do_lojista(codigo, id_chamado):
+    """Diz se o chamado pertence ao lojista. Chamado de outro lojista e inexistente dão False."""
+    chamados = _ler(consultas.buscar_chamados, codigo, None)["itens"]
+    return any(chamado["codigo"] == id_chamado for chamado in chamados)
+
+
+def buscar_interacoes(codigo, id_chamado, limite):
+    """Mensagens do chamado DO LOJISTA, em ordem cronológica: (lista, total). Texto livre de terceiros."""
+    resposta = _ler(consultas.buscar_interacoes, codigo, id_chamado, limite)
+    return resposta["itens"], resposta["total"]
+
+
+def buscar_contatos(codigo):
+    """Contatos do lojista, em claro (a máscara é de `Ferramenta.executar`): (lista, total)."""
+    resposta = _ler(consultas.buscar_contatos, codigo)
+    return resposta["itens"], resposta["total"]
+
+
 def buscar_endereco(cep):
     """Endereço de um CEP público (3 CEPs de exemplo, sem rede e sem banco)."""
     if cep not in ENDERECOS:

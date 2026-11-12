@@ -4,8 +4,8 @@ Uma pasta por sistema externo que as ferramentas usam. Este material é para
 quem mantém o código. O agente não lê esta pasta: ele só enxerga as
 ferramentas pelo catálogo.
 
-- `crm/`: CRM, usado por 8 ferramentas
-- `sql/`: Banco SQL de transações, usado por 4 ferramentas
+- `crm/`: CRM, usado por 9 ferramentas
+- `sql/`: Banco SQL de transações, usado por 5 ferramentas
 - `bigquery/`: BigQuery, usado por 3 ferramentas
 - `datahub/`: DataHub, usado por 4 ferramentas
 - `google_workspace/`: Google Workspace, usado por 9 ferramentas

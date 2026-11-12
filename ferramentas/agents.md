@@ -51,10 +51,13 @@ Tudo abaixo desta linha o código descarta antes de entregar o texto ao agente.
   áreas.
 - `integracoes/` guarda uma pasta por sistema externo, com a descrição e a
   lista das ferramentas que o usam. O agente não lê essa pasta.
-- Situação hoje: 8 áreas e 41 ferramentas. Cinco estão ativas, com dados
+- Situação hoje: 8 áreas e 43 ferramentas. Onze estão ativas, com dados
   sintéticos (`consultar_cliente`, `consultar_transacoes_cliente`,
-  `calcular_multa_atraso`, `consultar_endereco_cep` e
-  `solicitar_ferramenta_ausente`). As outras 36 são esqueletos em `func.py`,
+  `calcular_multa_atraso`, `consultar_endereco_cep`,
+  `solicitar_ferramenta_ausente`, `consultar_liquidacoes_cliente`,
+  `listar_chamados_cliente`, `consultar_historico_contato`,
+  `listar_faturas_em_atraso`, `calcular_parcelas` e
+  `consultar_contatos_lojista`). As outras 32 são esqueletos em `func.py`,
   sem lógica. O código que lê e executa tudo isso está em `catalogo.py`.
 - [preencher: ferramentas e áreas pendentes, com a frente de que dependem]
 - [aqui conectamos com o back-end: banco, CRM e demais fontes de dados]
