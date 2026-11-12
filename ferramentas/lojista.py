@@ -1,0 +1,46 @@
+"""Regras comuns das ferramentas que leem dados de um lojista: formato do código, escopo e janela.
+
+Quem decide é a governança (função pura); aqui só se busca a carteira do lojista e se traduz a
+decisão em erro. Lojista inexistente e lojista fora do escopo têm a MESMA resposta, para ninguém
+descobrir por tentativa quais códigos existem (O13, A-15).
+"""
+
+import re
+
+from mock import regras
+
+from ferramentas import dados_sinteticos, governanca
+from ferramentas.base import ErroFerramenta
+
+PADRAO_CODIGO = re.compile(r"M[0-9]{5}")
+
+
+def exigir_acesso(usuario, codigo):
+    """Levanta ErroFerramenta se o código é inválido ou se o lojista não é acessível ao usuário."""
+    if not PADRAO_CODIGO.fullmatch(codigo):
+        raise ErroFerramenta("parametro_invalido", "O id_cliente deve ser como M00001.")
+    carteira = dados_sinteticos.carteira_do_lojista(codigo)
+    if governanca.lojista_no_escopo(usuario, carteira):
+        return
+    # Quem enxerga todas as carteiras não tem "fora do escopo": inexistente é só não encontrado.
+    if carteira is None and governanca.escopo_do_usuario(usuario) == regras.ESCOPO_TODAS:
+        raise ErroFerramenta("nao_encontrado", "Lojista não encontrado.")
+    raise ErroFerramenta("permissao_negada", "Lojista fora da sua carteira.")
+
+
+def periodo_permitido(usuario, data_inicio, data_fim):
+    """Aplica a janela de dias do cargo (KAN-69) e devolve (data_inicio, data_fim) a consultar.
+
+    Sem janela: o período pedido. Com janela: sem data_inicio, começa no início da janela; período
+    pedido que sai da janela é negado (não vira lista vazia).
+    """
+    inicio_da_janela = governanca.inicio_da_janela(usuario)
+    if inicio_da_janela is None:
+        return data_inicio, data_fim
+    fora = (data_inicio and data_inicio < inicio_da_janela) or (
+        data_fim and data_fim < inicio_da_janela
+    )
+    if fora:
+        dias = governanca.janela_dias(usuario)
+        raise ErroFerramenta("permissao_negada", f"Seu cargo só consulta os últimos {dias} dias.")
+    return data_inicio or inicio_da_janela, data_fim
