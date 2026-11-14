@@ -1,5 +1,6 @@
 import importlib
 import re
+from contextlib import suppress
 from pathlib import Path
 from time import monotonic
 
@@ -22,6 +23,16 @@ def carregar():
             modulo = importlib.import_module(f"ferramentas.{area}.{nome}.func")
             FERRAMENTAS[modulo.FERRAMENTA.nome] = modulo.FERRAMENTA
     return FERRAMENTAS
+
+
+def nomes():
+    """Nomes de todas as ferramentas do catálogo, sem entregar os objetos (e o `rodar` deles, MED-3)."""
+    return sorted(carregar())
+
+
+def nomes_e_areas():
+    """Conjunto com os nomes das ferramentas e das áreas (para o agente filtrar o que vai ao log)."""
+    return {nome for nome in carregar()} | {f.area for f in carregar().values()}
 
 
 def _buscar(nome):
@@ -65,22 +76,28 @@ def _primeira_frase(pasta):
     return re.split(r"(?<=\.)\s", paragrafo)[0]
 
 
-def _lista(pasta, titulo, itens):
-    """Troca o corpo da seção `## titulo` pela lista dos itens liberados."""
+def _lista(texto, titulo, itens):
+    """Troca o corpo da seção `## titulo` de `texto` pela lista `- nome: primeira frase` dos itens."""
     linhas = "\n".join(f"- `{nome}`: {_primeira_frase(destino)}" for nome, destino in itens)
     padrao = re.compile(rf"(## {titulo}\n).*?(?=\n## |\Z)", re.DOTALL)
-    return padrao.sub(lambda m: f"{m.group(1)}\n{linhas}\n", _ler_arquivo(pasta))
+    return padrao.sub(lambda m: f"{m.group(1)}\n{linhas}\n", texto)
 
 
 def _texto_do_caminho(caminho, liberadas):
-    """Texto do nível pedido; ValueError se o caminho não existe ou não está liberado."""
+    """Texto do nível pedido; ValueError se o caminho não existe ou não está liberado.
+
+    A raiz já lista as ferramentas liberadas (`area/nome` e a primeira frase da ficha), para o
+    modelo poder ler a ficha direto, sem passar pelo texto da área (P1 da crítica B).
+    """
     ferramentas = carregar()
     areas = sorted({ferramentas[n].area for n in liberadas})
     if caminho == "":
-        return _lista(RAIZ, "Áreas", [(a, RAIZ / a) for a in areas])
+        texto = _lista(_ler_arquivo(RAIZ), "Áreas", [(a, RAIZ / a) for a in areas])
+        fichas = [(f"{ferramentas[n].area}/{n}", RAIZ / ferramentas[n].area / n) for n in liberadas]
+        return _lista(texto, "Ferramentas liberadas para você", sorted(fichas))
     if caminho in areas:
         itens = [(n, RAIZ / caminho / n) for n in liberadas if ferramentas[n].area == caminho]
-        return _lista(RAIZ / caminho, "Ferramentas", itens)
+        return _lista(_ler_arquivo(RAIZ / caminho), "Ferramentas", itens)
     nome = caminho.split("/")[-1]
     if nome in liberadas:
         area = ferramentas[nome].area
@@ -100,12 +117,24 @@ def ler(caminho, usuario, ferramentas_do_agente):
     return re.sub(r"\n{3,}", "\n\n", texto).strip()
 
 
+def registrar_bloqueio(nome, usuario, contexto, camada):
+    """Deixa o registro (sem argumentos nem dados) de uma tentativa que não chegou a rodar (MED-2).
+
+    `camada` diz quem barrou: "agente" (o agente não leu ou não tem a ferramenta), "usuario",
+    "inativa" ou "desconhecida". A pessoa nunca vê a camada: a resposta é a mesma para todas. Se o
+    destino do registro falhar, a negação continua valendo (a resposta já é uma recusa) e
+    `governanca.registrar` já deixou o erro no log.
+    """
+    resultado = resposta("erro", None, "Ferramenta não encontrada.", "ferramenta_inexistente")
+    registro = montar_registro(_buscar(nome), usuario, contexto, resultado, camada, monotonic())
+    with suppress(governanca.RegistroIndisponivel):
+        governanca.registrar(registro)
+    return resultado
+
+
 def executar(nome, argumentos, usuario, ferramentas_do_agente, contexto=None):
     """Roda a ferramenta se ela está liberada; senão responde como se não existisse."""
     camada = _camada_bloqueio(nome, usuario, ferramentas_do_agente)
     if camada is None:
         return carregar()[nome].executar(argumentos, usuario, contexto)
-    resultado = resposta("erro", None, "Ferramenta não encontrada.", "ferramenta_inexistente")
-    registro = montar_registro(_buscar(nome), usuario, contexto, resultado, camada, monotonic())
-    governanca.registrar(registro)
-    return resultado
+    return registrar_bloqueio(nome, usuario, contexto, camada)

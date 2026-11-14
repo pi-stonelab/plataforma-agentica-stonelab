@@ -1,79 +1,182 @@
-from datetime import date, timedelta
+"""Fachada do mock para as ferramentas: lê o banco por `mock/consultas.py` e devolve dicts.
 
-NOMES_FANTASIA = (
-    "Padaria Trigo Dourado",
-    "Mercearia Horizonte",
-    "Papelaria Folha Azul",
-    "Oficina Roda Viva",
-    "Floricultura Jardim Claro",
-    "Farmácia Bem Perto",
-    "Livraria Capítulo Dois",
-    "Barbearia Navalha Fina",
-)
-SEGMENTOS = ("alimentação", "varejo", "serviços")
-CIDADES = (("São Paulo", "SP"), ("Rio de Janeiro", "RJ"), ("Belo Horizonte", "MG"))
-TIPOS_TRANSACAO = ("credito", "debito", "pix")
-SITUACOES_TRANSACAO = ("aprovada", "aprovada", "aprovada", "estornada", "aprovada", "contestada")
-QUANTIDADE_TRANSACOES = {"CLI-0001": 60, "CLI-0002": 12, "CLI-0003": 25, "CLI-0004": 8}
+Sem SQL aqui e nenhuma regra de permissão (isso é da governança). Banco ou sistema simulado fora do
+ar vira ConnectionError, que `Ferramenta.executar` responde como `integracao_indisponivel`, sem
+repassar o texto do erro. Valores em reais saem como texto ("R$ 1.842,30") para o modelo não
+converter centavos.
+"""
+
+import sqlite3
+
+from mock import consultas
+from mock.banco import criar_engine, url_padrao
+from mock.falhas import SistemaIndisponivel
+from mock.gerar import garantir_mundo_local
+from sqlalchemy.exc import ArgumentError, InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as TempoEsgotadoNoPool
 
 ENDERECOS = {
     "01310100": ("Avenida Paulista", "Bela Vista", "São Paulo", "SP"),
     "20040020": ("Rua da Quitanda", "Centro", "Rio de Janeiro", "RJ"),
     "30130010": ("Avenida Afonso Pena", "Centro", "Belo Horizonte", "MG"),
 }
+CAMPOS_DO_CADASTRO = (
+    "codigo",
+    "nome_fantasia",
+    "segmento",
+    "porte",
+    "cidade",
+    "uf",
+    "situacao",
+    "data_entrada",
+)
+FALHAS_DE_INTEGRACAO = (SistemaIndisponivel, OperationalError, InterfaceError, TempoEsgotadoNoPool)
+_CONEXAO = {"engine": None}
 
 
-def _montar_clientes():
-    clientes = {}
-    for numero, nome in enumerate(NOMES_FANTASIA, start=1):
-        cidade, uf = CIDADES[numero % len(CIDADES)]
-        clientes[f"CLI-{numero:04d}"] = {
-            "id_cliente": f"CLI-{numero:04d}",
-            "nome_fantasia": nome,
-            "segmento": SEGMENTOS[numero % len(SEGMENTOS)],
-            "cidade": cidade,
-            "uf": uf,
-            "situacao": "inadimplente" if numero % 4 == 0 else "ativo",
-            "cliente_desde": f"{2019 + numero % 6}-0{1 + numero % 9}-15",
-        }
-    return clientes
+def configurar(origem):
+    """Define o banco do mock: URL ou engine.
+
+    Sem chamar, vale `mock.banco.url_padrao()`: a variável MOCK_DATABASE_URL, se declarada, ou o
+    SQLite local em dados_locais/, que é gerado sozinho na primeira vez. `DATABASE_URL` (banco da plataforma) nunca é usada.
+    """
+    _CONEXAO["engine"] = criar_engine(origem) if isinstance(origem, str) else origem
 
 
-def _montar_transacoes(numero_cliente, quantidade):
-    primeiro_dia = date(2026, 1, 3)
-    return [
+def _engine():
+    """Engine do mock, criado na primeira consulta. URL inválida não repete o texto dela."""
+    if _CONEXAO["engine"] is None:
+        try:
+            url = url_padrao()
+            garantir_mundo_local(url)  # SQLite local novo: gera o mock na primeira vez
+            _CONEXAO["engine"] = criar_engine(url)
+        except (ValueError, ArgumentError, OSError, OperationalError, sqlite3.Error):  # a mensagem pode ter a senha
+            raise ConnectionError("integração indisponível") from None
+    return _CONEXAO["engine"]
+
+
+def _ler(consulta, *argumentos):
+    """Roda uma consulta do mock; banco ou sistema fora do ar vira ConnectionError."""
+    try:
+        return consulta(_engine(), *argumentos)
+    except FALHAS_DE_INTEGRACAO:
+        raise ConnectionError("integração indisponível") from None
+
+
+def reais(centavos):
+    """Centavos inteiros em texto no padrão brasileiro: 184230 vira "R$ 1.842,30"."""
+    inteiro, resto = divmod(centavos, 100)
+    return f"R$ {inteiro:,}".replace(",", ".") + f",{resto:02d}"
+
+
+def buscar_funcionario(id_funcionario):
+    """Cargo, área, carteiras e situação de um funcionário do diretório do mock, ou None."""
+    return _ler(consultas.buscar_funcionario, id_funcionario)
+
+
+def carteira_do_lojista(codigo):
+    """Só o necessário para decidir o escopo (`carteira`), ou None se o lojista não existe."""
+    return _ler(consultas.carteira_do_lojista, codigo)
+
+
+def buscar_cliente(codigo):
+    """Cadastro do lojista sem contatos nem conta (campos de CAMPOS_DO_CADASTRO), ou None."""
+    lojista = _ler(consultas.buscar_lojista, codigo)
+    return {campo: lojista[campo] for campo in CAMPOS_DO_CADASTRO} if lojista else None
+
+
+def buscar_transacoes(codigo, data_inicio, data_fim, limite):
+    """Vendas do lojista no período: (lista, total no período), da mais recente para a mais antiga."""
+    resposta = _ler(consultas.buscar_vendas, codigo, data_inicio, data_fim, limite)
+    vendas = [
         {
-            "id_transacao": f"TRX-{numero_cliente:04d}{i:03d}",
-            "data": (primeiro_dia + timedelta(days=5 * i + numero_cliente)).isoformat(),
-            "valor": round(40 + (i * 37 + numero_cliente * 11) % 460 + (i % 4) * 0.25, 2),
-            "tipo": TIPOS_TRANSACAO[(i + numero_cliente) % len(TIPOS_TRANSACAO)],
-            "situacao": SITUACOES_TRANSACAO[(i + numero_cliente) % len(SITUACOES_TRANSACAO)],
+            "codigo": venda["codigo"],
+            "data_hora": venda["data_hora"],
+            "modalidade": venda["modalidade"],
+            "parcelas": venda["parcelas"],
+            "valor_bruto": reais(venda["valor_bruto_centavos"]),
+            "valor_liquido": reais(venda["valor_liquido_centavos"]),
+            "situacao": venda["situacao"],
         }
-        for i in range(quantidade)
+        for venda in resposta["itens"]
+    ]
+    return vendas, resposta["total"]
+
+
+def buscar_liquidacoes(codigo, data_inicio, data_fim, limite):
+    """Liquidações do lojista no período: (lista, total no período), da mais recente à mais antiga."""
+    resposta = _ler(consultas.buscar_liquidacoes, codigo, data_inicio, data_fim, limite)
+    liquidacoes = [
+        {
+            "id_liquidacao": item["id"],
+            "data": item["data"],
+            "valor": reais(item["valor_total_centavos"]),
+            "situacao": item["situacao"],
+            "motivo_falha": item["motivo_falha"],
+        }
+        for item in resposta["itens"]
+    ]
+    return liquidacoes, resposta["total"]
+
+
+def buscar_faturas_em_atraso(codigo):
+    """Faturas vencidas do lojista: (lista, total, soma dos valores da lista em texto)."""
+    resposta = _ler(consultas.buscar_faturas, codigo, True)
+    faturas = [
+        {
+            "codigo": item["codigo"],
+            "tipo": item["tipo"],
+            "mes_referencia": item["mes_referencia"],
+            "vencimento": item["vencimento"],
+            "valor": reais(item["valor_centavos"]),
+            "situacao": item["situacao"],
+            "dias_em_atraso": item["dias_em_atraso"],
+        }
+        for item in resposta["itens"]
+    ]
+    soma = sum(item["valor_centavos"] for item in resposta["itens"])
+    return faturas, resposta["total"], reais(soma)
+
+
+def buscar_chamados(codigo, limite):
+    """Chamados do lojista, sem o resumo (texto livre): (lista, total), do mais recente ao mais antigo."""
+    resposta = _ler(consultas.buscar_chamados, codigo, limite)
+    campos = (
+        "codigo",
+        "protocolo",
+        "categoria",
+        "prioridade",
+        "situacao",
+        "aberto_por",
+        "aberto_em",
+        "dias_em_aberto",
+        "id_liquidacao",
+        "id_fatura",
+    )
+    return [{campo: item[campo] for campo in campos} for item in resposta["itens"]], resposta[
+        "total"
     ]
 
 
-CLIENTES = _montar_clientes()
-TRANSACOES = {
-    id_cliente: _montar_transacoes(int(id_cliente[-4:]), quantidade)
-    for id_cliente, quantidade in QUANTIDADE_TRANSACOES.items()
-}
+def chamado_e_do_lojista(codigo, id_chamado):
+    """Diz se o chamado pertence ao lojista. Chamado de outro lojista e inexistente dão False."""
+    return _ler(consultas.chamado_e_do_lojista, codigo, id_chamado)
 
 
-def buscar_cliente(id_cliente):
-    cliente = CLIENTES.get(id_cliente)
-    return dict(cliente) if cliente else None
+def buscar_interacoes(codigo, id_chamado, limite):
+    """Mensagens do chamado DO LOJISTA, em ordem cronológica: (lista, total). Texto livre de terceiros."""
+    resposta = _ler(consultas.buscar_interacoes, codigo, id_chamado, limite)
+    return resposta["itens"], resposta["total"]
 
 
-def buscar_transacoes(id_cliente, data_inicio, data_fim, limite):
-    inicio = data_inicio.isoformat() if data_inicio else ""
-    fim = data_fim.isoformat() if data_fim else "9999-12-31"
-    no_periodo = [t for t in TRANSACOES.get(id_cliente, []) if inicio <= t["data"] <= fim]
-    no_periodo.sort(key=lambda t: (t["data"], t["id_transacao"]), reverse=True)
-    return [dict(t) for t in no_periodo[:limite]], len(no_periodo)
+def buscar_contatos(codigo):
+    """Contatos do lojista, em claro (a máscara é de `Ferramenta.executar`): (lista, total)."""
+    resposta = _ler(consultas.buscar_contatos, codigo)
+    return resposta["itens"], resposta["total"]
 
 
 def buscar_endereco(cep):
+    """Endereço de um CEP público (3 CEPs de exemplo, sem rede e sem banco)."""
     if cep not in ENDERECOS:
         return None
     logradouro, bairro, cidade, uf = ENDERECOS[cep]

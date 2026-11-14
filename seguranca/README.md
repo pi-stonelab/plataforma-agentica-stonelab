@@ -1,11 +1,63 @@
 # seguranca
 
-Perfis de acesso e checagem de permissão. Responsável: Brenno.
+Perfis de acesso e checagem de permissão. Responsável: Brenno (alterações da integração feitas com a liberação dele).
 
 ## Arquivos
 
-- `permissoes.py`: perfis (AdminGlobal, Supervisor, Colaborador, GestorDeAcessos), Agente, Acao e Plataforma com auditoria.
-- `envelope.py`: decorator `exige_permissao` e a instância compartilhada `PLATAFORMA`.
+- `permissoes.py`: perfis (AdminGlobal, Supervisor, Colaborador, Auditor, GestorDeAcessos), Agente, Visibilidade, Acao, Area e Plataforma com auditoria.
+- `envelope.py`: decorator `exige_permissao` e a instância `PLATAFORMA`, que serve só para a demo e testes simples.
+
+## Regras de acesso ao agente
+
+Cada perfil é uma subclasse de `Usuario` e decide em `pode(acao, agente)`. O dono escolhe a visibilidade do agente:
+`PRIVADO` (padrão), `CONVIDADOS` ou `PUBLICO`. Publicar não exige aprovação.
+
+Tabela para agente ATIVO. "tudo" = ver, executar, editar, convidar e deprecar. "usar" = ver e executar.
+
+| Quem é a pessoa | PRIVADO | CONVIDADOS | PUBLICO |
+| --- | --- | --- | --- |
+| Dono (Colaborador ou Supervisor) | tudo | tudo | tudo |
+| Colaborador convidado pelo dono | usar | usar | usar |
+| Colaborador que não é dono nem convidado | nada | nada | usar |
+| Supervisor, agente de uma das suas áreas (não é dono) | nada (convidado: usar) | tudo | tudo |
+| Supervisor, agente de outra área, convidado | usar | usar | usar |
+| Supervisor, agente de outra área, não convidado | nada | nada | usar |
+| AdminGlobal | só deprecar | ver e deprecar | ver e deprecar |
+| Auditor | nada | nada | nada |
+| GestorDeAcessos | nada | nada | nada |
+
+Agente INATIVO (`ativo=False`):
+
+- Só `VER` é permitido, para todos, inclusive o dono e o Admin (regra do Brenno, PR #10). Executar, editar, convidar e deprecar são negados. Vale em `pode` e de novo em `Plataforma.autorizar`.
+- Quem só usa (convidado, outro Colaborador, Supervisor fora da área) deixa de ver.
+- Continuam vendo: o dono, o Supervisor da área (não privado) e o Admin (não privado).
+
+Outras regras:
+
+- AdminGlobal opera sem ver conteúdo: pode deprecar (pausar/desativar) qualquer agente, ver só os não privados, e nunca executa (não vê dado de lojista), edita nem convida. Não cria agentes. Não lê auditoria. Área é opcional.
+- Auditor só tem `pode_ler_auditoria = True` (D9). `Plataforma.autorizar_leitura_auditoria(usuario)` só decide (Auditor sim; Admin não) e registra a tentativa: não devolve eventos. Quem lê é o back-end, na tabela de auditoria, depois dessa autorização (a lista em memória da Plataforma só tem os eventos de um pedido). Não cria, não vê e não executa agente. Área é opcional.
+- GestorDeAcessos atribui e remove perfis, nunca sobre si mesmo. Não vê nem cria agentes.
+- Quem foi rebaixado ou removido perde o acesso no mesmo instante: a `Plataforma` usa o perfil do cadastro (`_atual`), nunca o objeto que a pessoa guardou.
+- `Usuario.usa_ferramentas` é `False` por padrão (perfil novo nasce sem ferramentas). Só Colaborador e Supervisor têm `True`. `cria_agentes` segue a mesma ideia.
+- Pessoas são guardadas por id: `Agente.dono_id` e `Agente.convidados_ids`. `Evento` guarda `id_usuario`, nunca o objeto, e é imutável (o gancho não consegue alterá-lo). O `execucao_id` do evento é opcional e só aceita letras, números, `_` e `-` (até 64 caracteres); inválido nega a ação. Mensagens de `AcessoNegado` levam ação e id, nunca nome (o `repr` do usuário também não mostra nome).
+- `Area.slug` (`atendimento`, `financeiro`) liga a área ao texto usado no banco e nas ferramentas; `area_do_slug` converte de volta e recusa slug desconhecido.
+- Falha fechada na auditoria (O9): `Plataforma(ao_registrar=gancho)` chama o gancho a cada evento. Se o gancho levantar erro, a ação é negada (`AcessoNegado`) e o evento fica registrado em memória como não permitido. As mudanças (criar agente, mudar ou remover perfil) só acontecem depois que o evento foi gravado.
+
+### Agente geral (da plataforma)
+
+`Agente.da_plataforma(nome)` cria o agente geral: `area=None`, `dono_id=DONO_PLATAFORMA` (`"plataforma"`), `PUBLICO`. Nenhuma pessoa pode ter esse id, então ninguém é dono dele.
+
+- Todo Colaborador e Supervisor das duas áreas vê e executa enquanto ele está ativo (testado nos dois perfis e nas duas áreas).
+- Ninguém edita nem convida, nem o Supervisor da área (por isso a área é `None`: com área, o Supervisor passaria a gerenciar). Pausar é com o Admin, por `deprecar`. Inativo, só `VER`.
+- Auditor, Gestor e Admin não executam (como nos outros agentes).
+- Só o back-end o põe na Plataforma, com `carregar_agente` (ver abaixo). Pessoa nenhuma o registra por `registrar`.
+
+### Decisões a confirmar com o grupo
+
+1. Níveis separados. A decisão registrada diz "agente privado: só o criador, os convidados..." num texto e "privado / convidados" como níveis diferentes em outro. Implementamos três níveis. O dono convida em privado e em convidados (decisão de Pedro, 12/11, ver H5); a lista de convidados vale nos dois, então hoje privado e convidados se comportam igual e só o público muda a regra. Fica em aberto se os dois níveis devem continuar separados. O texto original só diz "ninguém executa; o dono ainda vê".
+3. Supervisor executa e gerencia qualquer agente não privado das suas áreas, mesmo sem convite (era o que o código original fazia). Se o grupo quiser que ele só gerencie, é mudar `_gerencia` para não incluir EXECUTAR no caso dele.
+4. Admin e Auditor não criam agentes. O Admin não é dono de nada nem pode ser convidado para usar.
+5. REPLICAR ainda não existe como ação (fica para a Sprint 3).
 
 ## Como usar nos agentes e ferramentas
 
@@ -18,15 +70,23 @@ from seguranca.permissoes import Acao
 @exige_permissao(Acao.EXECUTAR)
 def rodar_agente(usuario, agente, pergunta):
     ...
-
-@exige_permissao(Acao.EXECUTAR)
-def chamar_ferramenta(usuario, agente, nome_ferramenta, argumentos):
-    ...
-
-@exige_permissao(Acao.EDITAR)
-def editar_agente(usuario, agente, novas_configuracoes):
-    ...
 ```
+
+No back-end, use uma Plataforma por pedido. Se a função declara o parâmetro `plataforma`, o decorator usa a que chegou na chamada e nega se não for uma `Plataforma`:
+
+```python
+@exige_permissao(Acao.EXECUTAR)
+def executar_agente(plataforma, usuario, agente, pergunta):
+    ...
+
+plataforma = Plataforma(ao_registrar=gravar_evento_no_banco)  # nova a cada pedido
+plataforma.cadastrar(usuario_lido_do_banco)
+executar_agente(plataforma, usuario_lido_do_banco, agente_lido_do_banco, "...")
+```
+
+Se a função também declara `execucao_id`, ele vai para o evento de auditoria (e um valor fora do formato nega a chamada).
+
+Sem o parâmetro `plataforma`, vale a fixada em `exige_permissao(acao, plataforma=...)` e, por último, a global `PLATAFORMA`.
 
 Qual ação usar:
 
@@ -36,40 +96,31 @@ Qual ação usar:
 | `Acao.EXECUTAR` | rodar o agente ou chamar uma ferramenta dentro dele |
 | `Acao.EDITAR` | mudar configuração, prompt ou ferramentas do agente |
 | `Acao.CONVIDAR` | convidar outra pessoa para o agente |
-| `Acao.DEPRECAR` | desativar o agente |
+| `Acao.DEPRECAR` | pausar ou desativar o agente |
 
 O que acontece:
 
 - Permitido: a função roda e a tentativa vai para a auditoria.
 - Negado: levanta `AcessoNegado`, a função não roda e a tentativa vai para a auditoria.
-- Erro inesperado na checagem: também vira `AcessoNegado` (falha fechado).
-- A checagem usa o agente do cadastro, buscado pelo id. Agente que não foi registrado na plataforma é negado.
+- Erro inesperado na checagem: também vira `AcessoNegado` (falha fechada).
+- A função decorada ganha `acao_exigida`, para os testes conferirem a ação.
 - A função recebe o agente do cadastro, não o objeto que foi passado na chamada. Então ela sempre trabalha com a versão atual.
 - Agente desativado só aceita `Acao.VER`, para todos, inclusive o admin.
 
 Trate o `AcessoNegado` onde fizer sentido (por exemplo, responder "você não tem acesso a esse agente"). Não engula o erro para seguir em frente.
 
-## Usuários e agentes
+## Cadastro de agentes e mudanças de estado
 
-Use sempre a `PLATAFORMA` de `seguranca.envelope`, para que todos enxerguem o mesmo cadastro:
-
-```python
-from seguranca.envelope import PLATAFORMA
-from seguranca.permissoes import Colaborador, Financeiro
-
-joao = PLATAFORMA.cadastrar(Colaborador("João", Financeiro()))
-agente = joao.criar_agente("Relatório de carteira", PLATAFORMA)
-```
-
-Para desativar um agente, use a plataforma (exige permissão de DEPRECAR e vai para a auditoria):
-
-```python
-PLATAFORMA.deprecar(usuario, agente)
-```
-
-Nunca monte o usuário a partir do que vem na requisição ou no prompt. O perfil vem do login (back-end).
+- A Plataforma decide sempre sobre o agente REGISTRADO nela (`autorizar` só usa o id do objeto recebido e devolve o agente do cadastro; o decorator passa esse agente para a função). Agente não registrado é negado. Por isso o back-end precisa registrar os agentes antes de autorizar.
+- `registrar(agente, criador)` cria um agente NOVO e grava o evento `CRIAR`. Só em nome de quem cria, na área dele (o Supervisor também nas suas áreas extras) e com id ainda não usado; nunca sobrescreve.
+- `carregar_agente(agente)` põe na Plataforma um agente que já existe no banco, sem evento `CRIAR` e sem criador. Só o back-end usa, com o que leu do banco (também para o agente geral). Id repetido com outro agente é erro.
+- `alterar_visibilidade(quem, agente, nova)` exige EDITAR e grava o evento `ALTERAR_VISIBILIDADE:<valor>`. `deprecar(quem, agente)` exige DEPRECAR e grava `DEPRECAR`. Em ambos o evento é gravado antes da mudança (se o gancho falhar, nada muda). Mudam o objeto registrado; o back-end grava o resultado no banco. Atribuir `agente.visibilidade` ou `agente.ativo` direto fica só para quem monta o objeto lido do banco.
+- Admin e `deprecar`: o Admin pode pausar o agente não privado que enxerga e, pela regra da tabela acima, também o privado, mas precisa do id. Ainda não existe listagem de metadados (id, área, dono) para o Admin achar um agente privado: ele não aparece em `agentes_visiveis`. Fica para a Sprint 3, junto com reativar um agente pausado (hoje só o banco).
+- `convidar` grava o convidado no agente registrado. Vale em privado e em convidados; em público é negado, porque todos já usam.
 
 ## Limites atuais
 
-- Cadastro e auditoria ficam em memória: somem quando o programa fecha. No produto, vão para o banco.
+- Cadastro e auditoria ficam em memória: somem quando o programa fecha. O cadastro em memória e a global `PLATAFORMA` são só para a demo (`python seguranca/permissoes.py`).
+- No back-end o perfil de cada pessoa vem do banco a cada pedido: monte a Plataforma, cadastre a pessoa com o perfil atual, carregue os agentes do banco (`carregar_agente`) e descarte. Nunca monte o usuário nem o agente a partir do que vem na requisição ou no prompt, e não reaproveite uma Plataforma entre pedidos.
 - Este decorator confere o acesso ao agente. A checagem por ferramenta (nível e área de cada ferramenta) continua em `ferramentas/governanca.py`.
+- A leitura da auditoria da empresa (tabela) e a gravação dos eventos no banco são do back-end (gancho `ao_registrar`).

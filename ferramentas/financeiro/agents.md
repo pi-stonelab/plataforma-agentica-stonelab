@@ -14,9 +14,10 @@ usuário]
 ## Para quem mantém
 
 - Integrações da área: `sql`.
-- Ferramentas planejadas (6):
+- Ferramentas planejadas (7):
   - `consultar_transacoes_cliente` (leitura)
   - `listar_faturas_em_atraso` (leitura)
+  - `consultar_liquidacoes_cliente` (leitura)
   - `consultar_saldo_conta` (leitura)
   - `listar_contestacoes_cliente` (leitura)
   - `calcular_multa_atraso` (cálculo)
