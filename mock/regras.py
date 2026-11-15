@@ -186,7 +186,9 @@ CLASSIFICACAO_CAMPOS = {
 FORMATO_DE_IDENTIFICADORES = {"protocolo": r"\d{8}-\d{6}"}
 
 # Campos que as consultas devolvem e que não são restritos (público, interno ou confidencial).
-# Inclui os montados pela fachada das ferramentas (valores em reais).
+# Inclui os montados pela fachada das ferramentas (valores em reais). Vale para TODAS as ferramentas.
+# Campo que só uma ferramenta devolve (como assunto e corpo do enviar_email) não entra aqui: ele vai em
+# `campos_liberados` da ficha dessa ferramenta (ferramentas/base.py), para as outras continuarem negando.
 CAMPOS_NAO_RESTRITOS = frozenset(
     {
         "codigo", "nome_fantasia", "segmento", "porte", "cidade", "uf", "carteira", "situacao",
@@ -197,8 +199,6 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "aberto_por", "aberto_em", "dias_em_aberto", "id_liquidacao", "id_fatura", "autor",
         "canal", "id_chamado", "total", "limite", "itens", "cargo", "area", "carteiras",
         "valor_bruto", "valor_liquido", "valor_total", "valor",
-        # Prévia do enviar_email (ferramentas/confirmacoes.py): assunto e corpo passam pela máscara de texto livre.
-        "confirmacao_id", "expira_em", "assunto", "corpo", "id_mensagem",
     }
 )
 

@@ -12,8 +12,17 @@ from unittest import mock
 
 import pytest
 from agentes.agente_geral import agente as geral
-from ferramentas import catalogo, confirmacoes, dados_sinteticos, email_simulado, governanca
+from ferramentas import (
+    catalogo,
+    confirmacoes,
+    dados_sinteticos,
+    email_simulado,
+    governanca,
+    mascara,
+)
+from ferramentas.comunicacao.enviar_email.func import EnviarEmail
 from mock.falhas import desligar_todas, ligar
+from mock.regras import CAMPOS_NAO_RESTRITOS
 
 from . import apoio_regressao as reg
 from .apoio_ferramentas import (
@@ -193,6 +202,59 @@ def test_sem_registro_da_intencao_nada_sai_e_a_previa_continua_valendo(ana):
     assert email_simulado.ENVIADAS == []
     governanca.DESTINOS.clear()
     assert confirmacoes.confirmar(confirmacao_id, ana)["status"] == "ok"
+
+
+def destino_que_falha_a_partir_do(numero):
+    """Destino de registro que grava as primeiras chamadas e falha da `numero`-ésima em diante."""
+    chamadas = []
+
+    def destino(registro):
+        chamadas.append(registro)
+        if len(chamadas) >= numero:
+            raise OSError("disco cheio")
+
+    return destino
+
+
+def test_registro_final_que_falha_tira_a_previa_da_fila_e_a_nova_tentativa_nao_duplica(ana):
+    governanca.adicionar_destino(destino_que_falha_a_partir_do(2))  # grava "iniciada", falha no final
+    resposta = preparar(ana)
+    assert resposta["tipo_erro"] == "integracao_indisponivel"
+    assert "não repita" not in resposta["mensagem"]  # nada saiu e nada ficou esperando: pode pedir de novo
+    assert confirmacoes.pendentes(ana) == []
+    assert email_simulado.ENVIADAS == []
+    governanca.DESTINOS.clear()
+    nova = preparar(ana)
+    assert nova["status"] == "ok"
+    assert len(confirmacoes.pendentes(ana)) == 1
+
+
+def test_erro_depois_de_guardar_a_previa_tambem_tira_ela_da_fila(ana):
+    real = mascara.mascarar
+    chamadas = []
+
+    def falha_na_segunda(*argumentos):
+        chamadas.append(1)
+        if len(chamadas) == 2:  # a primeira é a da prévia guardada; a segunda é a da resposta ao agente
+            raise ValueError("dados fundos demais")
+        return real(*argumentos)
+
+    with mock.patch.object(mascara, "mascarar", side_effect=falha_na_segunda):
+        resposta = preparar(ana)
+    assert resposta["tipo_erro"] == "erro_interno"
+    assert confirmacoes.pendentes(ana) == []
+
+
+def test_assunto_e_corpo_so_passam_sem_mascara_total_na_ferramenta_de_email():
+    texto = {"assunto": "Vendas", "corpo": "Segue o resumo."}
+    assert mascara.mascarar(texto, ("contato",)) == {"assunto": "***", "corpo": "***"}
+    assert mascara.mascarar(texto, ("contato",), EnviarEmail.campos_liberados) == texto
+    assert not {"assunto", "corpo", "id_mensagem", "confirmacao_id", "expira_em"} & CAMPOS_NAO_RESTRITOS
+
+
+def test_campo_liberado_da_ferramenta_ainda_passa_pela_mascara_de_texto_livre():
+    texto = {"corpo": "CPF 123.456.789-09"}
+    assert mascara.mascarar(texto, ("contato",), ("corpo",)) == {"corpo": "CPF ***.456.789-**"}
 
 
 def test_registro_tem_so_metadados_das_duas_fases(ana):
