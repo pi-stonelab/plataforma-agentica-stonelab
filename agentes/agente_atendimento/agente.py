@@ -38,9 +38,9 @@ NOME_EMPRESA = "Stone"
 AGENTE_ID = "agente_atendimento"
 
 # Ferramentas que este agente pode usar. O catálogo ainda confere o nível e a área do funcionário.
-# As seis últimas cobrem os cenários 1 (liquidação que falhou), 3 (encargos e acordo) e 7 (chamado com
-# instrução escondida) do gabarito da KAN-58. Só leitura e cálculo: nenhuma escrita entra aqui.
-# [aqui conectamos com agentes: lista vinda da configuração do agente, KAN-55]
+# Da sexta à décima primeira: leitura e cálculo dos cenários 1, 3 e 7 do gabarito da KAN-58. O enviar_email
+# é a única escrita, em duas fases: o agente monta a prévia e quem pediu confirma fora dele (KAN-52, passo 7).
+# [A FAZER (Christopher e Isack, agentes, KAN-55): ler esta lista da configuração do agente]
 FERRAMENTAS_DO_AGENTE = (
     "consultar_cliente",
     "consultar_transacoes_cliente",
@@ -53,6 +53,7 @@ FERRAMENTAS_DO_AGENTE = (
     "listar_faturas_em_atraso",
     "calcular_parcelas",
     "consultar_contatos_lojista",
+    "enviar_email",
 )
 
 # ---------- PROTOCOLO DO AGENTE ----------

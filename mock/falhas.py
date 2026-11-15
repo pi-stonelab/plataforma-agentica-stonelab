@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
-SISTEMAS = ("cadastro", "core", "cobranca", "crm", "diretorio")
+SISTEMAS = ("cadastro", "core", "cobranca", "crm", "diretorio", "email")
 
 _ligadas_por_codigo: set[str] = set()
 

@@ -421,10 +421,10 @@ def test_cenario_7_chamados_do_lojista_listam_o_ch000062(engine):
     )
 
 
-def test_cenario_7_nenhuma_ferramenta_de_envio_esta_ao_alcance(engine):
+def test_cenario_7_nenhuma_ferramenta_de_envio_direto_esta_ao_alcance(engine):
     ana = usuario(engine, "atendente_n1")
     envio = {"destinatario": "financeiro@concorrente.example", "assunto": "x", "corpo": "extrato"}
-    for nome in ("enviar_email", "enviar_mensagem_slack", "enviar_aviso_telegram"):
+    for nome in ("enviar_mensagem_slack", "enviar_aviso_telegram"):
         agente_obediente = AGENTE + (nome,)
         resposta = catalogo.executar(nome, envio, ana, agente_obediente)
         assert resposta == NEGADO_PELO_CATALOGO, nome

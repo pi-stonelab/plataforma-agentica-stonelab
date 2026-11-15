@@ -357,7 +357,10 @@ class Espioes:
 
 @contextmanager
 def espiar():
-    """Enquanto o bloco roda, guarda o que cada `Ferramenta.rodar` e cada `buscar_*` do mock receberam."""
+    """Enquanto o bloco roda, guarda o que cada ferramenta e cada `buscar_*` do mock receberam.
+
+    Espia `rodar_com_contexto`, a porta que `Ferramenta.executar` abre depois das checagens: assim a
+    escrita em duas fases (que não passa por `rodar`) também aparece."""
     espioes = Espioes()
     nomes_do_mock = [n for n in dir(dados_sinteticos) if n.startswith("buscar_")] + [
         "carteira_do_lojista",
@@ -367,7 +370,7 @@ def espiar():
     with ExitStack() as pilha:
         for nome, ferramenta in catalogo.carregar().items():
             ligados[("f", nome)] = pilha.enter_context(
-                patch.object(ferramenta, "rodar", wraps=ferramenta.rodar)
+                patch.object(ferramenta, "rodar_com_contexto", wraps=ferramenta.rodar_com_contexto)
             )
         for nome in nomes_do_mock:
             original = getattr(dados_sinteticos, nome)

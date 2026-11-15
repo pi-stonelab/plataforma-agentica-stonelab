@@ -1,12 +1,13 @@
 # ferramentas/ (frente 4: Pedro)
 
 Catálogo das ações que o agente pode pedir, a regra de quem pode usar cada uma e a ligação com os dados da Stone
-simulada (`mock/`). Hoje são 43 ferramentas em 8 áreas. Onze estão ativas. As outras 32 são esqueletos: o
+simulada (`mock/`). Hoje são 43 ferramentas em 8 áreas. Doze estão ativas. As outras 31 são esqueletos: o
 `func.py` existe, mas `rodar` só devolve `ferramenta_inativa` ("ainda sem lógica").
 
 Ativas: `consultar_cliente`, `consultar_transacoes_cliente`, `calcular_multa_atraso`, `consultar_endereco_cep`,
 `solicitar_ferramenta_ausente`, `consultar_liquidacoes_cliente`, `listar_chamados_cliente`,
-`consultar_historico_contato`, `listar_faturas_em_atraso`, `calcular_parcelas`, `consultar_contatos_lojista`.
+`consultar_historico_contato`, `listar_faturas_em_atraso`, `calcular_parcelas`, `consultar_contatos_lojista` e
+`enviar_email` (escrita em duas fases, ver "Escrita em duas fases").
 
 Fontes citadas neste arquivo: `KAN-xx` (cards do Jira), `DOC-MOCK §x` (documento das regras do mock),
 `Dx` (decisões do Pedro) e `Ox` (decisões do orquestrador). Todas estão em `docs/decisoes.md`. Onde não há fonte,
@@ -40,6 +41,10 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
 - `dados_sinteticos.py`: fachada do mock. Lê o banco por `mock/consultas.py` e devolve dicts.
 - `diretorio.py`: `buscar_usuario(id)` monta o `Usuario` do funcionário pelo diretório do mock, e só se a situação for
   exatamente `ativo`. É o ponto único para o terminal e para o `montar_acesso` do back-end (decisão D11).
+- `confirmacoes.py`: escrita em duas fases. `FerramentaComConfirmacao` (a classe-mãe), a fila de prévias e as funções
+  que a interface chama: `pendentes`, `confirmar` e `cancelar`.
+- `email_simulado.py`: caixa de saída simulada (o provedor de e-mail da demo). Nada sai da plataforma.
+- `pendencias.py`: lista os marcadores `A FAZER` e `DECIDIR` por pessoa (`python -m ferramentas.pendencias`).
 - `agents.md` (raiz e de cada área e ferramenta): o texto que o modelo lê. A parte depois de `## Para quem mantém`
   o código descarta.
 - `<area>/<nome>/func.py`: a ficha e a lógica de uma ferramenta.
@@ -230,12 +235,57 @@ Exemplo: `listar_acordos_cliente`, que lê dados que o mock já tem.
      dão a mesma resposta; sistema fora do ar (`mock.falhas.ligar("core")`) dá `integracao_indisponivel`; o registro
      não tem argumento nem dado.
 8. Agentes: o agente geral lista `catalogo.nomes()` quando o módulo é importado, então a ferramenta aparece nele
-   depois de reiniciar. O agente de atendimento tem lista fixa em `FERRAMENTAS_DO_AGENTE` (KAN-55); incluir é
-   decisão do grupo (hoje há um teste marcado `xfail` por isso).
+   depois de reiniciar. O agente de atendimento tem lista fixa em `FERRAMENTAS_DO_AGENTE` (KAN-55), hoje com as 11
+   de leitura e cálculo e o `enviar_email`. Incluir outra é combinado com o Christopher e o Isack.
 9. Rode `ruff check .` na raiz e `cd backend && python -m pytest -q`.
 
-Ferramenta de escrita fica inativa até existir confirmação em duas etapas (Sprint 3). A exceção é
-`solicitar_ferramenta_ausente`. Não ative nenhuma outra.
+Ferramenta de escrita só fica ativa por regra explícita na governança: `ESCRITA_SEM_CONFIRMACAO` (só o
+`solicitar_ferramenta_ausente`, que não tem efeito fora da plataforma) ou `ESCRITA_COM_CONFIRMACAO` (duas fases,
+subclasse de `FerramentaComConfirmacao`). O teste de contrato confere as duas regras.
+
+## Escrita em duas fases (`confirmacoes.py`)
+
+O agente nunca age sozinho numa escrita. A decisão do grupo é que o agente escreve e quem pediu revisa (H12 em
+`docs/decisoes.md`; KAN-52, passo 7).
+
+1. Fase 1, pelo agente: `USAR: enviar_email | {...}`. `executar` faz as checagens de sempre e chama `montar`, que
+   valida, confere a carteira e devolve o conteúdo (o que vai ser enviado) e a prévia (o que a pessoa revisa). O
+   pedido entra na fila com um `confirmacao_id` só de letras (`CONF-ABCDEFGHJK`) e vale 15 minutos. O modelo recebe a
+   prévia já mascarada e é instruído a responder que ela espera a confirmação.
+2. Fase 2, pela pessoa: a interface (ou `agentes/terminal.py::revisar_previas`) lista `pendentes(usuario)` e chama
+   `confirmar(confirmacao_id, usuario)` ou `cancelar(...)`. `confirmar` só aceita o mesmo funcionário, revalida cargo
+   e carteira, registra a intenção antes de agir e chama `efetivar`. O pedido sai da fila na hora (uso único, com
+   trava para duas confirmações simultâneas).
+3. Não existe ferramenta de confirmar. O agente não alcança a fase 2.
+
+Regras que valem para qualquer ferramenta nova em duas fases:
+
+- O conteúdo é dado de lojista: fica no pedido só enquanto ele espera e é apagado ao confirmar, cancelar ou expirar.
+  O registro de chamadas recebe só metadados (`status`: `iniciada` e `ok` em cada fase, `cancelada`, `expirada`).
+- Texto livre escrito pelo modelo passa pela máscara antes da prévia, e é esse texto que segue.
+- Pedido de outra pessoa responde igual a pedido inexistente, e a tentativa fica no registro com `camada_bloqueio`
+  `usuario`. Sem registro da intenção, nada age e a prévia continua valendo.
+- No máximo 5 prévias esperando por pessoa (`LIMITE_POR_USUARIO`).
+- Para criar uma: subclasse de `FerramentaComConfirmacao` com `montar` e `efetivar`, nome em
+  `governanca.ESCRITA_COM_CONFIRMACAO` e testes como os de `test_ferramentas_enviar_email.py`.
+
+## Pendências entre frentes (marcadores)
+
+Quando o código depende de outra frente, deixe um marcador no ponto exato, num formato só:
+
+- `[A FAZER (quem, frente, card): o que fazer]`, para trabalho de alguém.
+- `[DECIDIR (quem, frente, card): o que decidir]`, para uma decisão em aberto.
+
+`frente` e `card` são opcionais e `quem` pode ter mais de uma pessoa (`Marcelo e Isabel`). O marcador pode quebrar
+linha num comentário. Exemplo entre crases, como os de cima, não conta.
+
+- Para ver os seus: `python -m ferramentas.pendencias --pessoa Marcelo` (ou `grep -rn "A FAZER (Marcelo"`).
+- Para gerar a lista do grupo: `python -m ferramentas.pendencias --salvar docs/pendencias.md`.
+- Quem faz o item apaga o marcador no mesmo commit. Ninguém apaga o marcador de outra pessoa.
+- O texto do marcador nunca leva dado de lojista nem segredo.
+- O catálogo tira os marcadores (e os antigos `[aqui conectamos ...]` e `[preencher ...]`) do texto que vai ao
+  modelo. Os antigos migram para o formato novo aos poucos (`--antigos` conta quantos sobram).
+- `test_ferramentas_pendencias.py` acusa marcador fora do formato.
 
 ## O que NÃO fazer
 
@@ -262,6 +312,8 @@ Ferramenta de escrita fica inativa até existir confirmação em duas etapas (Sp
 - E-mail e telefone digitados em texto livre não são mascarados (MED-4). Só CPF e cartão. Decisão de produto pendente.
 - Falso positivo aceito: qualquer número de 11 dígitos em texto (um celular) vira CPF mascarado.
 - Não existe `timeout_segundos` na ficha (divergência V7 com a KAN-69). O prazo é do turno do agente.
+- A fila de prévias (`confirmacoes.PEDIDOS`) e a caixa de saída simulada ficam em memória: reiniciar o processo
+  perde as prévias. A tabela é do back-end (marcador em `confirmacoes.py`).
 - `REGISTROS` e a fila `PEDIDOS` de `solicitar_ferramenta_ausente` ficam em memória. A fila deveria ir uma vez
   por semana a um card único do Jira (decisão 12 do briefing, KAN-27). Hoje é só um marcador.
 - `governanca.Usuario` confia em `id_usuario` e `carteiras` de quem monta (BAIXO-8). O back-end monta com

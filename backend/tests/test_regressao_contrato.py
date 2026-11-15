@@ -13,6 +13,7 @@ import pytest
 from agentes.agente_atendimento import agente as motor
 from agentes.agente_geral import agente as geral
 from ferramentas import catalogo, governanca
+from ferramentas.confirmacoes import FerramentaComConfirmacao
 from mock import regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 from mock.gerar import recriar
 from mock.modelos import Funcionario, Lojista, Time
@@ -74,10 +75,12 @@ def test_toda_ferramenta_ativa_tem_agents_md_preenchido(nome):
 
 
 @pytest.mark.parametrize("nome", sorted(FERRAMENTAS))
-def test_ficha_nao_declara_parametro_reservado_e_escrita_nao_esta_ativa(nome):
+def test_ficha_nao_declara_parametro_reservado_e_escrita_so_ativa_com_regra_explicita(nome):
     ficha = FERRAMENTAS[nome]
     assert not set(ficha.parametros) & set(gab.PARAMETROS_RESERVADOS)
-    if ficha.acesso == "escrita" and nome not in governanca.ESCRITA_SEM_CONFIRMACAO:
+    if ficha.acesso == "escrita" and nome in governanca.ESCRITA_COM_CONFIRMACAO:
+        assert isinstance(ficha, FerramentaComConfirmacao)  # duas fases: o agente nunca age sozinho
+    elif ficha.acesso == "escrita" and nome not in governanca.ESCRITA_SEM_CONFIRMACAO:
         assert not ficha.esta_ativa()
 
 

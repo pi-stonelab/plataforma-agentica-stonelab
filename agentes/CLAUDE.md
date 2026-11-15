@@ -115,6 +115,10 @@ que o back-end usa; banco de `MOCK_DATABASE_URL` ou o SQLite local; para outro b
 `dados_sinteticos.configurar(...)`); funcionário desligado, afastado ou inexistente não entra. `chamar_llm` troca qualquer erro de rede por `ModeloIndisponivel` sem a URL. Não use
 isso no produto: o back-end monta o `Usuario` e o `LLMClient` por conta própria.
 
+Depois de cada resposta, `revisar_previas` mostra as prévias de e-mail que esperam o funcionário (contato mascarado,
+assunto e corpo) e pergunta: `s` envia pela caixa de saída simulada, `n` descarta, Enter deixa para depois. É o papel
+do cartão de revisão da interface; o modelo nunca confirma (veja "Escrita em duas fases" em `ferramentas/CLAUDE.md`).
+
 ## Avaliação do uso de ferramentas
 
 Código em `agentes/avaliacao.py`. Roda 7 cenários fixos (uma, duas e três ferramentas no mesmo pedido, e um

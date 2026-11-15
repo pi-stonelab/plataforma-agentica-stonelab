@@ -79,8 +79,8 @@ Tudo junto, como o CI: `cd backend && python -m pytest -q`, mais `ruff check .` 
 - MED-2: tentativa bloqueada pelo motor não deixa registro com `camada_bloqueio` (`test_c7_desobediente_cada_tentativa...`).
 - MED-3: `catalogo.carregar()[nome].rodar(...)` pula categoria e máscara (`test_a26_rodar_direto...`).
 - BAIXO-9: `test_ferramentas_mascara.py` usa CPF válido e e-mail de domínio comum (`test_repositorio_limpo...`).
-- Sem id de auditoria: `agents.md` de `consultar_endereco_cep` (ativa) ainda tem `[preencher`; e a lista
-  `FERRAMENTAS_DO_AGENTE` do agente de atendimento não inclui as 6 ferramentas novas (o agente geral inclui).
+- Sem id de auditoria: `agents.md` de `consultar_endereco_cep` (ativa) ainda tem `[preencher`. A lista
+  `FERRAMENTAS_DO_AGENTE` do agente de atendimento passou a incluir as 6 ferramentas novas e o `enviar_email` (15/11).
 
 ## Cenário/ataque para teste
 

@@ -34,8 +34,10 @@ def resposta(status, dados=None, mensagem="", tipo_erro=None):
     return {"status": status, "dados": dados, "mensagem": mensagem, "tipo_erro": tipo_erro}
 
 
-def _converter(tipo, valor):
-    if tipo == "texto" and isinstance(valor, str) and len(valor.strip()) <= TAMANHO_MAXIMO_TEXTO:
+def _converter(regra, valor):
+    tipo = regra["tipo"]
+    tamanho_maximo = regra.get("tamanho_maximo", TAMANHO_MAXIMO_TEXTO)
+    if tipo == "texto" and isinstance(valor, str) and len(valor.strip()) <= tamanho_maximo:
         return valor.strip()
     if tipo == "inteiro" and type(valor) is int:
         return valor
@@ -82,7 +84,7 @@ class Ferramenta:
     parametros = {}
 
     def esta_ativa(self):
-        if self.acesso == "escrita" and self.nome not in governanca.ESCRITA_SEM_CONFIRMACAO:
+        if self.acesso == "escrita" and self.nome not in governanca.ESCRITAS_LIBERADAS:
             return False
         return self.status == "ativa"
 
@@ -95,13 +97,18 @@ class Ferramenta:
                 raise ErroFerramenta("parametro_invalido", f"Falta o parâmetro {nome}.")
             if nome in argumentos:
                 try:
-                    convertidos[nome] = _converter(regra["tipo"], argumentos[nome])
+                    convertidos[nome] = _converter(regra, argumentos[nome])
                 except (ValueError, ArithmeticError):
                     raise ErroFerramenta("parametro_invalido", f"Valor inválido: {nome}.") from None
         return convertidos
 
     def rodar(self, argumentos, usuario):
         raise ErroFerramenta("ferramenta_inativa", "Ferramenta ainda sem lógica.")
+
+    def rodar_com_contexto(self, argumentos, usuario, contexto):
+        """O que `executar` roda depois das checagens. A escrita em duas fases (`confirmacoes.py`)
+        troca este método porque precisa do contexto para guardar o pedido; as demais usam `rodar`."""
+        return self.rodar(argumentos, usuario)
 
     def _registrar_inicio(self, usuario, contexto, inicio):
         """Ferramenta de escrita registra ANTES de agir (MED-1): se não gravar, levanta e não age.
@@ -126,7 +133,7 @@ class Ferramenta:
             if self.acesso == "escrita":
                 self._registrar_inicio(usuario, contexto, inicio)
                 agiu = True
-            dados = self.rodar(argumentos_validos, usuario)
+            dados = self.rodar_com_contexto(argumentos_validos, usuario, contexto)
             dados = mascara.mascarar(dados, self.categorias_dados)  # uma vez, antes do embrulho
             resultado = resposta("ok", dados, "Concluído.")
             if self.conteudo_terceiros:
