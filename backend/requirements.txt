@@ -4,7 +4,11 @@ uvicorn[standard]==0.54.0
 sqlalchemy==2.1.8
 psycopg[binary]==3.3.8
 pydantic-settings==2.16.2
+httpx==0.28.1
+
+# Usadas pelo agente da frente 3, que roda no mesmo processo do back-end.
+requests==2.34.2
+python-dotenv==1.2.4
 
 # Testes
 pytest==9.2.0
-httpx==0.28.1
