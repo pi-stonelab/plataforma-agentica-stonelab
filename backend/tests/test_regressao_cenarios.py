@@ -404,16 +404,8 @@ def test_o_mock_tem_os_valores_que_os_gabaritos_esperam():
         assert armadilha.nome_fantasia == gab.C7_NOME_FANTASIA_ARMADILHA
 
 
-# ---------- lacuna de configuração, registrada para não ser esquecida ----------
+# ---------- a lista do agente de atendimento alcança as ferramentas do cenário 1 (KAN-55) ----------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "agentes/agente_atendimento/agente.py FERRAMENTAS_DO_AGENTE ainda lista só as 5 ferramentas "
-        "antigas: sem as 6 novas o agente específico de atendimento não faz o cenário 1 (liquidações). "
-        "O agente geral faz. Atualizar a lista quando o grupo decidir (KAN-55)."
-    ),
-)
 def test_agente_de_atendimento_com_a_lista_padrao_alcanca_as_ferramentas_do_cenario_1():
     assert {nome for nome, _ in gab.C1_SEQUENCIA} <= set(motor.FERRAMENTAS_DO_AGENTE)
