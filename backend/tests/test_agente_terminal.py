@@ -12,7 +12,7 @@ from unittest import mock
 
 from agentes import terminal
 from agentes.agente_atendimento import agente as motor
-from ferramentas import dados_sinteticos
+from ferramentas import dados_sinteticos, governanca
 from mock.banco import criar_engine
 from mock.falhas import desligar_todas, ligar
 
@@ -170,6 +170,96 @@ class TestEnvExample(unittest.TestCase):
 
 
 
+class TestModeloDoAmbiente(unittest.TestCase):
+    def test_vazio_ou_ausente_vale_o_padrao(self):
+        for ambiente in ({}, {"LLM_MODELO": ""}, {"LLM_MODELO": "   "}):
+            with self.subTest(ambiente):
+                self.assertEqual(terminal.modelo_do_ambiente(ambiente), terminal.MODELO_PADRAO)
+
+    def test_valor_declarado_vale_sem_espacos_nas_pontas(self):
+        self.assertEqual(terminal.modelo_do_ambiente({"LLM_MODELO": " qwen3:14b "}), "qwen3:14b")
+
+
+class TestPensamentoNaTela(unittest.TestCase):
+    def chamar(self, resposta, **declarados):
+        saidas = []
+        modelo = terminal.mostrando_o_pensamento(lambda sistema, prompt: resposta, escrever=saidas.append)
+        return modelo("sistema", "prompt"), saidas
+
+    def test_escreve_a_linha_de_pensamento_e_devolve_a_resposta_intacta(self):
+        resposta = "PENSAMENTO:  Preciso ler a ficha antes. \nLER: financeiro/calcular_multa_atraso"
+        devolvida, saidas = self.chamar(resposta)
+        self.assertEqual(devolvida, resposta)
+        self.assertEqual(saidas, ["  Pensamento: Preciso ler a ficha antes."])
+
+    def test_sem_a_linha_ou_com_resposta_que_nao_e_texto_nao_escreve_nem_quebra(self):
+        for resposta in ("LER:", "", None, 42):
+            with self.subTest(resposta):
+                devolvida, saidas = self.chamar(resposta)
+                self.assertEqual((devolvida, saidas), (resposta, []))
+
+    def test_so_a_primeira_linha_de_pensamento_vale(self):
+        _, saidas = self.chamar("PENSAMENTO: um\nFINAL: x\nPENSAMENTO: inventado depois")
+        self.assertEqual(saidas, ["  Pensamento: um"])
+
+    def test_repassa_tempo_limite_so_a_quem_declara(self):
+        recebidos = []
+
+        def com_tempo(sistema, prompt, tempo_limite):
+            recebidos.append(tempo_limite)
+            return "LER:"
+
+        terminal.mostrando_o_pensamento(com_tempo, escrever=lambda texto: None)("s", "p", tempo_limite=9)
+        self.assertEqual(recebidos, [9])
+        terminal.mostrando_o_pensamento(lambda sistema, prompt: "LER:", escrever=lambda texto: None)("s", "p", tempo_limite=9)
+
+    def test_a_conversa_mostra_o_pensamento_de_cada_passo_mas_a_trajetoria_nao_o_guarda(self):
+        respostas = iter(["PENSAMENTO: vou ler o índice.\nLER:", "PENSAMENTO: tenho a resposta.\nFINAL: oi"])
+        saida = io.StringIO()
+        with mock.patch("builtins.input", side_effect=["oi", "sair"]), contextlib.redirect_stdout(saida):
+            terminal.conversar_no_terminal(
+                governanca.usuario_do_cargo("F0011", "coordenador_financeiro", ()),
+                chamar_modelo=lambda sistema, prompt: next(respostas),
+            )
+        texto = saida.getvalue()
+        self.assertIn("  Pensamento: vou ler o índice.", texto)
+        self.assertIn("  Pensamento: tenho a resposta.", texto)
+        trajetoria = texto.split("=== TRAJETÓRIA ===")[1].split("Agente:")[0]
+        self.assertNotIn("vou ler o índice", trajetoria)
+
+
+class TestSegundosPorTurno(unittest.TestCase):
+    def test_sem_valor_ou_invalido_vale_o_teto_do_motor(self):
+        for ambiente in ({}, {"LLM_SEGUNDOS_POR_TURNO": ""}, {"LLM_SEGUNDOS_POR_TURNO": "abc"},
+                         {"LLM_SEGUNDOS_POR_TURNO": "-5"}, {"LLM_SEGUNDOS_POR_TURNO": "0"},
+                         {"LLM_SEGUNDOS_POR_TURNO": "inf"}, {"LLM_SEGUNDOS_POR_TURNO": "nan"}):
+            with self.subTest(ambiente):
+                self.assertEqual(terminal.segundos_por_turno_do_ambiente(ambiente), motor.SEGUNDOS_MAXIMOS_POR_TURNO)
+
+    def test_valor_do_env_vale_ate_o_teto(self):
+        self.assertEqual(terminal.segundos_por_turno_do_ambiente({"LLM_SEGUNDOS_POR_TURNO": "240"}), 240)
+        self.assertEqual(terminal.segundos_por_turno_do_ambiente({"LLM_SEGUNDOS_POR_TURNO": "90,5"}), 90.5)
+        self.assertEqual(
+            terminal.segundos_por_turno_do_ambiente({"LLM_SEGUNDOS_POR_TURNO": "99999"}),
+            motor.SEGUNDOS_MAXIMOS_POR_TURNO,
+        )
+
+    def test_a_conversa_do_terminal_passa_o_prazo_ao_motor(self):
+        recebidos = []
+
+        def chamar(prompt_sistema, prompt, tempo_limite):
+            recebidos.append(tempo_limite)
+            return "FINAL: oi"
+
+        with mock.patch("builtins.input", side_effect=["oi", "sair"]), contextlib.redirect_stdout(io.StringIO()):
+            terminal.conversar_no_terminal(
+                governanca.usuario_do_cargo("F0011", "coordenador_financeiro", ()), chamar_modelo=chamar
+            )
+        teto = motor.SEGUNDOS_MAXIMOS_POR_TURNO
+        self.assertTrue(recebidos)
+        self.assertTrue(all(teto - 30 < t <= teto for t in recebidos), recebidos)
+
+
 class TestChamarLlm(unittest.TestCase):
     def chamar_com(self, **configuracao):
         with (
@@ -178,6 +268,28 @@ class TestChamarLlm(unittest.TestCase):
             mock.patch.object(terminal.requests, "post", **configuracao),
         ):
             return terminal.chamar_llm("sistema", "prompt")
+
+    def test_falha_traz_a_causa_sem_o_texto_do_erro(self):
+        class ErroHttp(terminal.requests.HTTPError):
+            pass
+
+        erro_524 = ErroHttp(f"524 em {URL_DO_MODELO}")
+        erro_524.response = mock.Mock(status_code=524)
+        casos = [
+            (resposta_http(erro_http=erro_524), "HTTP 524"),
+            (terminal.requests.Timeout(f"lento em {URL_DO_MODELO}"), "Timeout"),
+            (terminal.requests.ConnectionError("x"), "ConnectionError"),
+            (resposta_http(corpo={"outra": 1}), "KeyError"),
+            (resposta_http(corpo={"response": 42}), "TypeError"),
+        ]
+        for retorno, causa in casos:
+            with self.subTest(causa):
+                configuracao = {"side_effect": retorno} if isinstance(retorno, Exception) else {"return_value": retorno}
+                with self.assertRaises(motor.ModeloIndisponivel) as contexto:
+                    self.chamar_com(**configuracao)
+                self.assertEqual(contexto.exception.causa, causa)
+                self.assertNotIn(URL_DO_MODELO, str(contexto.exception))
+                self.assertEqual(str(contexto.exception), "Modelo indisponível.")
 
     def test_envia_o_sistema_e_a_parada(self):
         resposta = resposta_http(corpo={"response": "<think>x</think>FINAL: ok"})

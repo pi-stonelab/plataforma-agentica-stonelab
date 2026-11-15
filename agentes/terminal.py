@@ -10,7 +10,9 @@ Uso (com `MODO_TERMINAL=1` e `ID_USUARIO` no .env):
 """
 
 import argparse
+import inspect
 import logging
+import math
 import os
 import re
 import uuid
@@ -26,8 +28,51 @@ from ferramentas import diretorio
 load_dotenv()
 
 LLM_URL = os.environ.get("LLM_URL", "")  # só do .env; sem valor padrão no código
-LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3.8:27b")
+MODELO_PADRAO = "qwen3.8:27b"
+
+
+def modelo_do_ambiente(ambiente=os.environ):
+    """`LLM_MODELO` do .env. Vazio (como no .env.example) vale o padrão: um nome vazio faria o servidor recusar."""
+    return ambiente.get("LLM_MODELO", "").strip() or MODELO_PADRAO
+
+
+LLM_MODELO = modelo_do_ambiente()
 SEGUNDOS_POR_CHAMADA = 120  # timeout de uma chamada avulsa; dentro de um turno vale o tempo que sobra
+
+
+def segundos_por_turno_do_ambiente(ambiente=os.environ):
+    """Prazo de um turno no terminal: `LLM_SEGUNDOS_POR_TURNO` do .env, sempre dentro do teto do motor.
+
+    Sem valor (ou inválido), vale o teto: o modelo local mede dezenas de segundos por chamada, e o padrão
+    do motor (120 s) estoura. O prazo continua existindo; o terminal só não o aperta mais que o motor deixa."""
+    teto = motor.SEGUNDOS_MAXIMOS_POR_TURNO
+    try:
+        valor = float(ambiente.get("LLM_SEGUNDOS_POR_TURNO", "").strip().replace(",", "."))
+    except ValueError:
+        return teto
+    return min(valor, teto) if math.isfinite(valor) and valor > 0 else teto
+
+
+PENSAMENTO_RE = re.compile(r"^[ \t]*PENSAMENTO[ \t]*:[ \t]*(.+)$", flags=re.MULTILINE)
+
+
+def mostrando_o_pensamento(chamar_modelo, escrever=print):
+    """Embrulha o `chamar_modelo` e escreve a linha `PENSAMENTO:` de cada resposta, assim que ela chega.
+
+    O prompt do agente já pede essa linha antes de cada ação; o motor a ignora e a trajetória não a guarda
+    (ela é texto livre, pode citar dado). Aqui ela só aparece na tela de quem testa, sem log nem arquivo.
+    O embrulho repassa `tempo_limite` só se o modelo de dentro declara esse parâmetro, como o motor faz."""
+    repassa_tempo = "tempo_limite" in inspect.signature(chamar_modelo).parameters
+
+    def chamar(prompt_sistema, prompt, tempo_limite=None):
+        opcoes = {"tempo_limite": tempo_limite} if repassa_tempo else {}
+        resposta = chamar_modelo(prompt_sistema, prompt, **opcoes)
+        achado = PENSAMENTO_RE.search(resposta) if isinstance(resposta, str) else None
+        if achado:
+            escrever(f"  Pensamento: {achado.group(1).strip()}")
+        return resposta
+
+    return chamar
 
 
 @dataclass(frozen=True)
@@ -85,6 +130,16 @@ def montar_headers():
     }
 
 
+def _modelo_indisponivel(erro):
+    """`ModeloIndisponivel` de mensagem genérica, com `causa` para diagnóstico: o tipo da falha ou, se o
+    servidor respondeu com erro, "HTTP <código>". Nunca o texto do erro: o do `requests` traz a URL."""
+    resposta = getattr(erro, "response", None)
+    codigo = getattr(resposta, "status_code", None)
+    excecao = motor.ModeloIndisponivel("Modelo indisponível.")
+    excecao.causa = f"HTTP {codigo}" if isinstance(codigo, int) else type(erro).__name__
+    return excecao
+
+
 def chamar_llm(prompt_sistema: str, prompt: str, tempo_limite: float = SEGUNDOS_POR_CHAMADA) -> str:
     """Chamada direta ao Ollama, para o terminal. No produto quem chama é o `LLMClient` do back-end.
 
@@ -109,17 +164,17 @@ def chamar_llm(prompt_sistema: str, prompt: str, tempo_limite: float = SEGUNDOS_
         )
         r.raise_for_status()
         texto = r.json()["response"]
-    except (requests.RequestException, ValueError, KeyError):
-        raise motor.ModeloIndisponivel("Modelo indisponível.") from None
+    except (requests.RequestException, ValueError, KeyError) as erro:
+        raise _modelo_indisponivel(erro) from None
     if not isinstance(texto, str):
-        raise motor.ModeloIndisponivel("Modelo indisponível.")
+        raise _modelo_indisponivel(TypeError())
     return re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
 
 
 # ---------- A CONVERSA ----------
 def conversar_no_terminal(funcionario, agente=AGENTES["atendimento"], chamar_modelo=None):
     """Conversa de teste: aqui sim se usa input(); a resposta do funcionário vira o próximo turno."""
-    chamar_modelo = chamar_modelo or chamar_llm
+    chamar_modelo = mostrando_o_pensamento(chamar_modelo or chamar_llm)
     historico = []
     while True:
         mensagem = input("\nVocê: ").strip()
@@ -129,7 +184,11 @@ def conversar_no_terminal(funcionario, agente=AGENTES["atendimento"], chamar_mod
             continue
         estado = None
         while True:
-            contexto = {"execucao_id": uuid.uuid4().hex, "agente_id": agente.agente_id}
+            contexto = {
+                "execucao_id": uuid.uuid4().hex,
+                "agente_id": agente.agente_id,
+                "segundos_por_turno": segundos_por_turno_do_ambiente(),
+            }
             turno = motor.rodar_turno(
                 mensagem, funcionario, agente.ferramentas, chamar_modelo, historico, estado,
                 contexto, agente.sistema,

@@ -12,8 +12,10 @@ Runtime dos agentes. Roda no mesmo processo do back-end. O agente só pede ferra
 - `terminal.py`: modo terminal dos dois agentes, com o diretório de funcionários e a chamada direta ao
   modelo (`chamar_llm`). Nenhum arquivo de `agentes/` importa `mock/` (tem teste): o diretório vem da fachada
   `ferramentas.dados_sinteticos`. Veja "Modo terminal".
-- Testes: `backend/tests/test_agente_*.py` (motor, geral, terminal), com os apoios em
-  `backend/tests/apoio_agente.py`.
+- `avaliacao.py`: mede quantas vezes o agente escolhe as ferramentas certas (cenários fixos, modelo real).
+  Veja "Avaliação do uso de ferramentas".
+- Testes: `backend/tests/test_agente_*.py` (motor, geral, terminal), `test_agentes_avaliacao.py` e
+  `test_agente_varias_ferramentas.py`, com os apoios em `backend/tests/apoio_agente.py`.
 
 ## Como o motor funciona
 
@@ -112,3 +114,21 @@ diretório do mock, por `buscar_usuario_no_diretorio`, que chama `ferramentas.di
 que o back-end usa; banco de `MOCK_DATABASE_URL` ou o SQLite local; para outro banco,
 `dados_sinteticos.configurar(...)`); funcionário desligado, afastado ou inexistente não entra. `chamar_llm` troca qualquer erro de rede por `ModeloIndisponivel` sem a URL. Não use
 isso no produto: o back-end monta o `Usuario` e o `LLMClient` por conta própria.
+
+## Avaliação do uso de ferramentas
+
+Código em `agentes/avaliacao.py`. Roda 7 cenários fixos (uma, duas e três ferramentas no mesmo pedido, e um
+lojista de outra carteira que precisa ser negado) e mede, por pedido: se as ferramentas esperadas rodaram com
+sucesso (lido do registro da governança, não do que o modelo diz), se a resposta traz o dado esperado, passos,
+chamadas ao modelo e tempo (total e dentro do modelo). Precisa de `LLM_URL` e das credenciais no `.env`:
+
+    python -m agentes.avaliacao
+    python -m agentes.avaliacao --cenario multa --cenario cadastro_e_transacoes
+    python -m agentes.avaliacao --salvar avaliacao.json
+
+O arquivo salvo guarda só números e nomes (nunca pergunta, resposta ou dado de lojista). Limites: a resposta é
+conferida por expressões regulares sobre dados sintéticos fixos (semente 20261015), então é uma checagem
+simples, não uma nota de qualidade; os cenários usam a lista de 5 ferramentas de hoje (KAN-55); tokens por
+chamada ainda não entram (dependem do `LLMClient` do back-end). Os testes usam modelos roteirizados e provam
+a medição, não o modelo.
+
