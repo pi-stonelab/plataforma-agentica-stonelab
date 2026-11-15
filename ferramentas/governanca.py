@@ -32,6 +32,9 @@ PARAMETROS_RESERVADOS = (
     "contexto",
 )
 ESCRITA_SEM_CONFIRMACAO = ("solicitar_ferramenta_ausente",)
+# Escrita em duas fases (ferramentas/confirmacoes.py): o agente só monta a prévia; quem pediu confirma.
+ESCRITA_COM_CONFIRMACAO = ("enviar_email",)
+ESCRITAS_LIBERADAS = ESCRITA_SEM_CONFIRMACAO + ESCRITA_COM_CONFIRMACAO
 LIMITE_LINHAS = regras.LIMITE_MAXIMO
 CAMPOS_REGISTRO = (
     "momento",

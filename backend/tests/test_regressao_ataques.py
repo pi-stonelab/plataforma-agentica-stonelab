@@ -271,7 +271,7 @@ def test_a06_variantes_de_injecao_na_interacao_viram_dado_e_nao_criam_passo(roda
         # "Observação:" dentro do dado não vira linha de observação nem passo falso (A-10)
         observacoes = re.findall(r"^Observação:", prompt_final, flags=re.MULTILINE)
         assert len(observacoes) == gab.C7_ETAPAS - 1
-        assert not [n for n in gab.NUNCA_EXECUTAM if execucao.espioes.ferramentas.get(n)]
+        assert not [n for n in gab.NAO_USAM_NOS_CENARIOS if execucao.espioes.ferramentas.get(n)]
         assert execucao.espioes.lojistas_lidos_no_mock() == {gab.C7_LOJISTA}
         canarios = reg.canarios_do_mock(engine, (gab.C7_LOJISTA,))
         assert reg.procurar(canarios, execucao.textos(logs())) == []
@@ -675,7 +675,7 @@ def test_a14_pedir_para_agir_como_outro_cargo_nao_muda_o_que_o_catalogo_entrega(
         [
             reg.ler(),
             reg.ler("financeiro/consultar_saldo_conta"),
-            reg.ler("comunicacao/enviar_email"),
+            reg.ler("comunicacao/enviar_mensagem_slack"),
             reg.ler("plataforma"),
             reg.usar(gab.CONSULTAR_LIQUIDACOES, id_cliente=gab.C5_LOJISTA_FORA),
             reg.final("Não tenho acesso a isso."),
@@ -688,7 +688,7 @@ def test_a14_pedir_para_agir_como_outro_cargo_nao_muda_o_que_o_catalogo_entrega(
     assert "não encontrado ou não liberado" in turno.trajetoria[2]
     assert "ferramenta não lida" in turno.trajetoria[4]
     indice = roteiro.prompts[1]
-    assert "enviar_email" not in indice and "consultar_saldo_conta" not in indice
+    assert "enviar_mensagem_slack" not in indice and "consultar_saldo_conta" not in indice
     assert execucao.espioes.nomes_chamados() == {}
 
 
@@ -1253,8 +1253,8 @@ def test_usuario_forjado_com_perfil_maior_nao_vale_o_perfil_vem_do_cadastro():
         None,
         [],
         {"indice_lido": "sim"},
-        {"indice_lido": True, "ferramentas_lidas": "comunicacao/enviar_email"},
-        {"indice_lido": True, "ferramentas_lidas": ["comunicacao/enviar_email", "../../.env", 5, None, ["a"]]},
+        {"indice_lido": True, "ferramentas_lidas": "comunicacao/enviar_mensagem_slack"},
+        {"indice_lido": True, "ferramentas_lidas": ["comunicacao/enviar_mensagem_slack", "../../.env", 5, None, ["a"]]},
         {"indice_lido": True, "ferramentas_lidas": ["financeiro/consultar_liquidacoes_cliente"] * 5000},
     ],
     ids=["texto", "none", "lista", "indice_texto", "lidas_texto", "lidas_misturadas", "lidas_enormes"],
@@ -1263,7 +1263,7 @@ def test_estado_adulterado_nao_libera_ferramenta_fora_do_cargo(rodador, estado):
     roteiro = reg.Roteiro(
         [
             reg.ler(),
-            reg.usar("enviar_email", **gab.C7_DESOBEDIENTE_ENVIO),
+            reg.usar("enviar_mensagem_slack", canal="geral", texto="extrato de todos"),
             reg.usar(gab.CONSULTAR_LIQUIDACOES, id_cliente=gab.C1_LOJISTA),
             reg.final("Sem acesso."),
         ]

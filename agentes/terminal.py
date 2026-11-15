@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 
 from agentes.agente_atendimento import agente as motor
 from agentes.agente_geral import agente as geral
-from ferramentas import diretorio
+from ferramentas import confirmacoes, diretorio
 
 load_dotenv()
 
@@ -171,6 +171,32 @@ def chamar_llm(prompt_sistema: str, prompt: str, tempo_limite: float = SEGUNDOS_
     return re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
 
 
+# ---------- PRÉVIAS ESPERANDO CONFIRMAÇÃO (escrita em duas fases) ----------
+def revisar_previas(funcionario, ler=None, escrever=print):
+    """Mostra as prévias que esperam este funcionário e pergunta o que fazer com cada uma.
+
+    É o papel que o cartão de revisão terá na interface: quem confirma é a pessoa, nunca o modelo.
+    """
+    ler = ler or input  # resolvido na hora da chamada, para os testes poderem trocar o input()
+    for previa in confirmacoes.pendentes(funcionario):
+        para = previa.get("para", {})
+        cabecalho = f"{previa['confirmacao_id']} ({previa['ferramenta']}, vale até {previa['expira_em']})"
+        escrever(f"\n=== PRÉVIA {cabecalho} ===")
+        escrever(f"Para: {para.get('email')} ({para.get('papel')} de {para.get('codigo')})")
+        escrever(f"Assunto: {previa.get('assunto')}")
+        escrever(previa.get("corpo", ""))
+        escolha = ler("Enviar? [s] envia, [n] descarta, Enter deixa para depois: ").strip().lower()
+        if escolha == "s":
+            resultado = confirmacoes.confirmar(previa["confirmacao_id"], funcionario)
+        elif escolha == "n":
+            resultado = confirmacoes.cancelar(previa["confirmacao_id"], funcionario)
+        else:
+            continue
+        id_mensagem = (resultado["dados"] or {}).get("id_mensagem")
+        detalhe = f" ({id_mensagem}, caixa de saída simulada)" if id_mensagem else ""
+        escrever(f"  {resultado['mensagem']}{detalhe}")
+
+
 # ---------- A CONVERSA ----------
 def conversar_no_terminal(funcionario, agente=AGENTES["atendimento"], chamar_modelo=None):
     """Conversa de teste: aqui sim se usa input(); a resposta do funcionário vira o próximo turno."""
@@ -201,6 +227,7 @@ def conversar_no_terminal(funcionario, agente=AGENTES["atendimento"], chamar_mod
             if turno.tipo != "pergunta":
                 break
             mensagem, estado = input("\nVocê: ").strip(), turno.estado
+        revisar_previas(funcionario)
 
 
 def principal(argumentos=None):

@@ -205,6 +205,24 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
   sentido quando o back-end conectar com um papel por cargo; hoje as quatro camadas ficam na aplicação.
 - A fonte da verdade continua sendo o código; o SQL é gerado (`python -m mock.exportar`) e um teste barra divergência.
 
+### H12. enviar_email em duas fases já na Sprint 2
+- Decisão: o `enviar_email` entra ativo na demo, em duas fases: o agente monta a prévia e só quem pediu confirma, fora
+  do agente. Tira o `enviar_email` da O6; as outras escritas continuam para a Sprint 3.
+- Quem e quando: Pedro, 15/11.
+- Motivo: o passo 7 do MVP da demo (KAN-52) pede a prévia com confirmação, e a KAN-59 inclui o e-mail.
+- No código: `ferramentas/confirmacoes.py`, `ferramentas/email_simulado.py`, `governanca.ESCRITA_COM_CONFIRMACAO` e
+  `agentes/terminal.py::revisar_previas`. Testes em `test_ferramentas_enviar_email.py` e `TestPreviasNoTerminal`.
+- Em aberto: se o supervisor pode confirmar a prévia de outra pessoa (marcador para o Brenno no `agents.md` da
+  ferramenta).
+
+### H13. Marcadores de pendência num formato só
+- Decisão: `[A FAZER (quem, frente, card): o quê]` e `[DECIDIR (quem, frente, card): o quê]`, buscáveis por nome.
+  `python -m ferramentas.pendencias` lista por pessoa. Os antigos (`[aqui conectamos ...]`, `[preencher ...]`)
+  migram aos poucos.
+- Quem e quando: Pedro, 15/11.
+- No código: `ferramentas/pendencias.py`, `catalogo.PADRAO_MARCADOR` (tira os dois formatos do texto do modelo) e
+  `test_ferramentas_pendencias.py`.
+
 ## Decisões do orquestrador (O1 a O13)
 
 Todas de 11/11, PLANO v2, escritas depois da crítica ao plano. "Para o Pedro ver" quer dizer que ele leu; só a O10
@@ -249,6 +267,7 @@ está marcada "confirmar com o Pedro".
   `AcessoNegado` sem nome.
 - Motivo: o PLANO só diz "cortes para a Sprint 3". A demo da Sprint 2 é em 19/11.
 - No código: `Acao` não tem `REPLICAR`; escrita é inativa em `ferramentas/base.py` (`esta_ativa`).
+- 15/11: o `enviar_email` saiu desta lista (H12).
 
 ### O7. Pessoas reais só como mecanismo
 - Decisão: existe o caminho (CSV local fora do Git, `.gitignore`, senha definida por comando, aviso de LGPD). Nenhuma

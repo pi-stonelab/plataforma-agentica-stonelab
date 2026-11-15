@@ -10,7 +10,8 @@ from ferramentas.base import montar_registro, resposta
 NOME_ARQUIVO_INSTRUCOES = "agents.md"
 MENSAGEM_INDISPONIVEL = "Caminho não encontrado ou não liberado para você."
 RAIZ = Path(__file__).parent
-PADRAO_MARCADOR = re.compile(r"\s*\[(?:aqui conectamos|preencher)[^\]]*\]")
+# Marcadores para pessoas (ferramentas/pendencias.py): saem do texto antes de chegar ao modelo.
+PADRAO_MARCADOR = re.compile(r"\s*\[(?:A FAZER \(|DECIDIR \(|aqui conectamos|preencher)[^\]]*\]")
 PADRAO_TITULO_VAZIO = re.compile(r"^## .*\n\s*(?=^## |\Z)", re.MULTILINE)
 FERRAMENTAS = {}
 

@@ -3,6 +3,7 @@
 import ast
 import contextlib
 import io
+import json
 import os
 import subprocess
 import sys
@@ -12,7 +13,7 @@ from unittest import mock
 
 from agentes import terminal
 from agentes.agente_atendimento import agente as motor
-from ferramentas import dados_sinteticos, governanca
+from ferramentas import confirmacoes, dados_sinteticos, email_simulado, governanca
 from mock.banco import criar_engine
 from mock.falhas import desligar_todas, ligar
 
@@ -226,6 +227,52 @@ class TestPensamentoNaTela(unittest.TestCase):
         self.assertIn("  Pensamento: tenho a resposta.", texto)
         trajetoria = texto.split("=== TRAJETÓRIA ===")[1].split("Agente:")[0]
         self.assertNotIn("vou ler o índice", trajetoria)
+
+
+PEDIDO_DE_EMAIL = {"id_cliente": "M00001", "assunto": "Vendas de outubro", "corpo": "Segue o resumo."}
+
+
+class TestPreviasNoTerminal(unittest.TestCase):
+    """A pessoa confirma ou descarta a prévia no terminal; o modelo só a monta."""
+
+    def setUp(self):
+        apoio.limpar()
+        self.ana = apoio.atendente_n1()
+
+    def conversar(self, respostas_da_pessoa):
+        modelo = modelo_roteirizado(
+            [
+                "LER:",
+                "LER: comunicacao/enviar_email",
+                f"USAR: enviar_email | {json.dumps(PEDIDO_DE_EMAIL)}",
+                "FINAL: A prévia está esperando a sua confirmação.",
+            ]
+        )
+        saida = io.StringIO()
+        entradas = ["mande um e-mail ao M00001", *respostas_da_pessoa, "sair"]
+        with mock.patch("builtins.input", side_effect=entradas), contextlib.redirect_stdout(saida):
+            terminal.conversar_no_terminal(self.ana, chamar_modelo=modelo)
+        return saida.getvalue()
+
+    def test_s_envia_pela_caixa_de_saida_simulada(self):
+        texto = self.conversar(["s"])
+        self.assertIn("=== PRÉVIA CONF-", texto)
+        self.assertIn("MSG-0001", texto)
+        self.assertEqual(len(email_simulado.ENVIADAS), 1)
+        self.assertEqual(confirmacoes.pendentes(self.ana), [])
+
+    def test_n_descarta_e_enter_deixa_para_depois(self):
+        self.conversar(["n"])
+        self.assertEqual((email_simulado.ENVIADAS, confirmacoes.pendentes(self.ana)), ([], []))
+        self.conversar([""])
+        self.assertEqual(email_simulado.ENVIADAS, [])
+        self.assertEqual(len(confirmacoes.pendentes(self.ana)), 1)
+
+    def test_a_tela_mostra_o_email_mascarado(self):
+        texto = self.conversar(["n"])
+        contatos, _ = dados_sinteticos.buscar_contatos("M00001")
+        self.assertNotIn(next(c["email"] for c in contatos if c["papel"] == "financeiro"), texto)
+        self.assertRegex(texto, r"Para: \S\*\*\*@lojistas\.example \(financeiro de M00001\)")
 
 
 class TestSegundosPorTurno(unittest.TestCase):

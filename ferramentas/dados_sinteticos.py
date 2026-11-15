@@ -8,7 +8,7 @@ converter centavos.
 
 import sqlite3
 
-from mock import consultas
+from mock import consultas, modelos
 from mock.banco import criar_engine, url_padrao
 from mock.falhas import SistemaIndisponivel
 from mock.gerar import garantir_mundo_local
@@ -30,6 +30,7 @@ CAMPOS_DO_CADASTRO = (
     "situacao",
     "data_entrada",
 )
+PAPEIS_CONTATO = modelos.PAPEIS_CONTATO  # as func.py não importam o mock direto
 FALHAS_DE_INTEGRACAO = (SistemaIndisponivel, OperationalError, InterfaceError, TempoEsgotadoNoPool)
 _CONEXAO = {"engine": None}
 
@@ -173,6 +174,19 @@ def buscar_contatos(codigo):
     """Contatos do lojista, em claro (a máscara é de `Ferramenta.executar`): (lista, total)."""
     resposta = _ler(consultas.buscar_contatos, codigo)
     return resposta["itens"], resposta["total"]
+
+
+def contato_para_email(codigo, papeis):
+    """Primeiro contato do lojista com um dos `papeis`, na ordem dada: {"papel", "email"} ou None.
+
+    O e-mail sai em claro só para `confirmacoes` guardar no pedido; o agente vê a prévia mascarada.
+    """
+    contatos, _ = buscar_contatos(codigo)
+    for papel in papeis:
+        for contato in contatos:
+            if contato["papel"] == papel and contato.get("email"):
+                return {"papel": papel, "email": contato["email"]}
+    return None
 
 
 def buscar_endereco(cep):

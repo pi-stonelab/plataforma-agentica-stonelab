@@ -2,7 +2,7 @@
 
 import os
 
-from ferramentas import catalogo, dados_sinteticos, governanca
+from ferramentas import catalogo, confirmacoes, dados_sinteticos, email_simulado, governanca
 from mock.banco import criar_engine
 from mock.consultas import buscar_funcionario
 from mock.falhas import desligar_todas
@@ -86,6 +86,8 @@ def limpar_estado():
     pedidos = catalogo.carregar()["solicitar_ferramenta_ausente"]
     pedidos_em_memoria = __import__(type(pedidos).__module__, fromlist=["PEDIDOS"]).PEDIDOS
     pedidos_em_memoria.clear()
+    confirmacoes.limpar()
+    email_simulado.limpar()
 
 
 def usuario_do_diretorio(engine, id_funcionario):

@@ -197,6 +197,8 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "aberto_por", "aberto_em", "dias_em_aberto", "id_liquidacao", "id_fatura", "autor",
         "canal", "id_chamado", "total", "limite", "itens", "cargo", "area", "carteiras",
         "valor_bruto", "valor_liquido", "valor_total", "valor",
+        # Prévia do enviar_email (ferramentas/confirmacoes.py): assunto e corpo passam pela máscara de texto livre.
+        "confirmacao_id", "expira_em", "assunto", "corpo", "id_mensagem",
     }
 )
 
