@@ -19,6 +19,7 @@ class EnviarEmail(FerramentaComConfirmacao):
     nivel_minimo = "N1"
     areas_permitidas = ("atendimento", "financeiro")
     categorias_dados = ("contato",)
+    campos_liberados = (*FerramentaComConfirmacao.campos_liberados, "assunto", "corpo", "id_mensagem")
     sensibilidade = "pessoal"
     conteudo_terceiros = False
     status = "ativa"

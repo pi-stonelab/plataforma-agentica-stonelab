@@ -77,6 +77,7 @@ class FerramentaComConfirmacao(Ferramenta):
     """
 
     acesso = "escrita"
+    campos_liberados = ("confirmacao_id", "expira_em")  # a subclasse soma os campos da sua prévia
 
     def montar(self, argumentos, usuario):
         raise ErroFerramenta("ferramenta_inativa", "Ferramenta ainda sem lógica.")
@@ -87,6 +88,12 @@ class FerramentaComConfirmacao(Ferramenta):
     def rodar_com_contexto(self, argumentos, usuario, contexto):
         conteudo, previa = self.montar(argumentos, usuario)
         return _como_mostrar(_guardar(self, usuario, contexto, conteudo, previa))
+
+    def desfazer(self, dados):
+        """A resposta da fase 1 não chegou ao agente (registro final ou erro depois de guardar):
+        a prévia sai da fila, para não ser confirmada nem repetida por uma nova tentativa."""
+        confirmacao_id = dados.get("confirmacao_id") if isinstance(dados, dict) else None
+        return _tirar_da_fila(confirmacao_id)
 
 
 def _como_mostrar(pedido):
@@ -118,7 +125,7 @@ def _guardar(ferramenta, usuario, contexto, conteudo, previa):
             id_usuario=usuario.id_usuario,
             contexto={campo: contexto.get(campo) for campo in CAMPOS_DO_CONTEXTO},
             conteudo=conteudo,
-            previa=mascara.mascarar(previa, ferramenta.categorias_dados),
+            previa=mascara.mascarar(previa, ferramenta.categorias_dados, ferramenta.campos_liberados),
             expira_em=agora() + VALIDADE,
         )
         PEDIDOS[pedido.confirmacao_id] = pedido
@@ -156,6 +163,16 @@ def _retirar(confirmacao_id, usuario):
         return PEDIDOS.pop(confirmacao_id)
 
 
+def _tirar_da_fila(confirmacao_id):
+    """Descarta a prévia sem registrar: só quem já falhou em registrar a usa. Devolve True se havia prévia."""
+    with TRAVA_DOS_PEDIDOS:
+        pedido = PEDIDOS.pop(confirmacao_id, None) if isinstance(confirmacao_id, str) else None
+    if pedido is None:
+        return False
+    pedido.conteudo.clear()
+    return True
+
+
 def _devolver(pedido):
     with TRAVA_DOS_PEDIDOS:
         PEDIDOS[pedido.confirmacao_id] = pedido
@@ -188,7 +205,9 @@ def confirmar(confirmacao_id, usuario):
         _devolver(pedido)
         return resposta("erro", None, MENSAGEM_REGISTRO, "integracao_indisponivel")
     try:
-        dados = mascara.mascarar(ferramenta.efetivar(pedido.conteudo, usuario), ferramenta.categorias_dados)
+        dados = mascara.mascarar(
+            ferramenta.efetivar(pedido.conteudo, usuario), ferramenta.categorias_dados, ferramenta.campos_liberados
+        )
         resultado = resposta("ok", dados, "Enviado.")
     except ErroFerramenta as erro:
         resultado = resposta("erro", None, erro.mensagem, erro.tipo_erro)

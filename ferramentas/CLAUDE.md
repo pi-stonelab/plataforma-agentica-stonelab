@@ -266,6 +266,12 @@ Regras que valem para qualquer ferramenta nova em duas fases:
 - Pedido de outra pessoa responde igual a pedido inexistente, e a tentativa fica no registro com `camada_bloqueio`
   `usuario`. Sem registro da intenção, nada age e a prévia continua valendo.
 - No máximo 5 prévias esperando por pessoa (`LIMITE_POR_USUARIO`).
+- Se a resposta da fase 1 não chega ao agente (o registro final falha, ou algo dá erro depois de guardar a prévia),
+  `executar` chama `desfazer` e a prévia sai da fila. Assim o agente que vê o erro e tenta de novo não deixa duas
+  prévias, e ninguém confirma um pedido que o agente achou que tinha falhado.
+- Campo de texto que só a prévia devolve (`assunto`, `corpo`) vai em `campos_liberados` da ficha da ferramenta, e não
+  em `CAMPOS_NAO_RESTRITOS`, que vale para todas. `FerramentaComConfirmacao` já libera `confirmacao_id` e `expira_em`;
+  a subclasse soma os seus. O texto liberado continua passando pela máscara de CPF e cartão.
 - Para criar uma: subclasse de `FerramentaComConfirmacao` com `montar` e `efetivar`, nome em
   `governanca.ESCRITA_COM_CONFIRMACAO` e testes como os de `test_ferramentas_enviar_email.py`.
 

@@ -2,7 +2,8 @@
 
 Contrato (uma fonte só, `mock/regras.py`):
 - `CLASSIFICACAO_CAMPOS` diz qual máscara vale para cada NOME DE CAMPO restrito;
-- `CAMPOS_NAO_RESTRITOS` lista os campos liberados;
+- `CAMPOS_NAO_RESTRITOS` lista os campos liberados para todas as ferramentas;
+- `campos_liberados` da ficha libera campos só para aquela ferramenta (assunto e corpo do enviar_email);
 - numa ferramenta que lê dado de lojista, texto em campo fora das duas listas sai como "***"
   (negar por padrão);
 - CPF e cartão escritos no meio de qualquer texto também são mascarados (ver `_texto_livre`).
@@ -167,32 +168,33 @@ def _e_valor_em_reais(campo, valor):
     return campo in CAMPOS_DE_VALOR and FORMATO_DE_CAMPOS_DE_VALOR.fullmatch(valor) is not None
 
 
-def _valor(campo, valor, estrito, nivel):
+def _valor(campo, valor, estrito, nivel, liberados):
     """Máscara de um valor que está no campo `campo` (listas herdam o campo do dono)."""
     if nivel > LIMITE_PROFUNDIDADE:
         raise ValueError("dados fundos demais")
     tipo = regras.CLASSIFICACAO_CAMPOS.get(campo)
     if isinstance(valor, dict):
         return {
-            chave: _valor(str(chave), item, estrito, nivel + 1) for chave, item in valor.items()
+            chave: _valor(str(chave), item, estrito, nivel + 1, liberados) for chave, item in valor.items()
         }
     if isinstance(valor, (list, tuple)):
-        return [_valor(campo, item, estrito, nivel + 1) for item in valor]
+        return [_valor(campo, item, estrito, nivel + 1, liberados) for item in valor]
     if tipo is not None:
         return mascarar_valor(tipo, valor)
     if isinstance(valor, str):
         if _e_identificador_de_formato_fixo(campo, valor) or _e_valor_em_reais(campo, valor):
             return valor
-        liberado = campo in regras.CAMPOS_NAO_RESTRITOS
+        liberado = campo in regras.CAMPOS_NAO_RESTRITOS or campo in liberados
         return _texto_livre(valor) if liberado or not estrito else MASCARADO
     return valor
 
 
-def mascarar(dados, categorias_dados):
+def mascarar(dados, categorias_dados, campos_liberados=()):
     """Devolve `dados` com todo campo restrito mascarado.
 
     `categorias_dados` é a da ficha: só quando a ferramenta lê dado de lojista vale a regra de
-    negar texto em campo não classificado.
+    negar texto em campo não classificado. `campos_liberados` também é da ficha: campos de texto
+    que só aquela ferramenta devolve e que passam pela máscara de texto livre em vez de virar "***".
     """
     estrito = not set(categorias_dados) <= regras.CATEGORIAS_COMUNS
-    return _valor("", dados, estrito, 0)
+    return _valor("", dados, estrito, 0, frozenset(campos_liberados))

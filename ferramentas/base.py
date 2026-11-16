@@ -78,6 +78,7 @@ class Ferramenta:
     nivel_minimo = "N2"
     areas_permitidas = ()
     categorias_dados = ()
+    campos_liberados = ()  # campos de texto que só esta ferramenta devolve (ver mascara.mascarar)
     sensibilidade = "sigilosa"
     conteudo_terceiros = False
     status = "planejada"
@@ -110,6 +111,13 @@ class Ferramenta:
         troca este método porque precisa do contexto para guardar o pedido; as demais usam `rodar`."""
         return self.rodar(argumentos, usuario)
 
+    def desfazer(self, dados):
+        """Chamado quando a resposta com `dados` não chega ao agente. Devolve True se desfez algo.
+
+        Só a escrita em duas fases usa: a prévia que ficou na fila sai dela (`confirmacoes.py`).
+        """
+        return False
+
     def _registrar_inicio(self, usuario, contexto, inicio):
         """Ferramenta de escrita registra ANTES de agir (MED-1): se não gravar, levanta e não age.
 
@@ -122,6 +130,7 @@ class Ferramenta:
         inicio = time.monotonic()
         camada = None
         agiu = False  # a escrita já deixou o registro "iniciada": a ação pode ter acontecido
+        produzido = None  # o que `rodar_com_contexto` devolveu, antes da máscara
         try:
             if governanca.motivo_bloqueio(self, usuario) is not None:
                 camada = "usuario"
@@ -133,8 +142,8 @@ class Ferramenta:
             if self.acesso == "escrita":
                 self._registrar_inicio(usuario, contexto, inicio)
                 agiu = True
-            dados = self.rodar_com_contexto(argumentos_validos, usuario, contexto)
-            dados = mascara.mascarar(dados, self.categorias_dados)  # uma vez, antes do embrulho
+            dados = produzido = self.rodar_com_contexto(argumentos_validos, usuario, contexto)
+            dados = mascara.mascarar(dados, self.categorias_dados, self.campos_liberados)  # uma vez, antes do embrulho
             resultado = resposta("ok", dados, "Concluído.")
             if self.conteudo_terceiros:
                 resultado = resposta("ok", {"conteudo_de_terceiros": dados}, MENSAGEM_TERCEIROS)
@@ -146,10 +155,14 @@ class Ferramenta:
             resultado = resposta("erro", None, "Integração fora do ar.", "integracao_indisponivel")
         except Exception:  # noqa: BLE001
             resultado = resposta("erro", None, "Erro interno.", "erro_interno")
+        if resultado["status"] != "ok" and produzido is not None:  # o agente vai ver um erro: nada fica esperando
+            self.desfazer(produzido)
         registro = montar_registro(self, usuario, contexto, resultado, camada, inicio)
         try:
             governanca.registrar(registro)
         except governanca.RegistroIndisponivel:  # O9: sem rastro, sem resposta
+            if produzido is not None and self.desfazer(produzido):
+                agiu = False  # a prévia saiu da fila: nada aconteceu e o agente pode pedir de novo
             return resposta(
                 "erro",
                 None,
