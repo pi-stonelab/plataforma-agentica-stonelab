@@ -266,12 +266,22 @@ Regras que valem para qualquer ferramenta nova em duas fases:
 - Pedido de outra pessoa responde igual a pedido inexistente, e a tentativa fica no registro com `camada_bloqueio`
   `usuario`. Sem registro da intenção, nada age e a prévia continua valendo.
 - No máximo 5 prévias esperando por pessoa (`LIMITE_POR_USUARIO`).
-- Se a resposta da fase 1 não chega ao agente (o registro final falha, ou algo dá erro depois de guardar a prévia),
-  `executar` chama `desfazer` e a prévia sai da fila. Assim o agente que vê o erro e tenta de novo não deixa duas
-  prévias, e ninguém confirma um pedido que o agente achou que tinha falhado.
+- A prévia só existe para a pessoa depois que a resposta chega ao agente. `executar` guarda a prévia escondida
+  (`Pedido.liberado = False`: não aparece em `pendentes` e `confirmar` e `cancelar` respondem "não encontrada"),
+  grava o registro final e chama `concluir(dados, entregue)` uma vez, num lugar só. Entregue: a prévia fica visível.
+  Não entregue (o registro final falhou, ou deu erro depois de guardar a prévia): ela sai da fila e o conteúdo é
+  apagado. Assim o agente que vê o erro e tenta de novo não deixa duas prévias, e ninguém confirma um pedido que o
+  agente achou que tinha falhado, nem durante os milissegundos (ou segundos, com registro lento) do registro final.
+- Na fase 1 nada age: `age_ao_executar = False` na `FerramentaComConfirmacao`. Por isso um erro de registro nela
+  responde só "Registro indisponível." e nunca "a ação pode ter sido executada" (essa frase é da escrita direta
+  e da fase 2, em que o e-mail pode ter saído).
+- Nenhum registro é gravado com a trava da fila tomada: os "expirada" são gravados depois de soltá-la, para um
+  destino de registro lento (ou que volte à fila) não travar as confirmações.
 - Campo de texto que só a prévia devolve (`assunto`, `corpo`) vai em `campos_liberados` da ficha da ferramenta, e não
   em `CAMPOS_NAO_RESTRITOS`, que vale para todas. `FerramentaComConfirmacao` já libera `confirmacao_id` e `expira_em`;
-  a subclasse soma os seus. O texto liberado continua passando pela máscara de CPF e cartão.
+  a subclasse soma os seus. O texto liberado continua passando pela máscara de CPF e cartão. A lista de quem pode
+  liberar o quê é fechada em `backend/tests/test_ferramentas_campos_liberados.py`: ferramenta nova que libere um
+  campo falha lá até alguém editar a lista, e essa edição passa pela revisão do CODEOWNERS.
 - Para criar uma: subclasse de `FerramentaComConfirmacao` com `montar` e `efetivar`, nome em
   `governanca.ESCRITA_COM_CONFIRMACAO` e testes como os de `test_ferramentas_enviar_email.py`.
 

@@ -179,6 +179,31 @@ def test_previa_expira_em_15_minutos_e_apaga_o_conteudo(ana):
     assert governanca.REGISTROS[-1]["status"] == "expirada"
 
 
+def test_destino_do_registro_que_chama_de_volta_durante_a_expiracao_nao_trava_a_fila(ana):
+    """O registro de "expirada" é gravado fora da trava da fila: um destino lento ou que volta à fila não a prende."""
+    confirmacao_id = preparar(ana)["dados"]["confirmacao_id"]
+    depois = confirmacoes.PEDIDOS[confirmacao_id].expira_em + timedelta(seconds=1)
+    voltou = []
+
+    def destino_que_volta_a_fila(registro):
+        if registro["status"] == "expirada":
+            voltou.append(confirmacoes.pendentes(ana))
+
+    governanca.adicionar_destino(destino_que_volta_a_fila)
+    resultado = []
+
+    def tarefa():
+        with mock.patch.object(confirmacoes, "agora", return_value=depois):
+            resultado.append(confirmacoes.pendentes(ana))
+
+    with mock.patch.object(confirmacoes, "TRAVA_DOS_PEDIDOS", threading.Lock()):  # uma regressão não trava a suíte
+        thread = threading.Thread(target=tarefa, daemon=True)
+        thread.start()
+        thread.join(timeout=5)
+        assert not thread.is_alive(), "a fila travou: registro gravado com a trava tomada"
+    assert resultado == [[]] and voltou == [[]]
+
+
 def test_email_fora_do_ar_nao_envia_e_avisa_para_pedir_nova_previa(ana):
     confirmacao_id = preparar(ana)["dados"]["confirmacao_id"]
     ligar("email")
@@ -242,6 +267,53 @@ def test_erro_depois_de_guardar_a_previa_tambem_tira_ela_da_fila(ana):
     with mock.patch.object(mascara, "mascarar", side_effect=falha_na_segunda):
         resposta = preparar(ana)
     assert resposta["tipo_erro"] == "erro_interno"
+    assert confirmacoes.pendentes(ana) == []
+
+
+def test_duas_falhas_juntas_dizem_que_nada_foi_enviado_e_nao_deixam_previa(ana):
+    """Revisão 2 do Enrico: erro depois de guardar a prévia E registro final fora do ar."""
+    real = mascara.mascarar
+    chamadas = []
+
+    def falha_na_segunda(*argumentos):
+        chamadas.append(1)
+        if len(chamadas) == 2:
+            raise ValueError("dados fundos demais")
+        return real(*argumentos)
+
+    governanca.adicionar_destino(destino_que_falha_a_partir_do(2))
+    with mock.patch.object(mascara, "mascarar", side_effect=falha_na_segunda):
+        resposta = preparar(ana)
+    assert resposta["tipo_erro"] == "integracao_indisponivel"
+    assert "não repita" not in resposta["mensagem"]
+    assert "pode ter sido executada" not in resposta["mensagem"]
+    assert confirmacoes.pendentes(ana) == []
+    assert email_simulado.ENVIADAS == []
+
+
+def test_previa_so_aparece_e_so_confirma_depois_que_a_resposta_foi_entregue(ana):
+    """Durante o registro final a prévia já está guardada, mas ninguém a vê nem confirma ainda."""
+    vistas = {}
+
+    def espiao(registro):
+        if registro["status"] == "ok" and not vistas:  # o registro final da fase 1
+            ids = list(confirmacoes.PEDIDOS)
+            vistas["pendentes"] = confirmacoes.pendentes(ana)
+            vistas["confirmacao"] = confirmacoes.confirmar(ids[0], ana)["tipo_erro"]
+            vistas["cancelamento"] = confirmacoes.cancelar(ids[0], ana)["tipo_erro"]
+
+    governanca.adicionar_destino(espiao)
+    confirmacao_id = preparar(ana)["dados"]["confirmacao_id"]
+    assert vistas == {"pendentes": [], "confirmacao": "nao_encontrado", "cancelamento": "nao_encontrado"}
+    assert [p["confirmacao_id"] for p in confirmacoes.pendentes(ana)] == [confirmacao_id]
+    assert email_simulado.ENVIADAS == []
+
+
+def test_erro_de_pedido_invalido_com_registro_fora_do_ar_nao_fala_em_acao_executada(ana):
+    governanca.adicionar_destino(destino_que_falha_a_partir_do(2))
+    resposta = preparar(ana, {**PEDIDO, "assunto": ""})
+    assert resposta["tipo_erro"] == "integracao_indisponivel"
+    assert "pode ter sido executada" not in resposta["mensagem"]
     assert confirmacoes.pendentes(ana) == []
 
 
@@ -309,3 +381,27 @@ def test_agente_consulta_as_vendas_e_prepara_o_email_sem_enviar(engine, ana):
     ]
     assert email_simulado.ENVIADAS == [] and len(confirmacoes.pendentes(ana)) == 1
     assert email_real("M00001", "financeiro") not in "\n".join(roteiro.prompts)
+
+
+def test_agente_que_tenta_de_novo_depois_de_registro_fora_do_ar_deixa_uma_previa_so(engine, ana):
+    """O caso do Enrico pelo agente: a 1ª tentativa devolve erro de registro, a 2ª funciona. Ficam 0 e depois 1."""
+    governanca.adicionar_destino(destino_que_falha_a_partir_do(2))  # "iniciada" grava, o registro final falha
+    roteiro = reg.Roteiro(
+        [
+            reg.ler(),
+            reg.ler("comunicacao/enviar_email"),
+            reg.usar(ENVIAR, **PEDIDO),
+            reg.final("Deu erro de registro; vou tentar de novo."),
+        ]
+    )
+    turno = geral.rodar_turno_geral("Mande o e-mail ao M00001.", ana, roteiro)
+    assert turno.tipo == "final"
+    assert confirmacoes.pendentes(ana) == [] and email_simulado.ENVIADAS == []
+    governanca.DESTINOS.clear()  # o registro voltou
+    segunda = geral.rodar_turno_geral(
+        "Tente de novo.",
+        ana,
+        reg.Roteiro([reg.ler(), reg.ler("comunicacao/enviar_email"), reg.usar(ENVIAR, **PEDIDO), reg.final("Pronto.")]),
+    )
+    assert segunda.tipo == "final"
+    assert len(confirmacoes.pendentes(ana)) == 1 and email_simulado.ENVIADAS == []

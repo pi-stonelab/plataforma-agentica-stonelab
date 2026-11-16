@@ -212,9 +212,11 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - Motivo: o passo 7 do MVP da demo (KAN-52) pede a prévia com confirmação, e a KAN-59 inclui o e-mail.
 - No código: `ferramentas/confirmacoes.py`, `ferramentas/email_simulado.py`, `governanca.ESCRITA_COM_CONFIRMACAO` e
   `agentes/terminal.py::revisar_previas`. Testes em `test_ferramentas_enviar_email.py` e `TestPreviasNoTerminal`.
-- Revisão do Enrico no PR do e-mail (15/11): (1) se o registro final falha, a prévia sai da fila (`Ferramenta.desfazer`), para
-  não ser confirmada nem duplicada por nova tentativa; (2) `assunto` e `corpo` saíram de `CAMPOS_NAO_RESTRITOS` e viraram
-  `campos_liberados` da ficha do `enviar_email`, para uma ferramenta que leia e-mails continuar negando por padrão.
+- Revisão do Enrico no PR do e-mail (15 e 16/11): (1) a prévia só fica visível e confirmável depois que a resposta chega
+  ao agente; se o registro final falha ou algo dá erro depois de guardá-la, ela sai da fila (`Ferramenta.concluir`, uma
+  decisão só), para não ser confirmada nem duplicada por nova tentativa, e a mensagem ao agente não diz que a ação foi executada; (2) `assunto` e `corpo` saíram de `CAMPOS_NAO_RESTRITOS` e viraram
+  `campos_liberados` da ficha do `enviar_email`, para uma ferramenta que leia e-mails continuar negando por padrão;
+  uma lista fechada em teste diz quais ferramentas podem liberar quais campos (`test_ferramentas_campos_liberados.py`).
 - Em aberto: se o supervisor pode confirmar a prévia de outra pessoa (marcador para o Brenno no `agents.md` da
   ferramenta).
 
