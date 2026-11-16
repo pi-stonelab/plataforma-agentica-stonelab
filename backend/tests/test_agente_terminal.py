@@ -26,12 +26,18 @@ AMBIENTE_DO_MODELO = {"CF_ACCESS_CLIENT_ID": "id", "CF_ACCESS_CLIENT_SECRET": "s
 RAIZ = Path(__file__).resolve().parents[2]
 
 
-def resposta_http(erro_http=None, erro_json=None, corpo=None):
+def pedacos(*textos, terminar=True):
+    """As linhas de uma resposta em `stream` do Ollama: um pedaço por texto e, no fim, `done: true`."""
+    linhas = [json.dumps({"response": texto, "done": False}).encode() for texto in textos]
+    if terminar:
+        linhas.append(json.dumps({"response": "", "done": True}).encode())
+    return linhas
+
+
+def resposta_http(erro_http=None, linhas=(), erro_leitura=None):
     resposta = mock.Mock()
     resposta.raise_for_status.side_effect = erro_http
-    resposta.json.side_effect = erro_json
-    if corpo is not None:
-        resposta.json.return_value = corpo
+    resposta.iter_lines.side_effect = erro_leitura or (lambda *_, **__: iter(list(linhas)))
     return resposta
 
 
@@ -326,8 +332,10 @@ class TestChamarLlm(unittest.TestCase):
             (resposta_http(erro_http=erro_524), "HTTP 524"),
             (terminal.requests.Timeout(f"lento em {URL_DO_MODELO}"), "Timeout"),
             (terminal.requests.ConnectionError("x"), "ConnectionError"),
-            (resposta_http(corpo={"outra": 1}), "KeyError"),
-            (resposta_http(corpo={"response": 42}), "TypeError"),
+            (resposta_http(linhas=[b'{"outra": 1, "done": true}']), "KeyError"),
+            (resposta_http(linhas=[b'{"response": 42, "done": true}']), "TypeError"),
+            (resposta_http(linhas=pedacos("USAR: enviar_email", terminar=False)), "ValueError"),
+            (resposta_http(linhas=[f'{{"error": "falha em {URL_DO_MODELO}"}}'.encode()]), "ValueError"),
         ]
         for retorno, causa in casos:
             with self.subTest(causa):
@@ -339,7 +347,7 @@ class TestChamarLlm(unittest.TestCase):
                 self.assertEqual(str(contexto.exception), "Modelo indisponível.")
 
     def test_envia_o_sistema_e_a_parada(self):
-        resposta = resposta_http(corpo={"response": "<think>x</think>FINAL: ok"})
+        resposta = resposta_http(linhas=pedacos("<think>x</think>", "FINAL: ", "ok"))
         with (
             mock.patch.dict("os.environ", AMBIENTE_DO_MODELO),
             mock.patch.object(terminal, "LLM_URL", "http://modelo.teste"),
@@ -364,9 +372,10 @@ class TestChamarLlm(unittest.TestCase):
             {"side_effect": rede.ConnectionError(f"HTTPSConnectionPool(host='{URL_DO_MODELO}')")},
             {"side_effect": rede.ReadTimeout(f"{URL_DO_MODELO} Read timed out")},
             {"return_value": resposta_http(erro_http=rede.HTTPError(f"502 para url: {URL_DO_MODELO}"))},
-            {"return_value": resposta_http(erro_json=ValueError(URL_DO_MODELO))},
-            {"return_value": resposta_http(corpo={"sem_resposta": 1})},
-            {"return_value": resposta_http(corpo={"response": 123})},
+            {"return_value": resposta_http(erro_leitura=rede.ChunkedEncodingError(URL_DO_MODELO))},
+            {"return_value": resposta_http(linhas=[URL_DO_MODELO.encode()])},
+            {"return_value": resposta_http(linhas=[b'{"sem_resposta": 1}'])},
+            {"return_value": resposta_http(linhas=[b'{"response": 123, "done": true}'])},
         )
         for configuracao in falhas:
             with self.subTest(configuracao=list(configuracao)):
@@ -378,7 +387,7 @@ class TestChamarLlm(unittest.TestCase):
                 self.assertTrue(erro.__suppress_context__ or erro.__context__ is None)
 
     def test_usa_o_tempo_recebido_como_timeout(self):
-        resposta = resposta_http(corpo={"response": "FINAL: ok"})
+        resposta = resposta_http(linhas=pedacos("FINAL: ok"))
         with (
             mock.patch.dict("os.environ", AMBIENTE_DO_MODELO),
             mock.patch.object(terminal, "LLM_URL", URL_DO_MODELO),
@@ -386,6 +395,53 @@ class TestChamarLlm(unittest.TestCase):
         ):
             terminal.chamar_llm("sistema", "prompt", tempo_limite=17.5)
         self.assertEqual(post.call_args.kwargs["timeout"], 17.5)
+
+    def test_pede_a_resposta_em_pedacos_e_fecha_a_conexao(self):
+        """Em `stream` o Cloudflare vê dados chegando e não corta aos 100 s (HTTP 524)."""
+        for linhas in (pedacos("FINAL: ok"), pedacos("USAR:", terminar=False)):
+            resposta = resposta_http(linhas=linhas)
+            with (
+                mock.patch.dict("os.environ", AMBIENTE_DO_MODELO),
+                mock.patch.object(terminal, "LLM_URL", URL_DO_MODELO),
+                mock.patch.object(terminal.requests, "post", return_value=resposta) as post,
+                contextlib.suppress(motor.ModeloIndisponivel),
+            ):
+                terminal.chamar_llm("sistema", "prompt")
+            self.assertIs(post.call_args.kwargs["stream"], True)
+            self.assertIs(post.call_args.kwargs["json"]["stream"], True)
+            resposta.close.assert_called_once()
+
+    def test_resposta_cortada_nao_chega_ao_motor_como_texto(self):
+        """A conexão caiu no meio de uma ação: texto pela metade não pode virar `USAR`."""
+        resposta = resposta_http(linhas=pedacos('USAR: enviar_email {"para":', terminar=False))
+        with self.assertRaises(motor.ModeloIndisponivel) as contexto:
+            self.chamar_com(return_value=resposta)
+        self.assertEqual(contexto.exception.causa, "ValueError")
+
+    def test_prazo_total_vale_mesmo_com_pedacos_chegando(self):
+        """O `timeout` do `requests` conta cada espera; sem esta conferência o prazo do turno não valeria."""
+        resposta = resposta_http(linhas=pedacos("a", "b", "c", "d", "e"))
+        with (
+            mock.patch.dict("os.environ", AMBIENTE_DO_MODELO),
+            mock.patch.object(terminal, "LLM_URL", URL_DO_MODELO),
+            mock.patch.object(terminal.requests, "post", return_value=resposta),
+            mock.patch.object(terminal, "_agora", side_effect=[0, 40, 80, 120]),
+            self.assertRaises(motor.ModeloIndisponivel) as contexto,
+        ):
+            terminal.chamar_llm("sistema", "prompt", tempo_limite=100)
+        self.assertEqual(contexto.exception.causa, "Timeout")
+
+    def test_causa_vai_para_o_log_sem_url_nem_texto_do_servidor(self):
+        class ErroHttp(terminal.requests.HTTPError):
+            pass
+
+        erro_524 = ErroHttp(f"524 em {URL_DO_MODELO}")
+        erro_524.response = mock.Mock(status_code=524)
+        with self.assertLogs(terminal.logger, "WARNING") as registro, self.assertRaises(motor.ModeloIndisponivel):
+            self.chamar_com(return_value=resposta_http(erro_http=erro_524))
+        saida = "\n".join(registro.output)
+        self.assertIn("HTTP 524", saida)
+        self.assertNotIn("modelo-secreto", saida)
 
     def test_turno_reaproveita_o_tempo_que_sobra_como_timeout(self):
         apoio.limpar()
@@ -395,7 +451,7 @@ class TestChamarLlm(unittest.TestCase):
         def post(*_, **kwargs):
             tempos.append(kwargs["timeout"])
             relogio.passar(40)
-            return resposta_http(corpo={"response": "LER:"})
+            return resposta_http(linhas=pedacos("LER:"))
 
         with (
             mock.patch.dict("os.environ", AMBIENTE_DO_MODELO),

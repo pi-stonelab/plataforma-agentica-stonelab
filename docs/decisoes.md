@@ -228,6 +228,20 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - No código: `ferramentas/pendencias.py`, `catalogo.PADRAO_MARCADOR` (tira os dois formatos do texto do modelo) e
   `test_ferramentas_pendencias.py`.
 
+### H14. O terminal recebe a resposta do modelo em pedaços
+- Decisão: `terminal.chamar_llm` usa `stream: true`. Só vale a resposta que termina com `done: true`; conexão que cai
+  antes é `ModeloIndisponivel`, para o motor nunca agir sobre uma ação cortada. O prazo total da chamada é conferido a
+  cada pedaço, porque o `timeout` do `requests` conta cada espera e não o total.
+- Quem e quando: Pedro, 16/11.
+- Motivo: o Cloudflare na frente do Ollama desiste aos ~100 s sem resposta (HTTP 524). Com `stream: false` e o prompt
+  crescendo a cada passo, o terceiro passo de um pedido de e-mail estourou (18 s, 61 s e depois 524 aos 126 s) e o
+  terminal só mostrava "Modelo indisponível".
+- A causa (`HTTP 524`, `ReadTimeout`...) agora vai para o log do terminal, sem URL nem texto do servidor.
+- No código: `agentes/terminal.py` (`chamar_llm`, `_juntar_pedacos`, `_modelo_indisponivel`). Testes em
+  `TestChamarLlm`, incluindo resposta cortada e prazo total.
+- Limite conhecido: o Ollama só manda o primeiro pedaço quando gera o primeiro token. Se a leitura do prompt sozinha
+  passar de ~100 s, o 524 volta; aí o caminho é encurtar o prompt, não o streaming.
+
 ## Decisões do orquestrador (O1 a O13)
 
 Todas de 11/11, PLANO v2, escritas depois da crítica ao plano. "Para o Pedro ver" quer dizer que ele leu; só a O10

@@ -11,11 +11,14 @@ Uso (com `MODO_TERMINAL=1` e `ID_USUARIO` no .env):
 
 import argparse
 import inspect
+import json
 import logging
 import math
 import os
 import re
+import time
 import uuid
+from contextlib import closing
 from dataclasses import dataclass
 
 import requests
@@ -26,6 +29,8 @@ from agentes.agente_geral import agente as geral
 from ferramentas import confirmacoes, diretorio
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 LLM_URL = os.environ.get("LLM_URL", "")  # só do .env; sem valor padrão no código
 MODELO_PADRAO = "qwen3.8:27b"
@@ -132,19 +137,51 @@ def montar_headers():
 
 def _modelo_indisponivel(erro):
     """`ModeloIndisponivel` de mensagem genérica, com `causa` para diagnóstico: o tipo da falha ou, se o
-    servidor respondeu com erro, "HTTP <código>". Nunca o texto do erro: o do `requests` traz a URL."""
+    servidor respondeu com erro, "HTTP <código>". Nunca o texto do erro: o do `requests` traz a URL.
+    A causa também vai para o log, porque o motor só registra o tipo da exceção."""
     resposta = getattr(erro, "response", None)
     codigo = getattr(resposta, "status_code", None)
     excecao = motor.ModeloIndisponivel("Modelo indisponível.")
     excecao.causa = f"HTTP {codigo}" if isinstance(codigo, int) else type(erro).__name__
+    logger.warning("modelo indisponivel causa=%s", excecao.causa)
     return excecao
+
+
+_agora = time.monotonic  # separado para o teste conduzir o relógio
+
+
+def _juntar_pedacos(linhas, prazo):
+    """Junta o texto de uma resposta em pedaços do Ollama (uma linha JSON por pedaço).
+
+    Só vale a resposta que termina com `done: true`: se a conexão cai antes, o texto está cortado e o
+    motor poderia agir sobre uma ação pela metade, então isso é falha do modelo. O `timeout` do
+    `requests` conta cada espera, não o total; o prazo total é conferido aqui a cada pedaço."""
+    partes = []
+    for linha in linhas:
+        if _agora() > prazo:
+            raise requests.Timeout()
+        if not linha:
+            continue
+        pedaco = json.loads(linha)
+        if not isinstance(pedaco, dict) or "error" in pedaco:
+            raise ValueError("pedaço inválido")  # o texto do erro do servidor não sai daqui
+        texto = pedaco["response"]
+        if not isinstance(texto, str):
+            raise _modelo_indisponivel(TypeError())
+        partes.append(texto)
+        if pedaco.get("done") is True:
+            return "".join(partes)
+    raise ValueError("resposta cortada")
 
 
 def chamar_llm(prompt_sistema: str, prompt: str, tempo_limite: float = SEGUNDOS_POR_CHAMADA) -> str:
     """Chamada direta ao Ollama, para o terminal. No produto quem chama é o `LLMClient` do back-end.
 
-    `tempo_limite` (segundos) é o timeout da chamada; o motor passa o que sobra do turno. Falha de
-    rede ou resposta ilegível vira `ModeloIndisponivel` com mensagem genérica: a do `requests`
+    A resposta vem em pedaços (`stream`): o Cloudflare na frente do modelo desiste aos ~100 s sem
+    resposta (HTTP 524), e um prompt grande leva mais que isso para ficar pronto por inteiro.
+
+    `tempo_limite` (segundos) é o prazo total da chamada; o motor passa o que sobra do turno. Falha de
+    rede, resposta cortada ou ilegível vira `ModeloIndisponivel` com mensagem genérica: a do `requests`
     traria a URL do modelo.
     """
     if not LLM_URL:
@@ -153,21 +190,20 @@ def chamar_llm(prompt_sistema: str, prompt: str, tempo_limite: float = SEGUNDOS_
         "model": LLM_MODELO,
         "system": prompt_sistema,
         "prompt": prompt,
-        "stream": False,
+        "stream": True,
         "think": False,
         "options": {"temperature": 0, "stop": [motor.PARADA_DO_MODELO]},
     }
     headers = montar_headers()  # fora do try: credencial ausente é erro de configuração
+    prazo = _agora() + tempo_limite
     try:
-        r = requests.post(
-            f"{LLM_URL}/api/generate", headers=headers, json=payload, timeout=tempo_limite
-        )
-        r.raise_for_status()
-        texto = r.json()["response"]
+        with closing(requests.post(
+            f"{LLM_URL}/api/generate", headers=headers, json=payload, timeout=tempo_limite, stream=True
+        )) as resposta:
+            resposta.raise_for_status()
+            texto = _juntar_pedacos(resposta.iter_lines(), prazo)
     except (requests.RequestException, ValueError, KeyError) as erro:
         raise _modelo_indisponivel(erro) from None
-    if not isinstance(texto, str):
-        raise _modelo_indisponivel(TypeError())
     return re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
 
 

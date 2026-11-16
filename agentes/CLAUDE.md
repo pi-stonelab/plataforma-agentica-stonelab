@@ -112,7 +112,7 @@ Código em `agentes/terminal.py`, fora do motor. Só com `MODO_TERMINAL=1`:
 O `.env` tem `ID_USUARIO` (e `LLM_URL`, `LLM_MODELO` e as credenciais do modelo); nível, área e carteira vêm do
 diretório do mock, por `buscar_usuario_no_diretorio`, que chama `ferramentas.diretorio.buscar_usuario` (a mesma regra
 que o back-end usa; banco de `MOCK_DATABASE_URL` ou o SQLite local; para outro banco,
-`dados_sinteticos.configurar(...)`); funcionário desligado, afastado ou inexistente não entra. `chamar_llm` troca qualquer erro de rede por `ModeloIndisponivel` sem a URL. Não use
+`dados_sinteticos.configurar(...)`); funcionário desligado, afastado ou inexistente não entra. `chamar_llm` recebe a resposta em pedaços (`stream`; o Cloudflare corta aos ~100 s sem resposta), só aceita a que termina com `done: true` e troca qualquer erro de rede por `ModeloIndisponivel` sem a URL, deixando a causa no log. Não use
 isso no produto: o back-end monta o `Usuario` e o `LLMClient` por conta própria.
 
 Depois de cada resposta, `revisar_previas` mostra as prévias de e-mail que esperam o funcionário (contato mascarado,
