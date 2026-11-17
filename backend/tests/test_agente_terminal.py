@@ -457,6 +457,7 @@ class TestChamarLlm(unittest.TestCase):
             mock.patch.dict("os.environ", AMBIENTE_DO_MODELO),
             mock.patch.object(terminal, "LLM_URL", URL_DO_MODELO),
             mock.patch.object(terminal.requests, "post", side_effect=post),
+            mock.patch.object(motor, "SEGUNDOS_POR_TURNO", 120),  # o mecanismo, não o valor do motor
         ):
             resultado = motor.rodar_turno(
                 "p", apoio.coordenador_financeiro(), apoio.AGENTE_COMPLETO, terminal.chamar_llm,
