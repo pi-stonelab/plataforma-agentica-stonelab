@@ -1,6 +1,6 @@
 """enviar_email em duas fases: o agente monta a prévia, só quem pediu confirma (KAN-52, passo 7).
 
-Prova o efeito, não só a resposta: o que chegou à caixa de saída simulada, o que ficou na fila de
+Prova o efeito, não só a resposta: o que chegou ao servidor SMTP de teste, o que ficou na fila de
 prévias e o que foi para o registro. Os dados são os do mock (M00001 é da carteira varejo da Ana).
 """
 
@@ -16,7 +16,6 @@ from ferramentas import (
     catalogo,
     confirmacoes,
     dados_sinteticos,
-    email_simulado,
     governanca,
     mascara,
 )
@@ -32,6 +31,7 @@ from .apoio_ferramentas import (
     mundo_do_mock,
     usuario_do_diretorio,
 )
+from .apoio_smtp import REMETENTE_DA_SUITE, enviadas
 
 ENVIAR = "enviar_email"
 AGENTE = (ENVIAR, "consultar_transacoes_cliente")
@@ -81,7 +81,7 @@ def test_previa_nao_envia_nada_e_mostra_o_contato_mascarado(ana):
     assert dados["para"]["papel"] == "financeiro"
     assert re.fullmatch(r"\S\*\*\*@lojistas\.example", dados["para"]["email"])
     assert email_real("M00001", "financeiro") not in json.dumps(resposta)
-    assert email_simulado.ENVIADAS == []
+    assert enviadas() == []
     assert [p["confirmacao_id"] for p in confirmacoes.pendentes(ana)] == [dados["confirmacao_id"]]
 
 
@@ -90,7 +90,7 @@ def test_cpf_e_cartao_no_texto_saem_mascarados_na_previa_e_no_envio(ana):
     dados = preparar(ana, {**PEDIDO, "corpo": corpo})["dados"]
     assert "***.456.789-**" in dados["corpo"] and "**** **** **** 1111" in dados["corpo"]
     confirmacoes.confirmar(dados["confirmacao_id"], ana)
-    (enviada,) = email_simulado.ENVIADAS
+    (enviada,) = enviadas()
     assert enviada["corpo"] == dados["corpo"]
 
 
@@ -136,12 +136,13 @@ def test_quem_pediu_confirma_uma_vez_e_o_conteudo_some_da_fila(ana):
     confirmacao_id = preparar(ana)["dados"]["confirmacao_id"]
     pedido = confirmacoes.PEDIDOS[confirmacao_id]
     resposta = confirmacoes.confirmar(confirmacao_id, ana)
-    assert resposta["status"] == "ok" and resposta["dados"]["id_mensagem"] == "MSG-0001"
-    (enviada,) = email_simulado.ENVIADAS
-    assert (enviada["de"], enviada["para"]) == (ana.id_usuario, email_real("M00001", "financeiro"))
+    assert resposta["status"] == "ok" and re.fullmatch(r"MSG-[0-9A-F]{12}", resposta["dados"]["id_mensagem"])
+    (enviada,) = enviadas()
+    assert enviada["para"] == email_real("M00001", "financeiro")
+    assert enviada["de"].endswith(f" via Stone <{REMETENTE_DA_SUITE}>")
     assert pedido.conteudo == {} and confirmacoes.pendentes(ana) == []
     assert confirmacoes.confirmar(confirmacao_id, ana)["tipo_erro"] == "nao_encontrado"
-    assert len(email_simulado.ENVIADAS) == 1
+    assert len(enviadas()) == 1
 
 
 def test_outra_pessoa_nao_confirma_nem_descobre_que_a_previa_existe(engine, ana):
@@ -150,7 +151,7 @@ def test_outra_pessoa_nao_confirma_nem_descobre_que_a_previa_existe(engine, ana)
     inexistente = confirmacoes.confirmar("CONF-NAOEXISTE", supervisor)
     assert confirmacoes.confirmar(confirmacao_id, supervisor) == inexistente
     assert confirmacoes.cancelar(confirmacao_id, supervisor)["tipo_erro"] == "nao_encontrado"
-    assert email_simulado.ENVIADAS == []
+    assert enviadas() == []
     assert confirmacoes.confirmar(confirmacao_id, ana)["status"] == "ok"  # a prévia continuou da Ana
 
 
@@ -158,14 +159,14 @@ def test_cargo_revalidado_na_confirmacao(ana):
     confirmacao_id = preparar(ana)["dados"]["confirmacao_id"]
     rebaixada = governanca.usuario_do_cargo(ana.id_usuario, "analista_disputas", ana.carteiras)
     assert confirmacoes.confirmar(confirmacao_id, rebaixada)["tipo_erro"] == "permissao_negada"
-    assert email_simulado.ENVIADAS == []
+    assert enviadas() == []
 
 
 def test_descartar_nao_envia_e_a_previa_nao_volta(ana):
     confirmacao_id = preparar(ana)["dados"]["confirmacao_id"]
     assert confirmacoes.cancelar(confirmacao_id, ana)["dados"]["situacao"] == "cancelada"
     assert confirmacoes.confirmar(confirmacao_id, ana)["tipo_erro"] == "nao_encontrado"
-    assert email_simulado.ENVIADAS == []
+    assert enviadas() == []
 
 
 def test_previa_expira_em_15_minutos_e_apaga_o_conteudo(ana):
@@ -175,7 +176,7 @@ def test_previa_expira_em_15_minutos_e_apaga_o_conteudo(ana):
     with mock.patch.object(confirmacoes, "agora", return_value=depois):
         assert confirmacoes.pendentes(ana) == []
         assert confirmacoes.confirmar(confirmacao_id, ana)["tipo_erro"] == "nao_encontrado"
-    assert pedido.conteudo == {} and email_simulado.ENVIADAS == []
+    assert pedido.conteudo == {} and enviadas() == []
     assert governanca.REGISTROS[-1]["status"] == "expirada"
 
 
@@ -213,7 +214,7 @@ def test_email_fora_do_ar_nao_envia_e_avisa_para_pedir_nova_previa(ana):
         desligar_todas()
     assert resposta["tipo_erro"] == "integracao_indisponivel"
     assert "Nada foi enviado" in resposta["mensagem"]
-    assert email_simulado.ENVIADAS == []
+    assert enviadas() == []
 
 
 def test_sem_registro_da_intencao_nada_sai_e_a_previa_continua_valendo(ana):
@@ -224,7 +225,7 @@ def test_sem_registro_da_intencao_nada_sai_e_a_previa_continua_valendo(ana):
 
     governanca.adicionar_destino(destino_que_falha)
     assert confirmacoes.confirmar(confirmacao_id, ana)["tipo_erro"] == "integracao_indisponivel"
-    assert email_simulado.ENVIADAS == []
+    assert enviadas() == []
     governanca.DESTINOS.clear()
     assert confirmacoes.confirmar(confirmacao_id, ana)["status"] == "ok"
 
@@ -247,7 +248,7 @@ def test_registro_final_que_falha_tira_a_previa_da_fila_e_a_nova_tentativa_nao_d
     assert resposta["tipo_erro"] == "integracao_indisponivel"
     assert "não repita" not in resposta["mensagem"]  # nada saiu e nada ficou esperando: pode pedir de novo
     assert confirmacoes.pendentes(ana) == []
-    assert email_simulado.ENVIADAS == []
+    assert enviadas() == []
     governanca.DESTINOS.clear()
     nova = preparar(ana)
     assert nova["status"] == "ok"
@@ -288,7 +289,7 @@ def test_duas_falhas_juntas_dizem_que_nada_foi_enviado_e_nao_deixam_previa(ana):
     assert "não repita" not in resposta["mensagem"]
     assert "pode ter sido executada" not in resposta["mensagem"]
     assert confirmacoes.pendentes(ana) == []
-    assert email_simulado.ENVIADAS == []
+    assert enviadas() == []
 
 
 def test_previa_so_aparece_e_so_confirma_depois_que_a_resposta_foi_entregue(ana):
@@ -306,7 +307,7 @@ def test_previa_so_aparece_e_so_confirma_depois_que_a_resposta_foi_entregue(ana)
     confirmacao_id = preparar(ana)["dados"]["confirmacao_id"]
     assert vistas == {"pendentes": [], "confirmacao": "nao_encontrado", "cancelamento": "nao_encontrado"}
     assert [p["confirmacao_id"] for p in confirmacoes.pendentes(ana)] == [confirmacao_id]
-    assert email_simulado.ENVIADAS == []
+    assert enviadas() == []
 
 
 def test_erro_de_pedido_invalido_com_registro_fora_do_ar_nao_fala_em_acao_executada(ana):
@@ -350,7 +351,7 @@ def test_duas_confirmacoes_ao_mesmo_tempo_enviam_uma_vez_so(ana):
     for linha in linhas:
         linha.join()
     assert sorted(r["status"] for r in respostas) == ["erro"] * 7 + ["ok"]
-    assert len(email_simulado.ENVIADAS) == 1
+    assert len(enviadas()) == 1
 
 
 def test_o_agente_nao_tem_como_confirmar(ana):
@@ -379,7 +380,7 @@ def test_agente_consulta_as_vendas_e_prepara_o_email_sem_enviar(engine, ana):
         "consultar_transacoes_cliente",
         ENVIAR,
     ]
-    assert email_simulado.ENVIADAS == [] and len(confirmacoes.pendentes(ana)) == 1
+    assert enviadas() == [] and len(confirmacoes.pendentes(ana)) == 1
     assert email_real("M00001", "financeiro") not in "\n".join(roteiro.prompts)
 
 
@@ -396,7 +397,7 @@ def test_agente_que_tenta_de_novo_depois_de_registro_fora_do_ar_deixa_uma_previa
     )
     turno = geral.rodar_turno_geral("Mande o e-mail ao M00001.", ana, roteiro)
     assert turno.tipo == "final"
-    assert confirmacoes.pendentes(ana) == [] and email_simulado.ENVIADAS == []
+    assert confirmacoes.pendentes(ana) == [] and enviadas() == []
     governanca.DESTINOS.clear()  # o registro voltou
     segunda = geral.rodar_turno_geral(
         "Tente de novo.",
@@ -404,4 +405,4 @@ def test_agente_que_tenta_de_novo_depois_de_registro_fora_do_ar_deixa_uma_previa
         reg.Roteiro([reg.ler(), reg.ler("comunicacao/enviar_email"), reg.usar(ENVIAR, **PEDIDO), reg.final("Pronto.")]),
     )
     assert segunda.tipo == "final"
-    assert len(confirmacoes.pendentes(ana)) == 1 and email_simulado.ENVIADAS == []
+    assert len(confirmacoes.pendentes(ana)) == 1 and enviadas() == []

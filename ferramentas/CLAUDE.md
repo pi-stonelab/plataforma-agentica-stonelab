@@ -43,7 +43,15 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
   exatamente `ativo`. É o ponto único para o terminal e para o `montar_acesso` do back-end (decisão D11).
 - `confirmacoes.py`: escrita em duas fases. `FerramentaComConfirmacao` (a classe-mãe), a fila de prévias e as funções
   que a interface chama: `pendentes`, `confirmar` e `cancelar`.
-- `email_simulado.py`: caixa de saída simulada (o provedor de e-mail da demo). Nada sai da plataforma.
+- `email_smtp.py`: o envio de e-mail, por SMTP (`smtplib`), configurado no .env (variáveis no `.env.example`). Sem
+  `EMAIL_SMTP_HOST` o envio fica desligado e o `enviar_email` nem monta a prévia. TLS obrigatório fora do localhost, sem volta para texto puro, com o certificado conferido;
+  remetente fixo, com o primeiro nome de quem confirmou ("Ana via Stone") e o e-mail dele no Reply-To, para o
+  lojista responder a ele; um destinatário só; logs só com etapa e tipo da falha. Falha antes do envio é `EnvioIndisponivel`
+  (nada saiu); queda depois do texto é `base.EfeitoIncerto` (pode ter saído), e o `confirmar` diz isso à pessoa.
+  `EMAIL_DESTINO_TESTE` manda tudo a um endereço de teste. Teste manual: `python -m ferramentas.email_smtp --testar
+  <endereço>` (com `MODO_TERMINAL=1`). Testes em `test_ferramentas_email_smtp.py`, contra um servidor SMTP em socket
+  local (`backend/tests/apoio_smtp.py`). A suíte inteira aponta para esse servidor (`conftest.py`): nenhum teste
+  manda e-mail para fora.
 - `pendencias.py`: lista os marcadores `A FAZER` e `DECIDIR` por pessoa (`python -m ferramentas.pendencias`).
 - `agents.md` (raiz e de cada área e ferramenta): o texto que o modelo lê. A parte depois de `## Para quem mantém`
   o código descarta.
@@ -328,8 +336,9 @@ linha num comentário. Exemplo entre crases, como os de cima, não conta.
 - E-mail e telefone digitados em texto livre não são mascarados (MED-4). Só CPF e cartão. Decisão de produto pendente.
 - Falso positivo aceito: qualquer número de 11 dígitos em texto (um celular) vira CPF mascarado.
 - Não existe `timeout_segundos` na ficha (divergência V7 com a KAN-69). O prazo é do turno do agente.
-- A fila de prévias (`confirmacoes.PEDIDOS`) e a caixa de saída simulada ficam em memória: reiniciar o processo
-  perde as prévias. A tabela é do back-end (marcador em `confirmacoes.py`).
+- A fila de prévias (`confirmacoes.PEDIDOS`) fica em memória: reiniciar o processo
+  perde as prévias. Pelo SMTP não há limite de envios por hora: o freio é a confirmação humana e o limite de 5
+  prévias por pessoa. A tabela é do back-end (marcador em `confirmacoes.py`).
 - `REGISTROS` e a fila `PEDIDOS` de `solicitar_ferramenta_ausente` ficam em memória. A fila deveria ir uma vez
   por semana a um card único do Jira (decisão 12 do briefing, KAN-27). Hoje é só um marcador.
 - `governanca.Usuario` confia em `id_usuario` e `carteiras` de quem monta (BAIXO-8). O back-end monta com

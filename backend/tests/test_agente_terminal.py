@@ -13,12 +13,13 @@ from unittest import mock
 
 from agentes import terminal
 from agentes.agente_atendimento import agente as motor
-from ferramentas import confirmacoes, dados_sinteticos, email_simulado, governanca
+from ferramentas import confirmacoes, dados_sinteticos, governanca
 from mock.banco import criar_engine
 from mock.falhas import desligar_todas, ligar
 
 from . import apoio_agente as apoio
 from .apoio_agente import modelo_roteirizado
+from .apoio_smtp import ServidorSmtp, enviadas
 from .test_agente_atendimento import INDICE, LER_MULTA, MULTA, turno
 
 URL_DO_MODELO = "https://modelo-secreto.exemplo.invalid"
@@ -260,18 +261,35 @@ class TestPreviasNoTerminal(unittest.TestCase):
             terminal.conversar_no_terminal(self.ana, chamar_modelo=modelo)
         return saida.getvalue()
 
-    def test_s_envia_pela_caixa_de_saida_simulada(self):
+    def test_s_envia_pelo_smtp(self):
         texto = self.conversar(["s"])
         self.assertIn("=== PRÉVIA CONF-", texto)
-        self.assertIn("MSG-0001", texto)
-        self.assertEqual(len(email_simulado.ENVIADAS), 1)
+        self.assertRegex(texto, r"MSG-[0-9A-F]{12}, enviado por SMTP\)")
+        self.assertEqual(len(enviadas()), 1)
         self.assertEqual(confirmacoes.pendentes(self.ana), [])
+
+    def test_s_com_smtp_ligado_envia_pelo_servidor_e_diz_por_onde_saiu(self):
+        with ServidorSmtp() as servidor:
+            ambiente = {
+                "EMAIL_SMTP_HOST": "127.0.0.1",
+                "EMAIL_SMTP_PORTA": str(servidor.porta),
+                "EMAIL_SMTP_SEGURANCA": "nenhuma",
+                "EMAIL_REMETENTE": "plataforma@stonelab.example",
+                "EMAIL_DESTINO_TESTE": "pedro@pessoal.example",
+            }
+            with mock.patch.dict("os.environ", ambiente):
+                texto = self.conversar(["s"])
+        (recebida,) = servidor.mensagens
+        self.assertEqual(recebida["To"], "pedro@pessoal.example")
+        self.assertEqual(recebida["Subject"], "[TESTE] Vendas de outubro")
+        self.assertIn("enviado por SMTP ao destino de teste", texto)
+        self.assertEqual(enviadas(), [])
 
     def test_n_descarta_e_enter_deixa_para_depois(self):
         self.conversar(["n"])
-        self.assertEqual((email_simulado.ENVIADAS, confirmacoes.pendentes(self.ana)), ([], []))
+        self.assertEqual((enviadas(), confirmacoes.pendentes(self.ana)), ([], []))
         self.conversar([""])
-        self.assertEqual(email_simulado.ENVIADAS, [])
+        self.assertEqual(enviadas(), [])
         self.assertEqual(len(confirmacoes.pendentes(self.ana)), 1)
 
     def test_a_tela_mostra_o_email_mascarado(self):

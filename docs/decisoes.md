@@ -210,7 +210,7 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
   do agente. Tira o `enviar_email` da O6; as outras escritas continuam para a Sprint 3.
 - Quem e quando: Pedro, 15/11.
 - Motivo: o passo 7 do MVP da demo (KAN-52) pede a prévia com confirmação, e a KAN-59 inclui o e-mail.
-- No código: `ferramentas/confirmacoes.py`, `ferramentas/email_simulado.py`, `governanca.ESCRITA_COM_CONFIRMACAO` e
+- No código: `ferramentas/confirmacoes.py`, `ferramentas/email_smtp.py` (H15), `governanca.ESCRITA_COM_CONFIRMACAO` e
   `agentes/terminal.py::revisar_previas`. Testes em `test_ferramentas_enviar_email.py` e `TestPreviasNoTerminal`.
 - Revisão do Enrico no PR do e-mail (15 e 16/11): (1) a prévia só fica visível e confirmável depois que a resposta chega
   ao agente; se o registro final falha ou algo dá erro depois de guardá-la, ela sai da fila (`Ferramenta.concluir`, uma
@@ -241,6 +241,24 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
   `TestChamarLlm`, incluindo resposta cortada e prazo total.
 - Limite conhecido: o Ollama só manda o primeiro pedaço quando gera o primeiro token. Se a leitura do prompt sozinha
   passar de ~100 s, o 524 volta; aí o caminho é encurtar o prompt, não o streaming.
+
+### H15. O enviar_email envia de verdade por SMTP
+- Decisão: o envio do `enviar_email` é só por SMTP (`smtplib`, sem biblioteca nova), configurado no .env. A caixa de
+  saída simulada saiu. Sem `EMAIL_SMTP_HOST` o envio fica desligado e o agente nem monta a prévia. Os testes usam um
+  servidor SMTP local. Na ficha, `integracoes` continua `google_workspace` e `microsoft_365`. Gmail e Outlook pela
+  conta de cada pessoa ficam para os conectores do Google e da Microsoft, que trazem ferramentas próprias.
+- Quem envia: a conta da plataforma (`EMAIL_REMETENTE`), com o primeiro nome do funcionário que confirmou no
+  remetente exibido ("Ana via Stone") e o e-mail dele no Reply-To: o lojista responde à pessoa. Pôr o e-mail dele no
+  From faria o Gmail trocar ou recusar a mensagem. Nome e e-mail vêm de `buscar_contato_funcionario`, só no envio.
+- Quem e quando: Pedro, 17/11.
+- Motivo: o professor mostrou em aula que o envio não precisa da conta Google de cada pessoa. Assim o e-mail sai de
+  verdade sem OAuth por pessoa.
+- Segurança: TLS obrigatório fora do localhost, sem volta para texto puro, com o certificado conferido; remetente fixo;
+  um destinatário só, do cadastro; assunto em uma linha (a fase 1 recusa quebra de linha, que injetaria cabeçalho);
+  erros e logs só com etapa e tipo. Falha antes do envio diz "nada foi enviado"; queda depois do texto diz que o envio
+  pode ter saído (`base.EfeitoIncerto`), em vez de mentir. `EMAIL_DESTINO_TESTE` manda tudo a um endereço de teste.
+- No código: `ferramentas/email_smtp.py`, `EnviarEmail.efetivar`, `confirmacoes.MENSAGEM_EFEITO_INCERTO`. Testes em
+  `test_ferramentas_email_smtp.py`, contra um servidor SMTP em socket local (`apoio_smtp.py`).
 
 ## Decisões do orquestrador (O1 a O13)
 

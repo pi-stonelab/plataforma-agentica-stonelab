@@ -31,6 +31,7 @@ from ferramentas import governanca, mascara
 from ferramentas.base import (
     MENSAGEM_REGISTRO,
     MENSAGEM_REGISTRO_FINAL,
+    EfeitoIncerto,
     ErroFerramenta,
     Ferramenta,
     montar_registro,
@@ -46,6 +47,9 @@ LETRAS_DO_ID = string.ascii_uppercase  # sem dígitos: a máscara de texto livre
 CAMPOS_DO_CONTEXTO = ("execucao_id", "passo", "agente_id")
 MENSAGEM_NAO_ENCONTRADO = "Prévia não encontrada, expirada ou já usada."
 MENSAGEM_FORA_DO_AR = "Integração fora do ar. Nada foi enviado; peça uma nova prévia."
+MENSAGEM_EFEITO_INCERTO = (
+    "O servidor de destino não confirmou: a ação pode ter sido feita. Confira antes de pedir uma nova prévia."
+)
 
 # [A FAZER (Marcelo e Isabel, back-end, KAN-60): guardar os pedidos numa tabela (sem o conteúdo
 # depois de resolvidos) e criar as rotas de listar, confirmar e cancelar, chamando `pendentes`,
@@ -248,6 +252,8 @@ def confirmar(confirmacao_id, usuario):
         resultado = resposta("ok", dados, "Enviado.")
     except ErroFerramenta as erro:
         resultado = resposta("erro", None, erro.mensagem, erro.tipo_erro)
+    except EfeitoIncerto:  # saiu, mas sem confirmação: dizer "nada foi enviado" seria mentir
+        resultado = resposta("erro", None, MENSAGEM_EFEITO_INCERTO, "integracao_indisponivel")
     except (ConnectionError, TimeoutError):
         resultado = resposta("erro", None, MENSAGEM_FORA_DO_AR, "integracao_indisponivel")
     except Exception as erro:  # noqa: BLE001 (só o tipo vai ao log: a mensagem pode ter o e-mail)

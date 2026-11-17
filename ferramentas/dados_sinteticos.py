@@ -75,6 +75,11 @@ def buscar_funcionario(id_funcionario):
     return _ler(consultas.buscar_funcionario, id_funcionario)
 
 
+def contato_do_funcionario(id_funcionario):
+    """{"nome", "email"} do funcionário, ou None. Só o envio do e-mail usa (o "responder para")."""
+    return _ler(consultas.buscar_contato_funcionario, id_funcionario)
+
+
 def carteira_do_lojista(codigo):
     """Só o necessário para decidir o escopo (`carteira`), ou None se o lojista não existe."""
     return _ler(consultas.carteira_do_lojista, codigo)

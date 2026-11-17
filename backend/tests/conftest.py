@@ -5,3 +5,8 @@ os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 # O .env de quem desenvolve não pode mudar o resultado dos testes: a variável vazia vence o .env,
 # porque o dotenv não sobrescreve variável já declarada. Cada teste que precisa dela a define.
 os.environ["MOCK_DATABASE_URL"] = ""
+
+from .apoio_smtp import ambiente_da_suite
+
+# O envio de e-mail vai para um servidor SMTP de teste local, nunca para fora (e o .env não muda isso).
+os.environ.update(ambiente_da_suite())

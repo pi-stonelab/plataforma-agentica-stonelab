@@ -2,13 +2,15 @@
 
 import os
 
-from ferramentas import catalogo, confirmacoes, dados_sinteticos, email_simulado, governanca
+from ferramentas import catalogo, confirmacoes, dados_sinteticos, governanca
 from mock.banco import criar_engine
 from mock.consultas import buscar_funcionario
 from mock.falhas import desligar_todas
 from mock.gerar import recriar
 from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
+
+from .apoio_smtp import limpar_enviadas
 
 VARIAVEL_POSTGRES_DE_TESTE = "MOCK_TESTE_POSTGRES_URL"
 
@@ -87,7 +89,7 @@ def limpar_estado():
     pedidos_em_memoria = __import__(type(pedidos).__module__, fromlist=["PEDIDOS"]).PEDIDOS
     pedidos_em_memoria.clear()
     confirmacoes.limpar()
-    email_simulado.limpar()
+    limpar_enviadas()
 
 
 def usuario_do_diretorio(engine, id_funcionario):
