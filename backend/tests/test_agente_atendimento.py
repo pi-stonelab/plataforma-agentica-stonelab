@@ -1,6 +1,7 @@
 import json
 import logging
 import unittest
+from unittest import mock
 from uuid import uuid4
 
 import requests
@@ -384,12 +385,23 @@ def modelo_lento(linhas, relogio, segundos_por_chamada, tempos=None):
     return chamar
 
 
+PRAZO_REAL = agente.SEGUNDOS_POR_TURNO
+TETO_REAL = agente.SEGUNDOS_MAXIMOS_POR_TURNO
+# Os testes do mecanismo fixam prazo e teto próprios: assim o ajuste dos valores do motor não muda as contas.
+PRAZO_DOS_TESTES = 120
+TETO_DOS_TESTES = 600
+
+
 class TestLimiteDeTempo(RegistroDeLogs):
     """P1 da crítica B: prazo total por turno, com relógio injetado (sem sleep)."""
 
     def setUp(self):
         super().setUp()
         self.relogio = apoio.RelogioFalso()
+        for nome, valor in (("SEGUNDOS_POR_TURNO", PRAZO_DOS_TESTES), ("SEGUNDOS_MAXIMOS_POR_TURNO", TETO_DOS_TESTES)):
+            fixado = mock.patch.object(agente, nome, valor)
+            fixado.start()
+            self.addCleanup(fixado.stop)
 
     def rodar(self, linhas, segundos_por_chamada, contexto=None, pergunta="pergunta de teste", tempos=None):
         modelo = modelo_lento(linhas, self.relogio, segundos_por_chamada, tempos)
@@ -398,8 +410,8 @@ class TestLimiteDeTempo(RegistroDeLogs):
             contexto=contexto, relogio=self.relogio,
         )
 
-    def test_o_prazo_padrao_e_uma_constante_nomeada(self):
-        self.assertEqual(agente.SEGUNDOS_POR_TURNO, 120)
+    def test_o_prazo_padrao_e_uma_constante_nomeada_dentro_do_teto(self):
+        self.assertTrue(0 < PRAZO_REAL <= TETO_REAL, (PRAZO_REAL, TETO_REAL))
 
     def test_estourar_o_prazo_termina_em_limite_tempo(self):
         resultado = self.rodar(["LER:"] * 10, segundos_por_chamada=50)
@@ -423,7 +435,6 @@ class TestLimiteDeTempo(RegistroDeLogs):
         self.assertEqual(agente._segundos_do_turno({"segundos_por_turno": 7.5}), 7.5)
 
     def test_prazo_acima_do_teto_volta_ao_padrao(self):
-        self.assertEqual(agente.SEGUNDOS_MAXIMOS_POR_TURNO, 600)
         for valor in (601, 1e308, 10**12):
             with self.subTest(valor=valor):
                 self.assertEqual(agente._segundos_do_turno({"segundos_por_turno": valor}), 120)
@@ -505,7 +516,7 @@ class TestModeloIndisponivel(RegistroDeLogs):
         relogio = apoio.RelogioFalso()
 
         def modelo(prompt_sistema, prompt):
-            relogio.passar(130)
+            relogio.passar(agente.SEGUNDOS_POR_TURNO + 10)
             raise TimeoutError(URL_DO_MODELO)
 
         resultado = agente.rodar_turno(

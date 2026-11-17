@@ -212,9 +212,11 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - Motivo: o passo 7 do MVP da demo (KAN-52) pede a prévia com confirmação, e a KAN-59 inclui o e-mail.
 - No código: `ferramentas/confirmacoes.py`, `ferramentas/email_simulado.py`, `governanca.ESCRITA_COM_CONFIRMACAO` e
   `agentes/terminal.py::revisar_previas`. Testes em `test_ferramentas_enviar_email.py` e `TestPreviasNoTerminal`.
-- Revisão do Enrico no PR do e-mail (15/11): (1) se o registro final falha, a prévia sai da fila (`Ferramenta.desfazer`), para
-  não ser confirmada nem duplicada por nova tentativa; (2) `assunto` e `corpo` saíram de `CAMPOS_NAO_RESTRITOS` e viraram
-  `campos_liberados` da ficha do `enviar_email`, para uma ferramenta que leia e-mails continuar negando por padrão.
+- Revisão do Enrico no PR do e-mail (15 e 16/11): (1) a prévia só fica visível e confirmável depois que a resposta chega
+  ao agente; se o registro final falha ou algo dá erro depois de guardá-la, ela sai da fila (`Ferramenta.concluir`, uma
+  decisão só), para não ser confirmada nem duplicada por nova tentativa, e a mensagem ao agente não diz que a ação foi executada; (2) `assunto` e `corpo` saíram de `CAMPOS_NAO_RESTRITOS` e viraram
+  `campos_liberados` da ficha do `enviar_email`, para uma ferramenta que leia e-mails continuar negando por padrão;
+  uma lista fechada em teste diz quais ferramentas podem liberar quais campos (`test_ferramentas_campos_liberados.py`).
 - Em aberto: se o supervisor pode confirmar a prévia de outra pessoa (marcador para o Brenno no `agents.md` da
   ferramenta).
 
@@ -225,6 +227,20 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - Quem e quando: Pedro, 15/11.
 - No código: `ferramentas/pendencias.py`, `catalogo.PADRAO_MARCADOR` (tira os dois formatos do texto do modelo) e
   `test_ferramentas_pendencias.py`.
+
+### H14. O terminal recebe a resposta do modelo em pedaços
+- Decisão: `terminal.chamar_llm` usa `stream: true`. Só vale a resposta que termina com `done: true`; conexão que cai
+  antes é `ModeloIndisponivel`, para o motor nunca agir sobre uma ação cortada. O prazo total da chamada é conferido a
+  cada pedaço, porque o `timeout` do `requests` conta cada espera e não o total.
+- Quem e quando: Pedro, 16/11.
+- Motivo: o Cloudflare na frente do Ollama desiste aos ~100 s sem resposta (HTTP 524). Com `stream: false` e o prompt
+  crescendo a cada passo, o terceiro passo de um pedido de e-mail estourou (18 s, 61 s e depois 524 aos 126 s) e o
+  terminal só mostrava "Modelo indisponível".
+- A causa (`HTTP 524`, `ReadTimeout`...) agora vai para o log do terminal, sem URL nem texto do servidor.
+- No código: `agentes/terminal.py` (`chamar_llm`, `_juntar_pedacos`, `_modelo_indisponivel`). Testes em
+  `TestChamarLlm`, incluindo resposta cortada e prazo total.
+- Limite conhecido: o Ollama só manda o primeiro pedaço quando gera o primeiro token. Se a leitura do prompt sozinha
+  passar de ~100 s, o 524 volta; aí o caminho é encurtar o prompt, não o streaming.
 
 ## Decisões do orquestrador (O1 a O13)
 

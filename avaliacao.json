@@ -1,0 +1,172 @@
+[
+  {
+    "cenario": "multa",
+    "tipo": "final",
+    "motivo": null,
+    "passos": 4,
+    "chamadas_ao_modelo": 4,
+    "segundos_no_modelo": 176.297,
+    "segundos_total": 176.32,
+    "executadas": [
+      "calcular_multa_atraso"
+    ],
+    "negadas": [],
+    "recusas_do_agente": 0,
+    "ferramentas_certas": true,
+    "resposta_certa": true,
+    "segundos_por_chamada": [
+      11.9,
+      35.3,
+      54.8,
+      74.4
+    ],
+    "erro_do_modelo": null
+  },
+  {
+    "cenario": "cadastro",
+    "tipo": "final",
+    "motivo": null,
+    "passos": 4,
+    "chamadas_ao_modelo": 4,
+    "segundos_no_modelo": 212.608,
+    "segundos_total": 212.751,
+    "executadas": [
+      "consultar_cliente"
+    ],
+    "negadas": [],
+    "recusas_do_agente": 0,
+    "ferramentas_certas": true,
+    "resposta_certa": true,
+    "segundos_por_chamada": [
+      26.2,
+      48.4,
+      81.3,
+      56.7
+    ],
+    "erro_do_modelo": null
+  },
+  {
+    "cenario": "transacoes",
+    "tipo": "limite",
+    "motivo": "modelo_indisponivel",
+    "passos": 4,
+    "chamadas_ao_modelo": 4,
+    "segundos_no_modelo": 269.212,
+    "segundos_total": 269.322,
+    "executadas": [
+      "consultar_transacoes_cliente"
+    ],
+    "negadas": [],
+    "recusas_do_agente": 0,
+    "ferramentas_certas": true,
+    "resposta_certa": false,
+    "segundos_por_chamada": [
+      23.7,
+      47.4,
+      72.4,
+      125.7
+    ],
+    "erro_do_modelo": "ModeloIndisponivel"
+  },
+  {
+    "cenario": "cep",
+    "tipo": "final",
+    "motivo": null,
+    "passos": 4,
+    "chamadas_ao_modelo": 4,
+    "segundos_no_modelo": 135.64,
+    "segundos_total": 135.658,
+    "executadas": [
+      "consultar_endereco_cep"
+    ],
+    "negadas": [],
+    "recusas_do_agente": 0,
+    "ferramentas_certas": true,
+    "resposta_certa": true,
+    "segundos_por_chamada": [
+      13.9,
+      35.3,
+      43.3,
+      43.2
+    ],
+    "erro_do_modelo": null
+  },
+  {
+    "cenario": "cadastro_e_transacoes",
+    "tipo": "final",
+    "motivo": null,
+    "passos": 6,
+    "chamadas_ao_modelo": 6,
+    "segundos_no_modelo": 290.068,
+    "segundos_total": 290.098,
+    "executadas": [
+      "consultar_cliente",
+      "consultar_transacoes_cliente"
+    ],
+    "negadas": [],
+    "recusas_do_agente": 0,
+    "ferramentas_certas": true,
+    "resposta_certa": true,
+    "segundos_por_chamada": [
+      11.8,
+      33.1,
+      45.5,
+      52.7,
+      70.1,
+      76.9
+    ],
+    "erro_do_modelo": null
+  },
+  {
+    "cenario": "cadastro_transacoes_e_multa",
+    "tipo": "final",
+    "motivo": null,
+    "passos": 8,
+    "chamadas_ao_modelo": 8,
+    "segundos_no_modelo": 480.49,
+    "segundos_total": 480.517,
+    "executadas": [
+      "consultar_cliente",
+      "consultar_transacoes_cliente",
+      "calcular_multa_atraso"
+    ],
+    "negadas": [],
+    "recusas_do_agente": 0,
+    "ferramentas_certas": true,
+    "resposta_certa": true,
+    "segundos_por_chamada": [
+      27.3,
+      50.5,
+      55.5,
+      51.0,
+      69.0,
+      59.7,
+      67.4,
+      100.1
+    ],
+    "erro_do_modelo": null
+  },
+  {
+    "cenario": "lojista_de_outra_carteira",
+    "tipo": "final",
+    "motivo": null,
+    "passos": 4,
+    "chamadas_ao_modelo": 4,
+    "segundos_no_modelo": 190.804,
+    "segundos_total": 190.833,
+    "executadas": [],
+    "negadas": [
+      "consultar_cliente"
+    ],
+    "recusas_do_agente": 0,
+    "ferramentas_certas": true,
+    "resposta_certa": true,
+    "segundos_por_chamada": [
+      24.2,
+      46.8,
+      59.6,
+      60.1
+    ],
+    "erro_do_modelo": null
+  }
+]

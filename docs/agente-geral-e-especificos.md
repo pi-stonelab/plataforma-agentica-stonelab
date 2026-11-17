@@ -73,7 +73,7 @@ executam nenhuma. Os testes estão em `backend/tests/test_agente_geral.py` (a pe
 não amplia o escopo de lojista; estado de outra pessoa não libera nada).
 
 Duas limitações: `FERRAMENTAS_DO_AGENTE` é calculado quando o módulo é importado, então ferramenta nova só aparece com
-reinício. E o índice cresce com o catálogo. Cada leitura gasta um passo dos 10 e conta no prazo de 120 s do turno. Ninguém
+reinício. E o índice cresce com o catálogo. Cada leitura gasta um passo dos 10 e conta no prazo do turno (`SEGUNDOS_POR_TURNO`). Ninguém
 mediu isso com o modelo real (SEM FONTE).
 
 ## Como criar um agente específico (hoje, em código)

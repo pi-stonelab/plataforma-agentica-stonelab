@@ -8,6 +8,9 @@ O modelo nunca confirma: não existe ferramenta para isso, e `confirmar` exige o
 pediu, revalidado pela governança na hora. O conteúdo é dado de lojista (LGPD): só existe enquanto o
 pedido espera e é apagado ao confirmar, cancelar ou expirar. Registro e logs recebem só metadados.
 
+A prévia só fica visível depois que a resposta chega ao agente (`concluir`): se o registro final da fase 1 falha,
+ela sai da fila e o agente pode pedir de novo sem duplicar.
+
 `status` no registro de chamadas: "iniciada" e "ok" ao montar a prévia (pela `Ferramenta.executar`),
 "iniciada" e "ok" (ou "erro") ao confirmar, "cancelada" e "expirada".
 [A FAZER (Enrico, QA, KAN-38): contar pedidos aguardando, confirmados, cancelados e expirados a partir
@@ -66,6 +69,7 @@ class Pedido:
     conteudo: dict  # o que `efetivar` precisa (dado de lojista em claro); apagado ao resolver
     previa: dict  # o que a pessoa revisa, já mascarado
     expira_em: datetime
+    liberado: bool = False  # só vira True quando a resposta com o `confirmacao_id` chega ao agente
 
 
 class FerramentaComConfirmacao(Ferramenta):
@@ -77,6 +81,7 @@ class FerramentaComConfirmacao(Ferramenta):
     """
 
     acesso = "escrita"
+    age_ao_executar = False  # a fase 1 só guarda a prévia; o efeito é do `confirmar`
     campos_liberados = ("confirmacao_id", "expira_em")  # a subclasse soma os campos da sua prévia
 
     def montar(self, argumentos, usuario):
@@ -89,11 +94,15 @@ class FerramentaComConfirmacao(Ferramenta):
         conteudo, previa = self.montar(argumentos, usuario)
         return _como_mostrar(_guardar(self, usuario, contexto, conteudo, previa))
 
-    def desfazer(self, dados):
-        """A resposta da fase 1 não chegou ao agente (registro final ou erro depois de guardar):
-        a prévia sai da fila, para não ser confirmada nem repetida por uma nova tentativa."""
+    def concluir(self, dados, entregue):
+        """Fim da fase 1. Entregue: a prévia fica visível e confirmável. Não entregue (a resposta não
+        chegou ao agente): ela sai da fila, para ninguém confirmar o que o agente achou que falhou e para
+        uma nova tentativa não duplicar."""
         confirmacao_id = dados.get("confirmacao_id") if isinstance(dados, dict) else None
-        return _tirar_da_fila(confirmacao_id)
+        if entregue:
+            _liberar(confirmacao_id)
+        else:
+            _tirar_da_fila(confirmacao_id)
 
 
 def _como_mostrar(pedido):
@@ -114,21 +123,25 @@ def _novo_id():
 
 def _guardar(ferramenta, usuario, contexto, conteudo, previa):
     contexto = contexto if isinstance(contexto, dict) else {}
-    with TRAVA_DOS_PEDIDOS:
-        _expirar_vencidos()
-        do_usuario = sum(p.id_usuario == usuario.id_usuario for p in PEDIDOS.values())
-        if do_usuario >= LIMITE_POR_USUARIO or len(PEDIDOS) >= LIMITE_PEDIDOS:
-            raise ErroFerramenta("integracao_indisponivel", "Há prévias demais esperando confirmação.")
-        pedido = Pedido(
-            confirmacao_id=_novo_id(),
-            ferramenta=ferramenta,
-            id_usuario=usuario.id_usuario,
-            contexto={campo: contexto.get(campo) for campo in CAMPOS_DO_CONTEXTO},
-            conteudo=conteudo,
-            previa=mascara.mascarar(previa, ferramenta.categorias_dados, ferramenta.campos_liberados),
-            expira_em=agora() + VALIDADE,
-        )
-        PEDIDOS[pedido.confirmacao_id] = pedido
+    vencidos = []
+    try:
+        with TRAVA_DOS_PEDIDOS:
+            vencidos = _recolher_vencidos()
+            do_usuario = sum(p.id_usuario == usuario.id_usuario for p in PEDIDOS.values())
+            if do_usuario >= LIMITE_POR_USUARIO or len(PEDIDOS) >= LIMITE_PEDIDOS:
+                raise ErroFerramenta("integracao_indisponivel", "Há prévias demais esperando confirmação.")
+            pedido = Pedido(
+                confirmacao_id=_novo_id(),
+                ferramenta=ferramenta,
+                id_usuario=usuario.id_usuario,
+                contexto={campo: contexto.get(campo) for campo in CAMPOS_DO_CONTEXTO},
+                conteudo=conteudo,
+                previa=mascara.mascarar(previa, ferramenta.categorias_dados, ferramenta.campos_liberados),
+                expira_em=agora() + VALIDADE,
+            )
+            PEDIDOS[pedido.confirmacao_id] = pedido
+    finally:
+        _registrar_expirados(vencidos)
     return pedido
 
 
@@ -137,12 +150,21 @@ def _registrar(pedido, usuario, resultado, camada, inicio):
     governanca.registrar(registro)
 
 
-def _expirar_vencidos():
-    """Tira os pedidos vencidos e apaga o conteúdo. Chamada com a trava já tomada."""
+def _recolher_vencidos():
+    """Tira da fila os pedidos vencidos e apaga o conteúdo. Chamada com a trava tomada.
+
+    Devolve os pedidos tirados: o registro deles é gravado depois, fora da trava, por `_registrar_expirados`.
+    """
     vencidos = [p for p in PEDIDOS.values() if p.expira_em <= agora()]
     for pedido in vencidos:
         del PEDIDOS[pedido.confirmacao_id]
         pedido.conteudo.clear()
+    return vencidos
+
+
+def _registrar_expirados(vencidos):
+    """Grava o "expirada" de cada pedido, sem a trava da fila: o destino pode ser lento ou voltar à fila."""
+    for pedido in vencidos:
         dono = SimpleNamespace(id_usuario=pedido.id_usuario)
         with suppress(governanca.RegistroIndisponivel):  # o pedido expira mesmo sem rastro: nada age
             _registrar(pedido, dono, resposta("expirada"), None, time.monotonic())
@@ -150,27 +172,38 @@ def _expirar_vencidos():
 
 def _retirar(confirmacao_id, usuario):
     """Tira o pedido da fila se ele é do `usuario` (uso único). Pedido de outra pessoa fica onde está."""
-    with TRAVA_DOS_PEDIDOS:
-        _expirar_vencidos()
-        pedido = PEDIDOS.get(confirmacao_id) if isinstance(confirmacao_id, str) else None
-        if pedido is None:
-            return None
-        if pedido.id_usuario != getattr(usuario, "id_usuario", None):
-            negado = resposta("erro", tipo_erro="nao_encontrado")
-            with suppress(governanca.RegistroIndisponivel):  # tentativa de outra pessoa fica no rastro
-                _registrar(pedido, usuario, negado, "usuario", time.monotonic())
-            return None
-        return PEDIDOS.pop(confirmacao_id)
+    vencidos, de_outra_pessoa, retirado = [], None, None
+    try:
+        with TRAVA_DOS_PEDIDOS:
+            vencidos = _recolher_vencidos()
+            pedido = PEDIDOS.get(confirmacao_id) if isinstance(confirmacao_id, str) else None
+            if pedido is not None and pedido.liberado:  # prévia ainda não entregue ao agente não existe
+                if pedido.id_usuario == getattr(usuario, "id_usuario", None):
+                    retirado = PEDIDOS.pop(confirmacao_id)
+                else:
+                    de_outra_pessoa = pedido
+    finally:
+        _registrar_expirados(vencidos)
+    if de_outra_pessoa is not None:  # a tentativa fica no rastro
+        negado = resposta("erro", tipo_erro="nao_encontrado")
+        with suppress(governanca.RegistroIndisponivel):
+            _registrar(de_outra_pessoa, usuario, negado, "usuario", time.monotonic())
+    return retirado
 
 
 def _tirar_da_fila(confirmacao_id):
-    """Descarta a prévia sem registrar: só quem já falhou em registrar a usa. Devolve True se havia prévia."""
+    """Descarta a prévia sem registrar (a fase 1 não chegou a ser entregue) e apaga o conteúdo."""
     with TRAVA_DOS_PEDIDOS:
         pedido = PEDIDOS.pop(confirmacao_id, None) if isinstance(confirmacao_id, str) else None
-    if pedido is None:
-        return False
-    pedido.conteudo.clear()
-    return True
+    if pedido is not None:
+        pedido.conteudo.clear()
+
+
+def _liberar(confirmacao_id):
+    with TRAVA_DOS_PEDIDOS:
+        pedido = PEDIDOS.get(confirmacao_id) if isinstance(confirmacao_id, str) else None
+        if pedido is not None:
+            pedido.liberado = True
 
 
 def _devolver(pedido):
@@ -181,9 +214,13 @@ def _devolver(pedido):
 def pendentes(usuario):
     """Prévias que esperam a confirmação do `usuario`, para a interface ou o terminal mostrarem."""
     with TRAVA_DOS_PEDIDOS:
-        _expirar_vencidos()
-        do_usuario = [p for p in PEDIDOS.values() if p.id_usuario == getattr(usuario, "id_usuario", None)]
-        return [{"ferramenta": p.ferramenta.nome, **_como_mostrar(p)} for p in do_usuario]
+        vencidos = _recolher_vencidos()
+        do_usuario = [
+            p for p in PEDIDOS.values() if p.liberado and p.id_usuario == getattr(usuario, "id_usuario", None)
+        ]
+        lista = [{"ferramenta": p.ferramenta.nome, **_como_mostrar(p)} for p in do_usuario]
+    _registrar_expirados(vencidos)
+    return lista
 
 
 def confirmar(confirmacao_id, usuario):

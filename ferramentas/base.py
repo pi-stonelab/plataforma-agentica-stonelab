@@ -79,6 +79,7 @@ class Ferramenta:
     areas_permitidas = ()
     categorias_dados = ()
     campos_liberados = ()  # campos de texto que só esta ferramenta devolve (ver mascara.mascarar)
+    age_ao_executar = True  # False na escrita em duas fases: `executar` só prepara, quem age é `confirmar`
     sensibilidade = "sigilosa"
     conteudo_terceiros = False
     status = "planejada"
@@ -111,12 +112,13 @@ class Ferramenta:
         troca este método porque precisa do contexto para guardar o pedido; as demais usam `rodar`."""
         return self.rodar(argumentos, usuario)
 
-    def desfazer(self, dados):
-        """Chamado quando a resposta com `dados` não chega ao agente. Devolve True se desfez algo.
+    def concluir(self, dados, entregue):
+        """Chamado uma vez por `executar`, com o que `rodar_com_contexto` devolveu e a decisão final.
 
-        Só a escrita em duas fases usa: a prévia que ficou na fila sai dela (`confirmacoes.py`).
+        `entregue` é True quando a resposta chegou ao agente e foi registrada; False quando algo falhou
+        no caminho (erro depois de produzir `dados`, ou registro final fora do ar). Só a escrita em
+        duas fases usa: a prévia só fica visível se `entregue` (`confirmacoes.py`).
         """
-        return False
 
     def _registrar_inicio(self, usuario, contexto, inicio):
         """Ferramenta de escrita registra ANTES de agir (MED-1): se não gravar, levanta e não age.
@@ -129,7 +131,7 @@ class Ferramenta:
     def executar(self, argumentos, usuario, contexto=None):
         inicio = time.monotonic()
         camada = None
-        agiu = False  # a escrita já deixou o registro "iniciada": a ação pode ter acontecido
+        agiu = False  # a escrita já deixou o registro "iniciada" e age na chamada: pode ter acontecido
         produzido = None  # o que `rodar_com_contexto` devolveu, antes da máscara
         try:
             if governanca.motivo_bloqueio(self, usuario) is not None:
@@ -141,7 +143,7 @@ class Ferramenta:
             argumentos_validos = self.validar(argumentos)
             if self.acesso == "escrita":
                 self._registrar_inicio(usuario, contexto, inicio)
-                agiu = True
+                agiu = self.age_ao_executar
             dados = produzido = self.rodar_com_contexto(argumentos_validos, usuario, contexto)
             dados = mascara.mascarar(dados, self.categorias_dados, self.campos_liberados)  # uma vez, antes do embrulho
             resultado = resposta("ok", dados, "Concluído.")
@@ -155,18 +157,19 @@ class Ferramenta:
             resultado = resposta("erro", None, "Integração fora do ar.", "integracao_indisponivel")
         except Exception:  # noqa: BLE001
             resultado = resposta("erro", None, "Erro interno.", "erro_interno")
-        if resultado["status"] != "ok" and produzido is not None:  # o agente vai ver um erro: nada fica esperando
-            self.desfazer(produzido)
         registro = montar_registro(self, usuario, contexto, resultado, camada, inicio)
         try:
             governanca.registrar(registro)
+            registrado = True
         except governanca.RegistroIndisponivel:  # O9: sem rastro, sem resposta
-            if produzido is not None and self.desfazer(produzido):
-                agiu = False  # a prévia saiu da fila: nada aconteceu e o agente pode pedir de novo
-            return resposta(
-                "erro",
-                None,
-                MENSAGEM_REGISTRO_FINAL if agiu else MENSAGEM_REGISTRO,
-                "integracao_indisponivel",
-            )
-        return resultado
+            registrado = False
+        if produzido is not None:  # o único lugar que decide o destino do que a fase 1 deixou pronto
+            self.concluir(produzido, entregue=registrado and resultado["status"] == "ok")
+        if registrado:
+            return resultado
+        return resposta(
+            "erro",
+            None,
+            MENSAGEM_REGISTRO_FINAL if agiu else MENSAGEM_REGISTRO,
+            "integracao_indisponivel",
+        )

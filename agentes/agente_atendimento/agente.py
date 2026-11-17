@@ -29,10 +29,10 @@ MAX_CHARS_PERGUNTA = 4000  # a pergunta do funcionário é cortada aqui (BAIXO-4
 # Prazo total de um turno, em segundos. SEM FONTE: não vem de requisito nem de medição; é um valor
 # escolhido para a demo (até 10 chamadas a um modelo local de 27B). Troque por turno com
 # `contexto["segundos_por_turno"]` e revise depois de medir com o modelo real.
-SEGUNDOS_POR_TURNO = 120
+SEGUNDOS_POR_TURNO = 300
 # Teto do prazo vindo do contexto (BAIXO-7 da auditoria C): acima disso (ex.: 1e308) volta ao padrão.
-# SEM FONTE: cinco vezes o padrão, escolhido para impedir um turno sem prazo na prática.
-SEGUNDOS_MAXIMOS_POR_TURNO = 600
+# SEM FONTE: pouco mais de três vezes o padrão, escolhido para impedir um turno sem prazo na prática.
+SEGUNDOS_MAXIMOS_POR_TURNO = 1000
 
 NOME_EMPRESA = "Stone"
 AGENTE_ID = "agente_atendimento"
