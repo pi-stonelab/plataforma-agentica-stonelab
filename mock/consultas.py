@@ -269,6 +269,18 @@ def buscar_conta_recebimento(origem: Session | Engine, codigo: str) -> dict | No
         return dict(linha._mapping) if linha else None
 
 
+def buscar_contato_funcionario(origem: Session | Engine, id_funcionario: str) -> dict | None:
+    """Nome e e-mail do funcionário, para o "responder para" do e-mail que ele confirmou. None se não existir.
+
+    Separada de `buscar_funcionario` de propósito: só o envio do e-mail lê isto (mínimo de dados, LGPD)."""
+    falhas.verificar("diretorio")
+    with _sessao_de(origem) as sessao:
+        linha = sessao.execute(
+            select(Funcionario.nome, Funcionario.email).where(Funcionario.id == id_funcionario)
+        ).first()
+        return dict(linha._mapping) if linha else None
+
+
 def buscar_funcionario(origem: Session | Engine, id_funcionario: str) -> dict | None:
     """Cargo, área (derivada do cargo), carteiras do time e situação. Sem nome nem e-mail."""
     falhas.verificar("diretorio")

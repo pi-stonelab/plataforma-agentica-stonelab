@@ -13,6 +13,7 @@ from mock.consultas import (
     _sessao_de,
     buscar_chamados,
     buscar_conta_recebimento,
+    buscar_contato_funcionario,
     buscar_contatos,
     buscar_faturas,
     buscar_funcionario,
@@ -152,6 +153,12 @@ def test_funcionario_sem_nome_nem_email(sessao):
     assert buscar_funcionario(sessao, "F0013")["carteiras"] == []
     assert buscar_funcionario(sessao, "F0014")["situacao"] == "desligado"
     assert buscar_funcionario(sessao, "F0015")["situacao"] == "afastado"
+
+
+def test_contato_do_funcionario_so_nome_e_email(sessao):
+    contato = buscar_contato_funcionario(sessao, "F0001")
+    assert set(contato) == {"nome", "email"} and contato["email"].endswith("@stonesim.example")
+    assert buscar_contato_funcionario(sessao, "F9999") is None
 
 
 def test_inexistentes_devolvem_none_ou_lista_vazia(sessao):

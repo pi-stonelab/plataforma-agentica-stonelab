@@ -39,9 +39,9 @@ roda um turno e devolve um `Turno(resposta, tipo, trajetoria, estado, motivo)`.
   `catalogo.nomes_e_areas()` e a lista do agente geral de `catalogo.nomes()`: o agente nunca pega a ferramenta.
 - `Turno.tipo`: `"final"`, `"pergunta"` ou `"limite"`. No limite, `motivo` é `"max_passos"`, `"repeticao"`,
   `"tempo"` ou `"modelo_indisponivel"`. Em todos a resposta é uma mensagem fixa, sem conteúdo.
-- Prazo do turno: `SEGUNDOS_POR_TURNO` (120 s). SEM FONTE: o valor não vem de requisito nem de medição, foi
+- Prazo do turno: `SEGUNDOS_POR_TURNO` (300 s). SEM FONTE: o valor não vem de requisito nem de medição, foi
   escolhido para a demo; revise depois de medir com o modelo real. O back-end troca por turno com
-  `contexto["segundos_por_turno"]` (número positivo, finito e até `SEGUNDOS_MAXIMOS_POR_TURNO`, 600 s, também sem fonte; outro valor volta ao padrão). Passou do prazo, o turno
+  `contexto["segundos_por_turno"]` (número positivo, finito e até `SEGUNDOS_MAXIMOS_POR_TURNO`, 1000 s, também sem fonte; outro valor volta ao padrão). Passou do prazo, o turno
   termina em `limite/tempo` e a resposta do modelo que chegou atrasada não vira ação. Os testes injetam um
   relógio (`relogio=` em `rodar_turno`), sem `sleep`.
 - Modelo que falha: qualquer exceção do `chamar_modelo` (conexão, timeout) encerra o turno em
@@ -116,7 +116,7 @@ que o back-end usa; banco de `MOCK_DATABASE_URL` ou o SQLite local; para outro b
 isso no produto: o back-end monta o `Usuario` e o `LLMClient` por conta própria.
 
 Depois de cada resposta, `revisar_previas` mostra as prévias de e-mail que esperam o funcionário (contato mascarado,
-assunto e corpo) e pergunta: `s` envia pela caixa de saída simulada, `n` descarta, Enter deixa para depois. É o papel
+assunto e corpo) e pergunta: `s` envia por SMTP (sem `EMAIL_SMTP_HOST` no .env, o agente nem monta a prévia), `n` descarta, Enter deixa para depois. É o papel
 do cartão de revisão da interface; o modelo nunca confirma (veja "Escrita em duas fases" em `ferramentas/CLAUDE.md`).
 
 ## Avaliação do uso de ferramentas

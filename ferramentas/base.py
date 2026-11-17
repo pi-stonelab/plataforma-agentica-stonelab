@@ -30,6 +30,12 @@ class ErroFerramenta(Exception):
         self.mensagem = mensagem
 
 
+class EfeitoIncerto(Exception):
+    """A ação saiu da plataforma, mas o destino não confirmou (ex.: a conexão caiu depois do envio).
+
+    Diferente de `ConnectionError`, que quer dizer "nada foi feito": aqui o efeito pode ter acontecido."""
+
+
 def resposta(status, dados=None, mensagem="", tipo_erro=None):
     return {"status": status, "dados": dados, "mensagem": mensagem, "tipo_erro": tipo_erro}
 

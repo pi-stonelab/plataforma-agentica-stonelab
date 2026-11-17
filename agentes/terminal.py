@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 
 from agentes.agente_atendimento import agente as motor
 from agentes.agente_geral import agente as geral
-from ferramentas import confirmacoes, diretorio
+from ferramentas import confirmacoes, diretorio, email_smtp
 
 load_dotenv()
 
@@ -229,7 +229,7 @@ def revisar_previas(funcionario, ler=None, escrever=print):
         else:
             continue
         id_mensagem = (resultado["dados"] or {}).get("id_mensagem")
-        detalhe = f" ({id_mensagem}, caixa de saída simulada)" if id_mensagem else ""
+        detalhe = f" ({id_mensagem}, {email_smtp.descricao_do_envio()})" if id_mensagem else ""
         escrever(f"  {resultado['mensagem']}{detalhe}")
 
 

@@ -176,7 +176,9 @@ Para testar com colegas, o mecanismo existe. Nada real está cadastrado hoje.
 Regras da LGPD para este caso (decisão 11 do briefing e art. 6º): colete o mínimo e só com a ciência da pessoa;
 use ID neutro e apelido; o nome é opcional e o e-mail de teste pode ser um endereço descartável. Senha de login não
 fica no CSV: é definida por comando, na etapa do back-end (que ainda não existe). `buscar_funcionario` não devolve
-nome nem e-mail; o resto do sistema só enxerga o id.
+nome nem e-mail; o resto do sistema só enxerga o id. A exceção é `buscar_contato_funcionario`, que só o envio do
+`enviar_email` usa: o primeiro nome vai no remetente exibido ("Ana via Stone") e o e-mail no "responder para".
+Com uma pessoa real de teste (F9xxx), as respostas do lojista chegam ao e-mail que ela deu no CSV.
 
 SEM FONTE: o texto do aviso que cada colega recebe antes de entrar, e quem guarda a lista de quem participa.
 

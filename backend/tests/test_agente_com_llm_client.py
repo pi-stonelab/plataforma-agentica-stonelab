@@ -11,7 +11,9 @@ from ferramentas import governanca
 
 from app.llm_client import LLMClient, LLMClientMock
 
-USUARIO_N2 = governanca.Usuario("teste-n2", "N2", "atendimento")
+from . import apoio_agente as apoio
+
+USUARIO_N2 = governanca.usuario_do_cargo("F0011", "coordenador_financeiro", ())
 
 
 def test_agente_conclui_com_o_mock():
@@ -25,13 +27,14 @@ def test_agente_conclui_com_o_mock():
 
 def test_agente_usa_ferramenta_de_verdade_pelo_llm_client():
     """O 'modelo' segue um roteiro; a ferramenta roda de verdade no catálogo."""
+    apoio.mundo()
     roteiro = iter(
         [
             "PENSAMENTO: ver áreas.\nLER: ",
             "PENSAMENTO: área financeira.\nLER: financeiro",
             "PENSAMENTO: ler a ferramenta.\nLER: financeiro/consultar_transacoes_cliente",
-            'PENSAMENTO: consultar.\nUSAR: consultar_transacoes_cliente | {"id_cliente": "CLI-0001", "limite": 2}',
-            "PENSAMENTO: pronto.\nFINAL: O cliente CLI-0001 tem transações recentes.",
+            'PENSAMENTO: consultar.\nUSAR: consultar_transacoes_cliente | {"id_cliente": "M00001", "limite": 2}',
+            "PENSAMENTO: pronto.\nFINAL: O cliente M00001 tem transações recentes.",
         ]
     )
     prompts = []
@@ -52,10 +55,10 @@ def test_agente_usa_ferramenta_de_verdade_pelo_llm_client():
     chamar = cliente.como_chamar_modelo(sistema=modulo_agente.SISTEMA, ao_responder=usos.append)
 
     resposta, trajetoria = modulo_agente.agente(
-        "Transações do CLI-0001?", USUARIO_N2, chamar_modelo=chamar
+        "Transações do M00001?", USUARIO_N2, chamar_modelo=chamar
     )
 
-    assert resposta == "O cliente CLI-0001 tem transações recentes."
+    assert resposta == "O cliente M00001 tem transações recentes."
     assert any("'consultar_transacoes_cliente' executada: ok" in passo for passo in trajetoria)
     assert '"status": "ok"' in prompts[-1]  # o resultado da ferramenta voltou ao modelo
     assert len(usos) == 5  # cada chamada ao modelo foi contabilizada
