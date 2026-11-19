@@ -124,7 +124,7 @@ export function itemConversa(c, atual = null) {
   return h("a", { class: "item-conversa", href: `#/chat/${c.id}`, "aria-current": c.id === atual ? "page" : null },
     h("span", { class: "agente-icone", style: { width: "34px", height: "34px", borderRadius: "10px" } }, icone("chat")),
     h("span", { style: { minWidth: 0, flex: 1 } },
-      h("div", { class: "titulo" }, c.titulo),
+      h("div", { class: "titulo" }, c.titulo || "Nova conversa"),
       h("div", { class: "texto-3" }, `${c.agente.nome} · ${formatar.relativo(c.atualizada_em)}`),
     ),
   );
