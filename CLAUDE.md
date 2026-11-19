@@ -132,6 +132,9 @@ Nota: cargo e carteiras do funcionário vêm do diretório do mock (`buscar_func
 
 Sprint 3: `agente_historico`, `eventos_erro`, limite de gasto.
 
+## Interface (`frontend/`)
+HTML/CSS/JS sem build, com modo mock que já simula todas as rotas. **O contrato das rotas que a interface chama está em `frontend/CONTRATO_API.md`** (formatos de entrada/saída, erros, Sprint 2 x 3). Mudou um formato no back-end → atualizar o contrato e `frontend/js/api.js` no mesmo PR.
+
 ## API (Sprint 2, KAN-60)
 ```
 GET  /health
