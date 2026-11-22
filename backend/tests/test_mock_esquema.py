@@ -41,7 +41,7 @@ def _chamado(**trocas) -> Chamado:
     campos = {
         "codigo": "CH999999", "protocolo": "20261001-999999", "id_lojista": "M00001", "categoria": "Recebimento",
         "prioridade": "alta", "fila": "varejo", "id_responsavel": None, "situacao": "novo", "aberto_por": "lojista",
-        "aberto_em": datetime(2026, 10, 1, 9, 0), "resumo": "teste",
+        "aberto_em": datetime(2026, 10, 1, 9, 0), "prazo_em": datetime(2026, 10, 2, 9, 0), "resumo": "teste",
     }
     return Chamado(**{**campos, **trocas})
 
@@ -158,6 +158,7 @@ def test_toda_coluna_restrita_tem_comentario():
         ("contatos_lojista", "nome"), ("contatos_lojista", "cpf"), ("contatos_lojista", "telefone"),
         ("contatos_lojista", "email"), ("contas_recebimento", "agencia"), ("contas_recebimento", "conta"),
         ("vendas", "ultimos4"), ("interacoes", "texto"), ("chamados", "resumo"),
+        ("pesquisas_satisfacao", "comentario"),
     }
     tabelas = BaseMock.metadata.tables
     for tabela, coluna in restritas:
