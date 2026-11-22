@@ -31,6 +31,7 @@ Erros possíveis: `parametro_invalido` (assunto ou corpo vazio ou longo demais, 
 - Quem pode: os cargos com a categoria `contato` (atendimento N1 e N2, supervisor, ouvidoria, cobrança e coordenador financeiro), sempre dentro da própria carteira.
 - LGPD: assunto e corpo passam pela máscara de texto livre antes da prévia, e é esse texto que vai. O conteúdo some do pedido ao confirmar, cancelar ou expirar. O registro de chamadas guarda só metadados.
 - Integração: `email` (`ferramentas/integracoes/email/`), envio por SMTP com a conta de envio da plataforma. O sistema `email` de `mock.falhas` desliga o envio. Gmail e Outlook pela conta de cada pessoa ficam para os conectores do Google e da Microsoft, com ferramentas próprias.
+- Interface: `titulo` e `rotulos_da_previa` na ficha montam o objeto `Confirmacao` do contrato do front (`confirmacoes.confirmacoes_da_execucao`).
 - Ligações com outras frentes:
   - Tabela e rotas de confirmação: marcador do back-end em `ferramentas/confirmacoes.py`.
   - [A FAZER (Larissa, interface): cartão de revisão com o assunto, o corpo, o contato mascarado e o tempo restante, com os botões enviar e descartar]

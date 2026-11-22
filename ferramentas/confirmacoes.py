@@ -39,6 +39,10 @@ from ferramentas.base import (
 )
 
 AGUARDANDO = "aguardando_confirmacao"
+# Situações do objeto `Confirmacao` do contrato do front (frontend/CONTRATO_API.md §4.9).
+PENDENTE = "pendente"
+APROVADA = "aprovada"
+CANCELADA = "cancelada"
 VALIDADE = timedelta(minutes=15)
 LIMITE_POR_USUARIO = 5
 LIMITE_PEDIDOS = 1000
@@ -87,6 +91,16 @@ class FerramentaComConfirmacao(Ferramenta):
     acesso = "escrita"
     age_ao_executar = False  # a fase 1 só guarda a prévia; o efeito é do `confirmar`
     campos_liberados = ("confirmacao_id", "expira_em")  # a subclasse soma os campos da sua prévia
+    titulo = ""  # como a interface chama a ação ("Enviar e-mail")
+    rotulos_da_previa = {}  # campo da prévia -> rótulo, na ordem em que a interface mostra
+
+    def texto_do_campo(self, campo, valor):
+        """O valor de um campo da prévia (já mascarada) como texto para a interface."""
+        if isinstance(valor, dict):
+            return " · ".join(str(item) for item in valor.values() if item not in (None, ""))
+        if isinstance(valor, (list, tuple)):
+            return ", ".join(str(item) for item in valor)
+        return "" if valor is None else str(valor)
 
     def montar(self, argumentos, usuario):
         raise ErroFerramenta("ferramenta_inativa", "Ferramenta ainda sem lógica.")
@@ -213,6 +227,64 @@ def _liberar(confirmacao_id):
 def _devolver(pedido):
     with TRAVA_DOS_PEDIDOS:
         PEDIDOS[pedido.confirmacao_id] = pedido
+
+
+def _para_interface(pedido, situacao=PENDENTE):
+    """O pedido no formato `Confirmacao` do contrato do front (§4.9). Só a prévia mascarada; o conteúdo fica aqui."""
+    ferramenta = pedido.ferramenta
+    campos = [
+        {"rotulo": rotulo, "valor": ferramenta.texto_do_campo(campo, pedido.previa[campo])}
+        for campo, rotulo in ferramenta.rotulos_da_previa.items()
+        if campo in pedido.previa
+    ]
+    return {
+        "id": pedido.confirmacao_id,
+        "ferramenta": ferramenta.nome,
+        "titulo": ferramenta.titulo or ferramenta.nome,
+        "campos": campos,
+        "situacao": situacao,
+    }
+
+
+def confirmacoes_da_execucao(execucao_id, usuario):
+    """As prévias que esta execução do agente deixou esperando o `usuario`, no formato `Confirmacao` (§4.9).
+
+    [A FAZER (Marcelo e Isabel, back-end, KAN-60): depois de `rodar_turno`, o orquestrador chama esta função
+    com o mesmo `execucao_id` do contexto e põe o resultado em `RespostaAgente.confirmacao` (tipo "confirmacao")]
+    """
+    if execucao_id is None:
+        return []
+    with TRAVA_DOS_PEDIDOS:
+        vencidos = _recolher_vencidos()
+        lista = [
+            _para_interface(p)
+            for p in PEDIDOS.values()
+            if p.liberado
+            and p.id_usuario == getattr(usuario, "id_usuario", None)
+            and p.contexto.get("execucao_id") == execucao_id
+        ]
+    _registrar_expirados(vencidos)
+    return lista
+
+
+def confirmacao_para_interface(confirmacao_id, usuario):
+    """Uma prévia que espera o `usuario`, no formato `Confirmacao` (§4.9), ou None (não existe ou é de outra pessoa).
+
+    [A FAZER (Marcelo e Isabel, back-end, KAN-60): a rota POST /conversas/{id}/confirmacoes/{confirmacao_id} confere
+    com esta função que a prévia ainda espera; depois chama `confirmar` ou `cancelar` e grava `decidida(...)`]
+    """
+    with TRAVA_DOS_PEDIDOS:
+        vencidos = _recolher_vencidos()
+        pedido = PEDIDOS.get(confirmacao_id) if isinstance(confirmacao_id, str) else None
+        dono = pedido is not None and pedido.id_usuario == getattr(usuario, "id_usuario", None)
+        confirmacao = _para_interface(pedido) if dono and pedido.liberado else None
+    _registrar_expirados(vencidos)
+    return confirmacao
+
+
+def decidida(confirmacao, aprovada):
+    """A `Confirmacao` depois da decisão, para o histórico da conversa mostrar "Confirmado" ou "Cancelado"."""
+    return {**confirmacao, "situacao": APROVADA if aprovada else CANCELADA}
 
 
 def pendentes(usuario):
