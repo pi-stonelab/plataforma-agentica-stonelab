@@ -10,7 +10,6 @@ PAPEIS_SEM_ESCOLHA = ("financeiro", "socio")
 TAMANHO_ASSUNTO = 120
 TAMANHO_CORPO = 2000
 LIVRE = "texto_livre"
-ESPACO = 32  # abaixo disso são caracteres de controle, como a quebra de linha
 
 
 class EnviarEmail(FerramentaComConfirmacao):
@@ -38,8 +37,10 @@ class EnviarEmail(FerramentaComConfirmacao):
         corpo = mascarar_valor(LIVRE, argumentos["corpo"])
         if not assunto or not corpo:
             raise ErroFerramenta("parametro_invalido", "Assunto e corpo não podem ficar vazios.")
-        if any(ord(caractere) < ESPACO for caractere in assunto):  # quebra de linha no assunto injeta cabeçalho
-            raise ErroFerramenta("parametro_invalido", "O assunto deve ter uma linha só.")
+        if not email_smtp.assunto_valido(assunto):  # a mesma regra do envio: quebra de linha injeta cabeçalho
+            raise ErroFerramenta("parametro_invalido", email_smtp.MENSAGEM_ASSUNTO_INVALIDO)
+        if not email_smtp.corpo_valido(corpo):
+            raise ErroFerramenta("parametro_invalido", email_smtp.MENSAGEM_CORPO_INVALIDO)
         if papel is not None and papel not in dados_sinteticos.PAPEIS_CONTATO:
             raise ErroFerramenta("parametro_invalido", "Papel de contato desconhecido.")
         lojista.exigir_acesso(usuario, codigo)

@@ -47,7 +47,9 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
   `EMAIL_SMTP_HOST` o envio fica desligado e o `enviar_email` nem monta a prévia. TLS obrigatório fora do localhost, sem volta para texto puro, com o certificado conferido;
   remetente fixo, com o primeiro nome de quem confirmou ("Ana via Stone") e o e-mail dele no Reply-To, para o
   lojista responder a ele; um destinatário só; logs só com etapa e tipo da falha. Falha antes do envio é `EnvioIndisponivel`
-  (nada saiu); queda depois do texto é `base.EfeitoIncerto` (pode ter saído), e o `confirmar` diz isso à pessoa.
+  (nada saiu), inclusive servidor sem SMTPUTF8 para endereço com acento; queda depois do texto é
+  `base.EfeitoIncerto` (pode ter saído), e o `confirmar` diz isso à pessoa. A prévia e o envio usam as mesmas
+  regras de texto (`assunto_valido`, `corpo_valido`), e porta, usuário e senha fora do ASCII são configuração inválida.
   `EMAIL_DESTINO_TESTE` manda tudo a um endereço de teste. Teste manual: `python -m ferramentas.email_smtp --testar
   <endereço>` (com `MODO_TERMINAL=1`). Testes em `test_ferramentas_email_smtp.py`, contra um servidor SMTP em socket
   local (`backend/tests/apoio_smtp.py`). A suíte inteira aponta para esse servidor (`conftest.py`): nenhum teste
