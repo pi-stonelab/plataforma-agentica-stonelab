@@ -47,14 +47,17 @@ Tudo abaixo desta linha o código descarta antes de entregar o texto ao agente.
   áreas.
 - `integracoes/` guarda uma pasta por sistema externo, com a descrição e a
   lista das ferramentas que o usam. O agente não lê essa pasta.
-- Situação hoje: 8 áreas e 43 ferramentas. Onze estão ativas, com dados
-  sintéticos (`consultar_cliente`, `consultar_transacoes_cliente`,
-  `calcular_multa_atraso`, `consultar_endereco_cep`,
-  `solicitar_ferramenta_ausente`, `consultar_liquidacoes_cliente`,
-  `listar_chamados_cliente`, `consultar_historico_contato`,
-  `listar_faturas_em_atraso`, `calcular_parcelas` e
-  `consultar_contatos_lojista`). As outras 32 são esqueletos em `func.py`,
-  sem lógica. O código que lê e executa tudo isso está em `catalogo.py`.
+- Situação hoje: 8 áreas e 43 ferramentas. Treze estão ativas: onze sobre os
+  dados sintéticos do mock (`consultar_cliente`, `consultar_transacoes_cliente`,
+  `calcular_multa_atraso`, `solicitar_ferramenta_ausente`,
+  `consultar_liquidacoes_cliente`, `listar_chamados_cliente`,
+  `consultar_historico_contato`, `listar_faturas_em_atraso`,
+  `calcular_parcelas`, `consultar_contatos_lojista` e `enviar_email`, que
+  envia por SMTP) e duas que consultam APIs públicas de verdade
+  (`consultar_endereco_cep`, no ViaCEP, e `consultar_cotacao_moeda`, na PTAX
+  do Banco Central). As outras 30 são esqueletos em `func.py`, sem lógica. O
+  código que lê e executa tudo isso está em `catalogo.py`; o que fala com cada
+  sistema está em `integracoes/`.
 - Falha do registro FINAL de uma escrita (BAIXO-1 da auditoria C): o registro "iniciada" já foi gravado e
   a ação pode ter acontecido (ex.: o pedido entrou na fila). A resposta é `integracao_indisponivel` com
   "Registro indisponível. A ação pode ter sido executada; não repita a chamada.", sem dado nenhum; o

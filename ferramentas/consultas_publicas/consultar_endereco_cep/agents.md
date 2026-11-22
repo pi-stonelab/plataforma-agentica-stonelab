@@ -18,14 +18,14 @@ Esta ferramenta não traz o endereço cadastrado de um cliente. Para os dados do
 
 Em `dados`: `cep` (só os 8 dígitos), `logradouro`, `bairro`, `cidade` e `uf`.
 
-Erros possíveis: `parametro_invalido` (CEP fora do formato) e `nao_encontrado` (o CEP não consta na base).
+Erros possíveis: `parametro_invalido` (CEP fora do formato), `nao_encontrado` (o CEP não existe) e `integracao_indisponivel` (o serviço de CEP não respondeu).
 
 ## Para quem mantém
 
 - Área: `consultas_publicas`.
 - Acesso: leitura.
 - Integração:
-  - `apis_publicas` (ver `integracoes/apis_publicas/README.md`): hoje lê 3 CEPs fixos da fachada `dados_sinteticos.py`; a API real de CEP ainda não foi escolhida (sem fonte)
+  - `apis_publicas` (ver `integracoes/apis_publicas/README.md`): ViaCEP de verdade (`VIACEP_URL`); com `APIS_PUBLICAS_MODO=simulado`, os 3 CEPs fixos de `dados_sinteticos.py`, sem rede
 - Permissão: provisória na ficha em func.py [aqui conectamos com Brenno: níveis e áreas oficiais, KAN-62].
 - Conteúdo de terceiros na saída: não.
-- Situação: ativa, código em func.py, dados sintéticos.
+- Situação: ativa, consulta real ao ViaCEP. Nos testes, para um servidor HTTP local (`backend/tests/apoio_http.py`).

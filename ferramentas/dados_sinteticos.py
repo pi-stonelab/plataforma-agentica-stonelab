@@ -8,7 +8,7 @@ converter centavos.
 
 import sqlite3
 
-from mock import consultas, modelos
+from mock import consultas, modelos, regras
 from mock.banco import criar_engine, url_padrao
 from mock.falhas import SistemaIndisponivel
 from mock.gerar import garantir_mundo_local
@@ -31,6 +31,7 @@ CAMPOS_DO_CADASTRO = (
     "data_entrada",
 )
 PAPEIS_CONTATO = modelos.PAPEIS_CONTATO  # as func.py não importam o mock direto
+HOJE_DO_MOCK = regras.HOJE_DO_MOCK  # o "hoje" de toda regra de data (nunca date.today())
 FALHAS_DE_INTEGRACAO = (SistemaIndisponivel, OperationalError, InterfaceError, TempoEsgotadoNoPool)
 _CONEXAO = {"engine": None}
 

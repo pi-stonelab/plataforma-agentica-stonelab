@@ -10,7 +10,7 @@
 
 ## Conector
 
-[preencher: como a plataforma fala com ele e como checa se está de pé]
+`integracoes/sistemas_internos.py` (`ConectorInterno`), modo `simulado`. Ainda sem sistema de `mock.falhas` ligado: a base analítica entra no mock na fase 2 (bloco A do plano).
 
 ## Ligação
 

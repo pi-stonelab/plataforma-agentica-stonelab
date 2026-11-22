@@ -42,10 +42,11 @@ CATEGORIAS_DADO = (
     "interacao",
     "endereco_publico",
     "pedido_plataforma",
+    "cambio",
 )
 
-# Categorias que não são dado de lojista: CEP público e pedido de ferramenta ausente.
-CATEGORIAS_COMUNS = frozenset({"endereco_publico", "pedido_plataforma"})
+# Categorias que não são dado de lojista: CEP público, pedido de ferramenta ausente e cotação de moeda.
+CATEGORIAS_COMUNS = frozenset({"endereco_publico", "pedido_plataforma", "cambio"})
 
 # Nomes grossos que as fichas das ferramentas ainda planejadas usam. Nenhum cargo os permite, então
 # essas ferramentas ficam bloqueadas para todos até serem migradas para os nomes finos acima.
@@ -55,7 +56,6 @@ CATEGORIAS_DE_FERRAMENTAS_PLANEJADAS = (
     "agenda",
     "comunicacao",
     "documento",
-    "cambio",
     "metadado",
     "indicador_agregado",
     "chamado_interno",

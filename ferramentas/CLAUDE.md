@@ -58,7 +58,16 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
 - `agents.md` (raiz e de cada área e ferramenta): o texto que o modelo lê. A parte depois de `## Para quem mantém`
   o código descarta.
 - `<area>/<nome>/func.py`: a ficha e a lógica de uma ferramenta.
-- `integracoes/<sistema>/README.md`: documentação para quem mantém, uma pasta por sistema externo. O agente não lê.
+- `integracoes/`: como a plataforma fala com cada sistema. `conector.py` (classe `Conector`: modo `real`, `simulado`
+  ou `desligado` pelo .env, `configurado`, `saude`, `testar` e `chamar` com o disjuntor de 3 falhas e 60 s de pausa,
+  um por serviço), `http.py` (cliente HTTP comum: HTTPS fora do localhost, redirecionamento só para a mesma origem,
+  teto de 1 MB, 429, 5xx e JSON quebrado viram `ConnectionError`), `registro.py` (`estado_integracoes()`, sem
+  segredo) e um `conector.py` por pasta que já tem código (`apis_publicas/`, `email/`). `sistemas_internos.py` vê o
+  mock como os sistemas internos (crm, sql, bigquery, datahub) e `planejados.py` lista os que ainda não têm conector.
+  Cada pasta tem o README do sistema; o agente não lê. Terminal: `python -m ferramentas.integracoes estado` e
+  `MODO_TERMINAL=1 python -m ferramentas.integracoes testar <integração>`. Testes em `test_integracoes_*.py`, contra
+  um servidor HTTP local no formato das APIs reais (`backend/tests/apoio_http.py`); a suíte inteira aponta para ele e
+  o `conftest.py` recusa qualquer conexão fora do 127.0.0.1.
 - `ruff.toml`: regras de lint só desta pasta.
 
 Testes (todos em `backend/tests/`): `test_ferramentas_*.py`, `test_catalogo_indice.py` e `test_regressao_*.py`.
@@ -232,6 +241,8 @@ Exemplo: `listar_acordos_cliente`, que lê dados que o mock já tem.
    (`CLASSIFICACAO_CAMPOS` se for restrito, `CAMPOS_NAO_RESTRITOS` se for liberado). Veja `mock/CLAUDE.md`.
 5. Quem pode usar: coloque a categoria nas `categorias_dado` dos cargos certos em `mock/regras.py::CARGOS`.
    Sem isso, nenhum cargo alcança a ferramenta.
+   Se a ferramenta fala com um sistema de fora, a chamada passa pelo conector da integração (`integracoes/`), com
+   `chamar(...)` e o cliente `integracoes/http.py`; nunca `requests` ou `httpx` direto no `func.py`.
 6. Atualize as listas escritas à mão: `ferramentas/<area>/agents.md` (seção "Para quem mantém"),
    `ferramentas/agents.md` (contagem em "Situação hoje") e `ferramentas/integracoes/<sistema>/README.md`.
    Nenhum teste confere essas listas. Elas desatualizam sozinhas.

@@ -16,7 +16,7 @@
 
 ## Conector
 
-[preencher: como a plataforma fala com ele e como checa se está de pé]
+`integracoes/sistemas_internos.py` (`ConectorInterno`), modo sempre `simulado`: o CRM é o mock. A saúde vem dos sistemas `cadastro` e `crm` de `mock.falhas`.
 
 ## Ligação
 

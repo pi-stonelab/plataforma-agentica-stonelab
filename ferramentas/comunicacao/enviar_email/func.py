@@ -15,7 +15,7 @@ LIVRE = "texto_livre"
 class EnviarEmail(FerramentaComConfirmacao):
     nome = "enviar_email"
     area = "comunicacao"
-    integracoes = ("google_workspace", "microsoft_365")  # o envio de hoje é por SMTP (email_smtp)
+    integracoes = ("email",)
     nivel_minimo = "N1"
     areas_permitidas = ("atendimento", "financeiro")
     categorias_dados = ("contato",)
