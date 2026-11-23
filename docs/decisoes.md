@@ -477,6 +477,14 @@ Tomadas pelo orquestrador; sem fonte, para o Pedro e o Brenno validarem.
   a integração; sem ele, fica desligada e as ferramentas somem do índice do modelo. `<SISTEMA>_MODO=simulado` liga
   uma versão em memória para demo e testes, sempre identificada em `fonte`.
 
+### E6. Leitura de e-mail separada do envio, com o relógio de verdade
+- Decisão: `buscar_emails` lê a caixa da plataforma por IMAP numa integração própria (`email_leitura`), não na do
+  envio (`email`): outro servidor e outra credencial, e uma queda de um não pausa o outro. Só procura remetentes
+  do cadastro do lojista (mais o `EMAIL_DESTINO_TESTE` da demo), abre a pasta só para leitura e devolve assunto e
+  trecho juntos no campo `texto` (texto livre mascarado), porque a lista de campos classificados é fechada e
+  leitura não libera campo. Numa caixa real, o período padrão conta do dia de verdade (`agora_real`, como a
+  cotação na H17); a suíte congela esse relógio no `HOJE_DO_MOCK`.
+
 ### E5. Escrita sem redirecionamento
 - Decisão: o cliente HTTP não segue redirecionamento em escrita, e um 2xx de escrita com corpo ilegível vira "pode
   ter saído" (`EfeitoIncerto`): o servidor já recebeu o pedido, e repetir poderia duplicar a ação.
