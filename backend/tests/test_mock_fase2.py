@@ -11,7 +11,14 @@ import pytest
 from mock import regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 from mock.banco import criar_engine
 from mock.consultas import motivos_de_recusa_da_antecipacao
-from mock.gerar import ACORDOS, COMENTARIO_ARMADILHA, recebiveis_da_venda, recriar, verificar
+from mock.gerar import (
+    ACORDOS,
+    COMENTARIO_ARMADILHA,
+    DIVERGENCIAS_DE_LIQUIDACAO,
+    recebiveis_da_venda,
+    recriar,
+    verificar,
+)
 from mock.modelos import (
     Acordo,
     AnaliticaAtualizacao,
@@ -60,7 +67,8 @@ def sessao(engine):
 
 # Digest das linhas da fase 1, calculado com o gerador de antes da fase 2 (c0c0b8f) e com o de depois:
 # iguais. As colunas novas (prazo_em, resolvido_em, id_acordo) e as linhas plantadas depois ficam de
-# fora; a liquidação da divergência plantada (M00013, 14/10) entra com o valor trocado por um marcador.
+# fora; a liquidação da divergência do caso 5 (M00013 em 14/10) entra com um marcador e a do cenário 9 (M00007
+# em 04/09) com o valor de antes da divergência.
 FASE_1_CONGELADA = {
     "times": ("id,nome,area,carteira", "", "be0ddaa7edb7f935", 5),
     "funcionarios": ("id,nome,email,cargo,id_time,situacao", "", "d89c449f23bfea47", 15),
@@ -87,6 +95,17 @@ FASE_1_CONGELADA = {
 }
 
 
+def _sem_as_divergencias_plantadas(linha):
+    """A do caso 5 (M00013) vira o marcador, como no digest de c0c0b8f; a do cenário 9 volta ao valor de antes."""
+    chave = (linha[1], str(linha[2]))
+    if chave == ("M00013", "2026-10-14"):
+        return (*linha[:3], "DIVERGENCIA", *linha[4:])
+    for id_lojista, dia, a_menos in DIVERGENCIAS_DE_LIQUIDACAO:
+        if chave == (id_lojista, str(dia)):
+            return (*linha[:3], linha[3] + a_menos, *linha[4:])
+    return linha
+
+
 @pytest.mark.parametrize("tabela", sorted(FASE_1_CONGELADA))
 def test_as_linhas_da_fase_1_continuam_iguais(engine, tabela):
     colunas, filtro, digest, quantidade = FASE_1_CONGELADA[tabela]
@@ -94,11 +113,7 @@ def test_as_linhas_da_fase_1_continuam_iguais(engine, tabela):
     with engine.connect() as conexao:
         linhas = [tuple(linha) for linha in conexao.execute(text(sql))]
     if tabela == "liquidacoes":
-        linhas = [
-            (*linha[:3], "DIVERGENCIA", *linha[4:]) if (linha[1], str(linha[2])) == ("M00013", "2026-10-14")
-            else linha
-            for linha in linhas
-        ]
+        linhas = [_sem_as_divergencias_plantadas(linha) for linha in linhas]
     assert (hashlib.sha256(repr(linhas).encode()).hexdigest()[:16], len(linhas)) == (digest, quantidade)
 
 
@@ -196,9 +211,13 @@ def test_agenda_e_a_de_toda_venda_aprovada(sessao):
         Venda.modalidade == "pix")) == 0
 
 
-def test_so_a_venda_do_chargeback_aberto_fica_retida(sessao):
-    retidas = set(sessao.scalars(select(Recebivel.id_venda).where(Recebivel.situacao == "retido")))
-    assert retidas == {gab.C2_VENDA}
+def test_so_o_chargeback_aberto_e_a_liquidacao_que_falhou_ficam_retidos(sessao):
+    futuras = set(sessao.scalars(select(Recebivel.id_venda).where(
+        Recebivel.situacao == "retido", Recebivel.data_prevista >= regras.HOJE_DO_MOCK)))
+    assert futuras == {gab.C2_VENDA}
+    passadas = sessao.execute(select(Recebivel.id_venda, Recebivel.data_prevista, Recebivel.valor_parcela_centavos)
+                              .where(Recebivel.situacao == "retido", Recebivel.data_prevista < regras.HOJE_DO_MOCK))
+    assert [(v, d.isoformat(), c) for v, d, c in passadas] == [gab.C1_LASTRO_NA_AGENDA]
 
 
 # --- cenários ------------------------------------------------------------------------------

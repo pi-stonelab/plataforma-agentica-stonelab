@@ -401,6 +401,13 @@ PRAZO_DE_DEFESA_DO_CHARGEBACK_DIAS = 7  # corridos, a partir do aviso ao lojista
 PRAZO_DA_DECISAO_DO_CHARGEBACK_DIAS = 120
 CHARGEBACK_QUE_LIGA_O_MONITORAMENTO_PONTOS_BASE = 100  # mais de 1% das vendas do mês, em quantidade
 PRAZO_DO_MED_DIAS = 80  # para contestar a devolução de um Pix, desde 1º/09/2026
+# O que quem pagou alegou no pedido de MED. O MED só vale para fraude ou golpe, nunca para arrependimento,
+# erro de chave ou desacordo comercial (§7.7).
+ROTULOS_DOS_MOTIVOS_DO_MED = {
+    "golpe_produto_nao_entregue": "golpe: quem pagou diz que o produto não foi entregue",
+    "fraude_conta_invadida": "fraude: quem pagou diz que a conta dele foi invadida",
+}
+MOTIVOS_DO_MED = tuple(ROTULOS_DOS_MOTIVOS_DO_MED)
 
 ROTULOS_DOS_DOCUMENTOS = {
     "nota_fiscal": "nota fiscal",

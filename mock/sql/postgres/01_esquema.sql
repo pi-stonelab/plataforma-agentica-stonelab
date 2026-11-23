@@ -239,12 +239,14 @@ CREATE TABLE casos_pix (
     data_abertura DATE NOT NULL,
     prazo_contestacao DATE NOT NULL,
     valor_bloqueado_centavos BIGINT NOT NULL,
+    motivo_alegado VARCHAR(40) NOT NULL,
     tem_comprovante_entrega BOOLEAN NOT NULL,
     id_analista VARCHAR(5),
     situacao VARCHAR(15) NOT NULL,
     CONSTRAINT pk_casos_pix PRIMARY KEY (codigo),
     CONSTRAINT ck_casos_pix_situacao CHECK (situacao IN ('bloqueado', 'contestado', 'devolvido', 'liberado')),
     CONSTRAINT ck_casos_pix_codigo_formato CHECK (codigo LIKE 'PX_____'),
+    CONSTRAINT ck_casos_pix_motivo_alegado CHECK (motivo_alegado IN ('golpe_produto_nao_entregue', 'fraude_conta_invadida')),
     CONSTRAINT ck_casos_pix_valor_positivo CHECK (valor_bloqueado_centavos > 0),
     CONSTRAINT ck_casos_pix_prazo_depois_da_abertura CHECK (prazo_contestacao > data_abertura),
     CONSTRAINT uq_casos_pix_id_venda UNIQUE (id_venda),
@@ -254,6 +256,7 @@ CREATE TABLE casos_pix (
 );
 CREATE INDEX ix_casos_pix_id_lojista_data_abertura ON casos_pix (id_lojista, data_abertura);
 COMMENT ON TABLE casos_pix IS 'Pedidos de devolução de Pix pelo MED do Banco Central (DOC-MOCK §7.7). Confidencial.';
+COMMENT ON COLUMN casos_pix.motivo_alegado IS 'O que quem pagou alegou (regras.MOTIVOS_DO_MED).';
 
 CREATE TABLE chargebacks (
     codigo VARCHAR(7) NOT NULL,

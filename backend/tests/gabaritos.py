@@ -120,6 +120,8 @@ C1_LIQUIDACAO_CENTAVOS = 184230
 C1_LIQUIDACAO_TEXTO = "R$ 1.842,30"
 C1_LIQUIDACAO_SITUACAO = "falhou"  # DOC-MOCK diz "recusada"; o enum do mock é paga/falhou/devolvida
 C1_MOTIVO_DA_FALHA = "conta_invalida"
+# Lastro na agenda (fase 2): a parcela da venda no crédito à vista de 14/09 que caía em 14/10 ficou retida.
+C1_LASTRO_NA_AGENDA = ("T0000650", "2026-10-14", 184230)
 C1_CHAMADO = "CH000061"
 C1_PROTOCOLO = "20261014-000001"
 C1_CHAMADO_CATEGORIA = "Recebimento"

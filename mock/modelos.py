@@ -38,6 +38,7 @@ from .regras import (
     CARTEIRAS,
     FILAS,
     MOTIVOS_DE_CHARGEBACK,
+    MOTIVOS_DO_MED,
     PORTES,
 )
 
@@ -460,6 +461,7 @@ class CasoPix(BaseMock):
     __table_args__ = (
         _um_de("situacao", SITUACOES_CASO_PIX),
         _regra("codigo_formato", "codigo LIKE 'PX_____'"),
+        _um_de("motivo_alegado", MOTIVOS_DO_MED),
         _regra("valor_positivo", "valor_bloqueado_centavos > 0"),
         _regra("prazo_depois_da_abertura", "prazo_contestacao > data_abertura"),
         Index(None, "id_lojista", "data_abertura"),
@@ -474,6 +476,7 @@ class CasoPix(BaseMock):
     data_abertura: Mapped[date] = mapped_column(Date)
     prazo_contestacao: Mapped[date] = mapped_column(Date)
     valor_bloqueado_centavos: Mapped[int] = mapped_column(BigInteger)
+    motivo_alegado: Mapped[str] = mapped_column(String(40), comment="O que quem pagou alegou (regras.MOTIVOS_DO_MED).")
     tem_comprovante_entrega: Mapped[bool] = mapped_column(Boolean, default=False)
     id_analista: Mapped[str | None] = mapped_column(ForeignKey("funcionarios.id"))
     situacao: Mapped[str] = mapped_column(String(15))
