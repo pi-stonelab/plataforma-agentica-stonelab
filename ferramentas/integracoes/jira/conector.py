@@ -25,6 +25,8 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from mock import falhas
+
 from ferramentas.base import EfeitoIncerto, ErroFerramenta
 from ferramentas.integracoes import cliente_http
 from ferramentas.integracoes.cliente_http import RespostaInvalida
@@ -36,7 +38,6 @@ from ferramentas.integracoes.conector import (
 )
 from ferramentas.integracoes.jira.adf import adf_do_texto, texto_do_adf
 from ferramentas.integracoes.registro import registrar
-from mock import falhas
 
 PADRAO_PROJETO = re.compile(r"[A-Z][A-Z0-9_]{1,9}")
 PADRAO_CHAVE = re.compile(r"([A-Z][A-Z0-9_]{1,9})-[1-9][0-9]{0,8}")

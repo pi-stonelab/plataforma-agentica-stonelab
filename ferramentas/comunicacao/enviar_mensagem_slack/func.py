@@ -4,8 +4,17 @@ from ferramentas.base import ErroFerramenta
 from ferramentas.confirmacoes import FerramentaComConfirmacao
 from ferramentas.integracoes.conector import DestinoNaoPermitido
 from ferramentas.integracoes.slack.conector import CONECTOR as SLACK
-from ferramentas.integracoes.slack.conector import FONTE_REAL, FONTE_SIMULADA, TAMANHO_MAXIMO_DO_TEXTO
-from ferramentas.mensagens_internas import assinado, destino_liberado, exigir_integracao, texto_mascarado
+from ferramentas.integracoes.slack.conector import (
+    FONTE_REAL,
+    FONTE_SIMULADA,
+    TAMANHO_MAXIMO_DO_TEXTO,
+)
+from ferramentas.mensagens_internas import (
+    assinado,
+    destino_liberado,
+    exigir_integracao,
+    texto_mascarado,
+)
 
 TAMANHO_DO_TEXTO = TAMANHO_MAXIMO_DO_TEXTO - 100  # sobra espaço para a assinatura
 

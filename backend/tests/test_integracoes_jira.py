@@ -13,10 +13,19 @@ from ferramentas.confirmacoes import MENSAGEM_EFEITO_INCERTO
 from ferramentas.integracoes.__main__ import principal
 from ferramentas.integracoes.jira.adf import adf_do_texto, texto_do_adf
 from ferramentas.integracoes.jira.conector import CONECTOR as JIRA
-from ferramentas.integracoes.jira.conector import FONTE_REAL, FONTE_SIMULADA, MENSAGEM_RECUSA_AO_ABRIR
+from ferramentas.integracoes.jira.conector import (
+    FONTE_REAL,
+    FONTE_SIMULADA,
+    MENSAGEM_RECUSA_AO_ABRIR,
+)
 from mock.falhas import ligar
 
-from .apoio_ferramentas import FUNCIONARIO_DO_CARGO, limpar_estado, mundo_do_mock, usuario_do_diretorio
+from .apoio_ferramentas import (
+    FUNCIONARIO_DO_CARGO,
+    limpar_estado,
+    mundo_do_mock,
+    usuario_do_diretorio,
+)
 from .apoio_integracoes_externas import (
     JIRA_EMAIL,
     JIRA_TOKEN,
@@ -180,7 +189,7 @@ def test_abrir_recusa_projeto_e_tipo_fora_da_lista_e_resumo_de_duas_linhas(jira,
 
 
 def test_jira_que_recusa_o_chamado_nao_cria_nada_e_nao_pausa_a_integracao(jira, ana):
-    servidor, dados = jira
+    _, dados = jira
     dados.tipos_por_projeto["PLAT"] = set()  # o tipo da lista não existe mais no Jira
     for _ in range(4):
         _, resultado = previa_e_confirmacao(ABRIR, {"resumo": "x", "descricao": "y", "projeto": "PLAT"}, ana)

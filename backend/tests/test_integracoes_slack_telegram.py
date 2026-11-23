@@ -19,7 +19,12 @@ from ferramentas.integracoes.telegram.conector import CONECTOR as TELEGRAM
 from ferramentas.integracoes.telegram.conector import FONTE_REAL as FONTE_TELEGRAM
 from ferramentas.integracoes.telegram.conector import FONTE_SIMULADA as TELEGRAM_SIMULADO
 
-from .apoio_ferramentas import FUNCIONARIO_DO_CARGO, limpar_estado, mundo_do_mock, usuario_do_diretorio
+from .apoio_ferramentas import (
+    FUNCIONARIO_DO_CARGO,
+    limpar_estado,
+    mundo_do_mock,
+    usuario_do_diretorio,
+)
 from .apoio_http import porta_que_recusa
 from .apoio_integracoes_externas import (
     SLACK_TOKEN,
@@ -159,7 +164,7 @@ def test_slack_testar_confere_o_token_e_lista_os_canais(slack):
 
 
 def test_telegram_envia_ao_chat_do_apelido_sem_formatacao_nem_previa_de_link(telegram, ana):
-    servidor, dados = telegram
+    _, dados = telegram
     preparada = previa(TELEGRAM_FERRAMENTA, {"chat": "plantao", "texto": "Core fora do ar desde 10h"}, ana)
     resultado = confirmacoes.confirmar(preparada["confirmacao_id"], ana)
     assert resultado["dados"] == {"chat": "plantao", "fonte": FONTE_TELEGRAM}

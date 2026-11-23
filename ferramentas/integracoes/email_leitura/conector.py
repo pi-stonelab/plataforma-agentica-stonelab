@@ -32,12 +32,13 @@ from email import policy
 from email.utils import parseaddr, parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
+from mock import falhas
+
 from ferramentas import dados_sinteticos
 from ferramentas.email_smtp import HOST_RE, HOSTS_LOCAIS, PORTA_RE, endereco_valido
 from ferramentas.integracoes.cliente_http import CredencialRecusada, RespostaInvalida
 from ferramentas.integracoes.conector import Conector, ConfiguracaoInvalida
 from ferramentas.integracoes.registro import registrar
-from mock import falhas
 
 SEGURANCAS = ("ssl", "starttls", "nenhuma")
 PORTA_PADRAO = {"ssl": 993, "starttls": 143, "nenhuma": 1143}

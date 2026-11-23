@@ -24,12 +24,13 @@ import re
 import threading
 from collections import deque
 
+from mock import falhas
+
 from ferramentas.base import EfeitoIncerto, ErroFerramenta
 from ferramentas.integracoes import cliente_http
 from ferramentas.integracoes.cliente_http import RespostaInvalida
 from ferramentas.integracoes.conector import Conector, ConfiguracaoInvalida, ler_destinos
 from ferramentas.integracoes.registro import registrar
-from mock import falhas
 
 TELEGRAM_PADRAO = "https://api.telegram.org"
 PADRAO_TOKEN = re.compile(r"[0-9]{5,15}:[A-Za-z0-9_-]{30,60}")

@@ -21,12 +21,17 @@ import re
 import threading
 from collections import deque
 
+from mock import falhas
+
 from ferramentas.base import EfeitoIncerto, ErroFerramenta
 from ferramentas.integracoes import cliente_http
-from ferramentas.integracoes.cliente_http import CredencialRecusada, LimiteDePedidos, RespostaInvalida
+from ferramentas.integracoes.cliente_http import (
+    CredencialRecusada,
+    LimiteDePedidos,
+    RespostaInvalida,
+)
 from ferramentas.integracoes.conector import Conector, ConfiguracaoInvalida, ler_destinos
 from ferramentas.integracoes.registro import registrar
-from mock import falhas
 
 SLACK_PADRAO = "https://slack.com/api"
 PADRAO_TOKEN = re.compile(r"xoxb-[A-Za-z0-9-]{10,250}")

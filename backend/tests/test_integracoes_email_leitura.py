@@ -25,7 +25,12 @@ from ferramentas.integracoes.email_leitura.conector import (
 )
 from mock.falhas import ligar
 
-from .apoio_ferramentas import FUNCIONARIO_DO_CARGO, limpar_estado, mundo_do_mock, usuario_do_diretorio
+from .apoio_ferramentas import (
+    FUNCIONARIO_DO_CARGO,
+    limpar_estado,
+    mundo_do_mock,
+    usuario_do_diretorio,
+)
 from .apoio_imap import SENHA, ServidorImap, ambiente_do_imap, entrada
 
 BUSCAR = "buscar_emails"
