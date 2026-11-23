@@ -2,12 +2,15 @@
 das APIs reais (`apoio_http.py`). Prova o pedido que sai (caminho e consulta), a resposta e o modo simulado.
 """
 
-from datetime import date
+from datetime import date, datetime, time
 
 import pytest
 from ferramentas import catalogo, integracoes
+from ferramentas.base import MENSAGEM_TERCEIROS
 from ferramentas.dados_sinteticos import HOJE_DO_MOCK
 from ferramentas.integracoes.apis_publicas.conector import CONECTOR as APIS
+from ferramentas.integracoes.apis_publicas.conector import FUSO_DA_COTACAO, MENSAGEM_TESTE_SIMULADO
+from mock.falhas import desligar_todas, ligar
 
 from .apoio_ferramentas import (
     FUNCIONARIO_DO_CARGO,
@@ -21,6 +24,7 @@ from .apoio_http import (
     ServidorHttp,
     ambiente_das_apis_publicas,
     boletim_de_fechamento,
+    porta_que_recusa,
     responder_das_apis_publicas,
 )
 
@@ -41,6 +45,7 @@ def estado_limpo():
     yield
     limpar_estado()
     integracoes.reiniciar()
+    desligar_todas()
 
 
 @pytest.fixture
@@ -62,13 +67,21 @@ def pedidos_de_cotacao(servidor):
 # --- CEP -------------------------------------------------------------------------------------------
 
 
-def test_cep_vem_do_viacep_no_mesmo_formato_de_antes(servidor, ana):
-    resposta = executar(CEP, {"cep": "01310-100"}, ana)
+def test_cep_vem_do_viacep_com_hifen_e_a_fonte_como_conteudo_de_terceiros(servidor, ana):
+    resposta = executar(CEP, {"cep": "01.310-100"}, ana)
     assert resposta == {
         "status": "ok",
-        "dados": {"cep": "01310100", "logradouro": "Avenida Paulista", "bairro": "Bela Vista",
-                  "cidade": "São Paulo", "uf": "SP"},
-        "mensagem": "Concluído.",
+        "dados": {
+            "conteudo_de_terceiros": {
+                "cep": "01310-100",
+                "logradouro": "Avenida Paulista",
+                "bairro": "Bela Vista",
+                "cidade": "São Paulo",
+                "uf": "SP",
+                "fonte": "ViaCEP",
+            }
+        },
+        "mensagem": MENSAGEM_TERCEIROS,
         "tipo_erro": None,
     }
     assert servidor.pedidos == [("GET", "/ws/01310100/json/")]
@@ -110,14 +123,15 @@ def test_cep_resposta_fora_do_formato_vira_integracao_indisponivel(corpo, ana, m
         for nome, valor in ambiente_das_apis_publicas(rodando).items():
             monkeypatch.setenv(nome, valor)
         resposta = executar(CEP, {"cep": "01310100"}, ana)
-    assert (resposta["tipo_erro"], resposta["mensagem"]) == ("integracao_indisponivel", "Integração fora do ar.")
+    assert (resposta["tipo_erro"], resposta["mensagem"]) == (
+        "integracao_indisponivel",
+        "Sem resposta do serviço: APIs públicas (CEP e câmbio). Tente de novo em um minuto.",
+    )
 
 
 def test_viacep_fora_do_ar_tres_vezes_pausa_e_nao_derruba_a_cotacao(ana, monkeypatch):
-    with ServidorHttp() as rodando:
-        ambiente = ambiente_das_apis_publicas(rodando)
-    with ServidorHttp() as ptax:
-        monkeypatch.setenv("VIACEP_URL", ambiente["VIACEP_URL"])  # porta já fechada
+    with porta_que_recusa() as url_recusada, ServidorHttp() as ptax:
+        monkeypatch.setenv("VIACEP_URL", url_recusada)
         monkeypatch.setenv("BCB_PTAX_URL", ambiente_das_apis_publicas(ptax)["BCB_PTAX_URL"])
         for _ in range(3):
             assert executar(CEP, {"cep": "01310100"}, ana)["tipo_erro"] == "integracao_indisponivel"
@@ -125,18 +139,67 @@ def test_viacep_fora_do_ar_tres_vezes_pausa_e_nao_derruba_a_cotacao(ana, monkeyp
         assert executar(COTACAO, {"moeda": "USD"}, ana)["status"] == "ok"
 
 
-def test_cep_no_modo_simulado_nao_usa_rede(servidor, ana, monkeypatch):
+def test_cep_no_modo_simulado_nao_usa_rede_e_diz_que_e_exemplo(servidor, ana, monkeypatch):
     monkeypatch.setenv("APIS_PUBLICAS_MODO", "simulado")
-    assert executar(CEP, {"cep": "20040-020"}, ana)["dados"]["cidade"] == "Rio de Janeiro"
-    assert executar(CEP, {"cep": "01001-000"}, ana)["tipo_erro"] == "nao_encontrado"  # fora dos 3 de exemplo
+    endereco = executar(CEP, {"cep": "20040-020"}, ana)["dados"]["conteudo_de_terceiros"]
+    assert (endereco["cidade"], endereco["cep"], endereco["fonte"]) == (
+        "Rio de Janeiro",
+        "20040-020",
+        "Endereço de exemplo (modo simulado)",
+    )
+    fora = executar(CEP, {"cep": "01001-000"}, ana)  # um CEP real, mas fora dos 3 de exemplo
+    assert (fora["tipo_erro"], fora["mensagem"]) == (
+        "nao_encontrado",
+        "No modo de demonstração só há os CEPs 01310-100, 20040-020 e 30130-010.",
+    )
     assert servidor.pedidos == []
 
 
-def test_apis_publicas_desligadas_respondem_indisponivel(servidor, ana, monkeypatch):
+def test_apis_publicas_desligadas_saem_do_indice_e_o_agente_ouve_o_aviso(servidor, ana, monkeypatch):
     monkeypatch.setenv("APIS_PUBLICAS_MODO", "desligado")
-    assert executar(CEP, {"cep": "01310100"}, ana)["tipo_erro"] == "integracao_indisponivel"
+    assert catalogo.ferramentas_liberadas(ana, AGENTE) == []
+    aviso = (
+        "As consultas de CEP e de câmbio não estão ligadas nesta plataforma. Avise o usuário e não tente de novo."
+    )
+    for nome, argumentos in ((CEP, {"cep": "01310100"}), (COTACAO, {"moeda": "USD"})):
+        resposta = executar(nome, argumentos, ana)
+        assert (resposta["tipo_erro"], resposta["mensagem"]) == ("ferramenta_inativa", aviso)
+    assert servidor.pedidos == []
+
+
+def test_apis_publicas_mal_configuradas_tambem_saem_do_indice(ana, monkeypatch):
+    monkeypatch.setenv("VIACEP_URL", "http://viacep.example")  # sem https fora do localhost
+    assert catalogo.ferramentas_liberadas(ana, AGENTE) == []
+    assert executar(CEP, {"cep": "01310100"}, ana)["tipo_erro"] == "ferramenta_inativa"
+
+
+def test_falha_simulada_derruba_cep_e_cotacao_sem_chamar_a_rede_nem_pausar(servidor, ana):
+    ligar("apis_publicas")
+    for _ in range(4):
+        assert executar(CEP, {"cep": "01310100"}, ana)["tipo_erro"] == "integracao_indisponivel"
     assert executar(COTACAO, {"moeda": "USD"}, ana)["tipo_erro"] == "integracao_indisponivel"
     assert servidor.pedidos == []
+    assert APIS.saude() == "indisponivel"
+    desligar_todas()
+    assert APIS.saude() != "pausada"  # a falha simulada não conta no disjuntor
+
+
+def test_pedido_recusado_pelo_servico_nao_pausa_a_integracao(ana, monkeypatch):
+    def responder(metodo, caminho):
+        if "CotacaoMoedaDia" in caminho:
+            return 400, {"Content-Type": "text/html"}, b"<h1>Bad Request</h1>"
+        return responder_das_apis_publicas(metodo, caminho)
+
+    with ServidorHttp(responder) as rodando:
+        for nome, valor in ambiente_das_apis_publicas(rodando).items():
+            monkeypatch.setenv(nome, valor)
+        for _ in range(4):
+            resposta = executar(COTACAO, {"moeda": "USD"}, ana)
+            assert (resposta["tipo_erro"], resposta["mensagem"]) == (
+                "parametro_invalido",
+                "O serviço recusou o pedido. Confira os dados enviados.",
+            )
+        assert APIS.saude_por_servico()["ptax"] == "ok"
 
 
 # --- cotação ---------------------------------------------------------------------------------------
@@ -189,10 +252,14 @@ def test_cotacao_sem_boletim_em_7_dias_e_nao_encontrado(servidor, ana):
 @pytest.mark.parametrize(
     ("argumentos", "mensagem"),
     [
-        ({"moeda": "US"}, "A moeda deve ser o código de 3 letras, como USD."),
-        ({"moeda": "U$D"}, "A moeda deve ser o código de 3 letras, como USD."),
+        ({"moeda": "US"}, "Use o código de 3 letras da moeda, como USD."),
+        ({"moeda": "U$D"}, "Use o código de 3 letras da moeda, como USD."),
         ({"moeda": "XYZ"}, "O Banco Central não publica cotação dessa moeda."),
-        ({"moeda": "USD", "data": "2026-10-16"}, "A data não pode ser depois de hoje."),
+        ({"moeda": "USD", "data": "2026-10-16"}, "A data não pode ser depois de hoje (15/10/2026)."),
+        ({"moeda": "USD", "data": "0999-01-04"}, "O Banco Central tem cotação a partir de 01/01/1985."),
+        ({"moeda": "USD", "data": "14/10/2026"}, (
+            "O parâmetro data deve ser uma data no formato AAAA-MM-DD, como 2026-10-14."
+        )),
     ],
 )
 def test_cotacao_recusa_moeda_e_data_fora_da_regra(servidor, ana, argumentos, mensagem):
@@ -258,7 +325,29 @@ def test_cotacao_no_modo_simulado_nao_usa_rede_e_diz_que_e_ilustrativa(servidor,
     dados = executar(COTACAO, {"moeda": "USD", "data": "2026-10-10"}, ana)["dados"]  # sábado
     assert (dados["data"], dados["cotacao_compra"]) == ("2026-10-09", "R$ 5,3500")
     assert "ilustrativos" in dados["fonte"]
-    assert executar(COTACAO, {"moeda": "JPY"}, ana)["tipo_erro"] == "parametro_invalido"
+    jpy = executar(COTACAO, {"moeda": "JPY"}, ana)
+    assert (jpy["tipo_erro"], jpy["mensagem"]) == ("parametro_invalido", "No modo de demonstração só há EUR, GBP, USD.")
+    antiga = executar(COTACAO, {"moeda": "USD", "data": "0001-01-01"}, ana)
+    assert antiga["tipo_erro"] == "parametro_invalido"
+    depois = executar(COTACAO, {"moeda": "USD", "data": "2026-11-20"}, ana)
+    assert depois["mensagem"] == "Nesta plataforma de demonstração, hoje é 15/10/2026. Escolha uma data até esse dia."
+    assert servidor.pedidos == []
+
+
+def test_modo_real_usa_o_dia_de_verdade_e_o_simulado_o_do_mock(servidor, ana, monkeypatch):
+    sexta_real = datetime.combine(date(2026, 11, 20), time(15), FUSO_DA_COTACAO)
+    monkeypatch.setattr(APIS, "agora_real", lambda: sexta_real)
+    assert APIS.hoje() == date(2026, 11, 20)
+    resposta = executar(COTACAO, {"moeda": "USD"}, ana)  # o servidor de teste não tem boletim de novembro
+    assert resposta["tipo_erro"] == "nao_encontrado"
+    primeira = next(c for c in pedidos_de_cotacao(servidor))
+    assert primeira.split("@dataCotacao=")[1][:12] == "'11-20-2026'"
+    monkeypatch.setenv("APIS_PUBLICAS_MODO", "simulado")
+    assert APIS.hoje() == HOJE_DO_MOCK
+
+
+def test_testar_no_modo_simulado_responde_sem_rede(servidor):
+    assert APIS.testar({"APIS_PUBLICAS_MODO": "simulado"}) == MENSAGEM_TESTE_SIMULADO
     assert servidor.pedidos == []
 
 

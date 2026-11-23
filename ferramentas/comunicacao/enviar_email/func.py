@@ -3,6 +3,7 @@
 from ferramentas import dados_sinteticos, email_smtp, lojista
 from ferramentas.base import ErroFerramenta
 from ferramentas.confirmacoes import FerramentaComConfirmacao
+from ferramentas.integracoes.email.conector import CONECTOR as EMAIL
 from ferramentas.mascara import mascarar_valor
 
 # Sem `papel_contato`: o financeiro e, se o lojista não tiver, o sócio.
@@ -24,6 +25,7 @@ class EnviarEmail(FerramentaComConfirmacao):
     conteudo_terceiros = False
     status = "ativa"
     titulo = "Enviar e-mail"
+    descricao_para_pessoa = "Prepara um e-mail para um contato do lojista; ele só sai depois que você confirma."
     rotulos_da_previa = {"para": "Para", "assunto": "Assunto", "corpo": "Mensagem"}
     parametros = {
         "id_cliente": {"tipo": "texto", "obrigatorio": True},
@@ -65,8 +67,9 @@ class EnviarEmail(FerramentaComConfirmacao):
         lojista.exigir_acesso(usuario, conteudo["codigo"])
         config = email_smtp.exigir_configuracao()
         funcionario = dados_sinteticos.contato_do_funcionario(usuario.id_usuario)  # o lojista responde a ele
-        id_mensagem = email_smtp.enviar(
-            conteudo["email"], conteudo["assunto"], conteudo["corpo"], config, funcionario
+        id_mensagem = EMAIL.chamar(  # o disjuntor e a saúde da integração contam este envio
+            "enviar",
+            lambda: email_smtp.enviar(conteudo["email"], conteudo["assunto"], conteudo["corpo"], config, funcionario),
         )
         para = {"codigo": conteudo["codigo"], "papel": conteudo["papel"]}
         return {"id_mensagem": id_mensagem, "para": para}

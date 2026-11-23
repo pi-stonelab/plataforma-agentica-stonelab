@@ -1,12 +1,13 @@
 """Registro dos conectores e o estado de todas as integrações (monitoramento e tela de conectores).
 
-`estado_integracoes()` nunca leva segredo: só nome, rótulo, tipo, modo, se está configurada, a saúde e as
-ferramentas do catálogo que usam a integração. Os valores do .env não aparecem em nenhum campo.
+`estado_integracoes()` nunca leva segredo: só nome, rótulo, tipo, credencial (da plataforma ou de cada pessoa),
+modo, se está configurada, a saúde (a do conector e a de cada serviço) e as ferramentas do catálogo que usam a
+integração. Os valores do .env não aparecem em nenhum campo.
 """
 
 import os
 
-from ferramentas.integracoes.conector import Conector
+from ferramentas.integracoes.conector import SAUDES, Conector
 
 CONECTORES = {}
 
@@ -48,14 +49,17 @@ def estado_integracoes(ambiente=os.environ):
     linhas = []
     for nome in sorted(CONECTORES, key=lambda n: (CONECTORES[n].tipo != "interno", n)):
         item = CONECTORES[nome]
+        por_servico = item.saude_por_servico(ambiente)
         linhas.append(
             {
                 "nome": item.nome,
                 "rotulo": item.rotulo,
                 "tipo": item.tipo,
+                "credencial": item.credencial,
                 "modo": item.modo(ambiente),
                 "configurado": item.configurado(ambiente),
-                "saude": item.saude(ambiente),
+                "saude": min(por_servico.values(), key=SAUDES.index),
+                "servicos": [{"nome": s, "saude": por_servico[s]} for s in item.servicos if s],
                 "ferramentas": usos.get(nome, []),
             }
         )

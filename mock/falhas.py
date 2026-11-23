@@ -16,7 +16,8 @@ from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
-SISTEMAS = ("cadastro", "core", "cobranca", "crm", "diretorio", "email", "disputas", "analitica")
+# `apis_publicas` (CEP e câmbio) não é sistema da Stone: entra aqui só para a QA derrubar na demo.
+SISTEMAS = ("cadastro", "core", "cobranca", "crm", "diretorio", "email", "disputas", "analitica", "apis_publicas")
 FORA_DO_AR = "fora_do_ar"
 DESATUALIZADO = "desatualizado"
 TIPOS = (FORA_DO_AR, DESATUALIZADO)

@@ -96,6 +96,8 @@ Como ler:
 - Motivo: o PLANO não escreve um motivo. Ele registra a consequência: nada de tabela de ferramentas e nada de rota que liste fichas.
 - No código: `ferramentas/catalogo.py`. Consequência: não existe tabela `ferramentas` nem rota que liste fichas para a
   interface.
+- Revogada em parte pelo Pedro em 22/11 (H17): a pessoa passa a ver o catálogo filtrado para ela. Continua valendo
+  que as ferramentas ficam só no código, nunca no banco.
 
 ### D11. Funcionário inativo é barrado em um lugar só
 - Decisão: a checagem "o funcionário está ativo?" mora em `ferramentas/diretorio.py` (`buscar_usuario`). O modo terminal
@@ -263,7 +265,7 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 ### H16. Conectores para as integrações, e as APIs públicas de verdade
 - Decisão: cada integração das fichas tem um `Conector` em `ferramentas/integracoes/` (modo `real`, `simulado` ou
   `desligado` pelo .env, disjuntor de 3 falhas e 60 s por serviço, saúde sem segredo e `testar` para quem configura),
-  e todas as chamadas HTTP passam por `integracoes/http.py`. `consultar_endereco_cep` passa a consultar o ViaCEP e
+  e todas as chamadas HTTP passam por `integracoes/http.py` (hoje `cliente_http.py`, H17). `consultar_endereco_cep` passa a consultar o ViaCEP e
   `consultar_cotacao_moeda` fica ativa, com a PTAX do Banco Central. O modo `simulado` responde sem rede (os 3 CEPs
   de exemplo e cotações ilustrativas).
 - O `enviar_email` passa a ter `integracoes = ("email",)`: o envio é por SMTP, e a ficha dizia Google e Microsoft
@@ -277,6 +279,32 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
   127.0.0.1 (`backend/tests/conftest.py`).
 - No código: `ferramentas/integracoes/`, `catalogo.listar_fichas` e `confirmacoes.confirmacoes_da_execucao`
   (adaptadores do contrato do front, §4.10 e §4.9). Testes em `test_integracoes_*.py` e `test_contrato_interface.py`.
+
+### H17. Catálogo visível para a pessoa, data real na cotação e as correções da revisão do bloco B
+- Decisão 1 (Pedro, 22/11): a D10 é revogada na parte "a pessoa não vê as ferramentas". Motivo: o front do professor
+  lista o catálogo na criação guiada (`GET /ferramentas`, `frontend/CONTRATO_API.md` §4.10), com `liberada` e
+  `motivo`. `catalogo.listar_fichas` devolve o catálogo filtrado para a pessoa, com a descrição para pessoas
+  (`descricao_para_pessoa`, quando a ficha tem) e o motivo em linguagem simples (o motivo técnico de
+  `governanca.motivo_bloqueio` fica no registro). As ferramentas continuam só no código.
+- Decisão 2 (Pedro, 22/11): no modo `real`, a cotação usa a data de hoje de verdade (America/Sao_Paulo), porque é
+  dado público real; no `simulado`, o `HOJE_DO_MOCK`, como o resto do mundo simulado. É o único relógio de verdade
+  das ferramentas (`ConectorApisPublicas.agora_real`); a suíte o congela no `HOJE_DO_MOCK`. O agente sempre diz o
+  dia da cotação.
+- Decisões do orquestrador na mesma rodada (revisões de dev e de usuário do bloco B):
+  - Integração desligada ou mal configurada tira a ferramenta do índice do modelo; se o modelo insistir, ouve que a
+    integração não está ligada e que deve avisar o usuário (nada sobre o .env, que fica só no terminal).
+  - O cliente HTTP passa a `cliente_http.py` (o nome `http.py` escondia o módulo do Python ao rodar o arquivo
+    direto), com prazo total do pedido, `montar_url`, 4xx fora do disjuntor e escrita sem resposta como
+    "pode ter saído".
+  - Saúde por serviço, com `sem_chamadas` e `configuracao_invalida`; falha só acusa por 5 minutos sem chamada nova.
+  - Uma `Confirmacao` por resposta (`confirmacao_da_execucao`, a mais recente) e a decisão lembrada por 1 hora,
+    só com id, pessoa e situação, para o back-end separar 409 de 404. Envio que não saiu não fica como confirmado.
+  - Máscara de texto livre: telefone com DDD entre parênteses ou com +55 e CNPJ com pontos e barra ganham a
+    máscara do próprio tipo antes da regra por quantidade de dígitos. Risco residual (o mesmo número escrito como
+    CPF e como telefone mostra partes diferentes) documentado em `mascara.py`. Revisão sugerida ao Brenno (KAN-63).
+- No código: `ferramentas/integracoes/`, `ferramentas/catalogo.py`, `ferramentas/confirmacoes.py`,
+  `ferramentas/mascara.py`, `ferramentas/base.py`. Testes em `test_integracoes_*.py`, `test_contrato_interface.py`,
+  `test_ferramentas_mascara_texto.py` e `test_ferramentas_mensagens_de_parametro.py`.
 
 ## Decisões do orquestrador (O1 a O13)
 

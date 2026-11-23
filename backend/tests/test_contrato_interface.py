@@ -59,19 +59,40 @@ def test_listar_fichas_traz_o_catalogo_inteiro_com_os_campos_do_contrato_na_orde
     json.dumps(fichas)  # só texto, número, booleano e lista: nunca o objeto da ferramenta (MED-3)
 
 
-def test_liberada_e_motivo_sao_os_da_governanca_para_cada_cargo(mundo):
+def test_liberada_e_motivo_seguem_a_governanca_o_status_e_a_integracao_para_cada_cargo(mundo):
     for cargo in FUNCIONARIO_DO_CARGO:
         usuario = pessoa(mundo, cargo)
         for ficha in catalogo.listar_fichas(usuario):
-            motivo = governanca.motivo_bloqueio(catalogo.carregar()[ficha["nome"]], usuario)
-            assert (ficha["liberada"], ficha["motivo"]) == (motivo is None, motivo), (cargo, ficha["nome"])
+            tecnico = governanca.motivo_bloqueio(catalogo.carregar()[ficha["nome"]], usuario)
+            if tecnico is not None:
+                esperado = catalogo.MOTIVOS_PARA_A_PESSOA.get(tecnico, catalogo.MOTIVO_GENERICO)
+            elif ficha["status"] == "planejada":
+                esperado = catalogo.MOTIVO_PLANEJADA
+            elif ficha["status"] == "inativa":
+                esperado = ficha["motivo"]
+                assert esperado, (cargo, ficha["nome"])
+            else:
+                esperado = None
+            assert (ficha["liberada"], ficha["motivo"]) == (esperado is None, esperado), (cargo, ficha["nome"])
 
 
-def test_motivo_e_uma_frase_curta_para_a_tela(mundo):
+def test_motivo_e_uma_frase_simples_e_nunca_o_texto_tecnico(mundo):
     por_nome = {f["nome"]: f for f in catalogo.listar_fichas(pessoa(mundo, "atendente_n1"))}
-    assert por_nome["consultar_saldo_conta"]["motivo"] == "Nível insuficiente."
+    assert por_nome["consultar_saldo_conta"]["motivo"] == "Seu cargo não tem o nível que esta ferramenta pede."
     assert (por_nome["consultar_cliente"]["liberada"], por_nome["consultar_cliente"]["motivo"]) == (True, None)
-    assert all(f["liberada"] is False for f in catalogo.listar_fichas(None))
+    sem_perfil = catalogo.listar_fichas(None)  # auditor e admin não usam ferramentas de dados
+    assert {(f["liberada"], f["motivo"]) for f in sem_perfil} == {(False, "Seu perfil não usa ferramentas de dados.")}
+    tecnicos = set(catalogo.MOTIVOS_PARA_A_PESSOA)
+    for cargo in FUNCIONARIO_DO_CARGO:
+        assert not tecnicos & {f["motivo"] for f in catalogo.listar_fichas(pessoa(mundo, cargo))}, cargo
+
+
+def test_ferramenta_com_integracao_desligada_diz_o_porque_na_tela(mundo, monkeypatch):
+    monkeypatch.delenv("EMAIL_SMTP_HOST")
+    ficha = {f["nome"]: f for f in catalogo.listar_fichas(pessoa(mundo, "atendente_n1"))}[ENVIAR]
+    assert (ficha["status"], ficha["liberada"]) == ("inativa", False)
+    assert ficha["motivo"] == "E-mail (SMTP): integração desligada pela administração da plataforma."
+    assert ".env" not in ficha["motivo"]
 
 
 def test_descricao_sem_marcador_e_a_planejada_mostra_a_frase_sugerida(mundo):
@@ -79,8 +100,9 @@ def test_descricao_sem_marcador_e_a_planejada_mostra_a_frase_sugerida(mundo):
     for ficha in por_nome.values():
         assert "[" not in ficha["descricao"] and "preencher" not in ficha["descricao"], ficha["nome"]
         assert ficha["descricao"] == "" or ficha["descricao"].endswith("."), ficha["nome"]
-    assert por_nome["consultar_endereco_cep"]["descricao"] == (
-        "Devolve o endereço público de um CEP: logradouro, bairro, cidade e UF."
+    assert por_nome["consultar_endereco_cep"]["descricao"] == "Mostra a rua, o bairro e a cidade de um CEP."
+    assert por_nome[ENVIAR]["descricao"] == (
+        "Prepara um e-mail para um contato do lojista; ele só sai depois que você confirma."
     )
     assert por_nome["resumir_receita_periodo"]["descricao"] == "Receita total de um período."
 
@@ -159,3 +181,52 @@ def test_toda_escrita_com_confirmacao_declara_titulo_e_rotulos():
     for nome in governanca.ESCRITA_COM_CONFIRMACAO:
         ferramenta = catalogo.carregar()[nome]
         assert ferramenta.titulo and ferramenta.rotulos_da_previa, nome
+
+
+def test_rotulos_cobrem_todo_campo_da_previa(mundo):
+    """Campo da prévia sem rótulo some do cartão: a pessoa confirmaria sem ver."""
+    ana = pessoa(mundo, "atendente_n1")
+    resposta = catalogo.executar(ENVIAR, PEDIDO, ana, AGENTE, {"execucao_id": "ex-1"})
+    campos_da_previa = set(resposta["dados"]) - {"confirmacao_id", "situacao", "expira_em"}
+    assert campos_da_previa == set(catalogo.carregar()[ENVIAR].rotulos_da_previa)
+
+
+def test_expira_em_sai_no_horario_de_brasilia(mundo):
+    ana = pessoa(mundo, "atendente_n1")
+    resposta = catalogo.executar(ENVIAR, PEDIDO, ana, AGENTE, {"execucao_id": "ex-1"})
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}-03:00", resposta["dados"]["expira_em"])
+
+
+def test_uma_confirmacao_por_resposta_a_mais_recente_da_execucao(mundo):
+    ana = pessoa(mundo, "atendente_n1")
+    assert confirmacoes.confirmacao_da_execucao("ex-1", ana) is None
+    preparar(ana, {"execucao_id": "ex-1"})
+    segunda = preparar(ana, {"execucao_id": "ex-1"})
+    assert confirmacoes.confirmacao_da_execucao("ex-1", ana)["id"] == segunda
+    assert confirmacoes.confirmacao_da_execucao(None, ana) is None
+
+
+def test_previa_ja_decidida_e_diferente_de_previa_que_nao_existe(mundo, monkeypatch):
+    ana, outro = pessoa(mundo, "atendente_n1"), pessoa(mundo, "supervisor_atendimento")
+    confirmada, descartada = preparar(ana, {"execucao_id": "ex-1"}), preparar(ana, {"execucao_id": "ex-1"})
+    confirmacoes.confirmar(confirmada, ana)
+    confirmacoes.cancelar(descartada, ana)
+    assert confirmacoes.situacao_da_decisao(confirmada, ana) == "aprovada"
+    assert confirmacoes.situacao_da_decisao(descartada, ana) == "cancelada"
+    assert confirmacoes.situacao_da_decisao(confirmada, outro) is None  # a decisão é de quem pediu
+    assert confirmacoes.situacao_da_decisao("CONF-NAOEXISTE", ana) is None
+    assert confirmacoes.confirmar(confirmada, ana)["mensagem"] == "Esta prévia já foi confirmada."
+    assert confirmacoes.cancelar(descartada, ana)["mensagem"] == "Esta prévia já foi descartada."
+    assert confirmacoes.confirmar("CONF-NAOEXISTE", ana)["mensagem"] == confirmacoes.MENSAGEM_NAO_ENCONTRADO
+    depois = confirmacoes.agora() + confirmacoes.LEMBRAR_DECISAO
+    monkeypatch.setattr(confirmacoes, "agora", lambda: depois)
+    assert confirmacoes.situacao_da_decisao(confirmada, ana) is None  # esquecida depois de uma hora
+
+
+def test_envio_que_nao_saiu_nao_fica_marcado_como_confirmado(mundo, monkeypatch):
+    ana = pessoa(mundo, "atendente_n1")
+    confirmacao_id = preparar(ana, {"execucao_id": "ex-1"})
+    monkeypatch.setenv("EMAIL_SMTP_PORTA", "1")  # porta local fechada: nada sai
+    resultado = confirmacoes.confirmar(confirmacao_id, ana)
+    assert resultado["mensagem"] == confirmacoes.MENSAGEM_FORA_DO_AR
+    assert confirmacoes.situacao_da_decisao(confirmacao_id, ana) is None

@@ -11,6 +11,9 @@ from ferramentas.integracoes.registro import registrar
 class ConectorPlanejado(Conector):
     modo_padrao = "desligado"
 
+    def problema_de_configuracao(self, ambiente=None):
+        return "Ainda não implementada nesta plataforma."
+
     def __init__(self, nome, rotulo):
         self.nome = nome
         self.rotulo = rotulo

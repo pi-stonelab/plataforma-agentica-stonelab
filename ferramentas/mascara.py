@@ -15,16 +15,24 @@ Texto livre, o que vale (ALTO-1 da auditoria B, MED-1 da C):
 - sequência de dígitos com até 8 separadores entre dois dígitos conta como um número só, sem borda de
   palavra ("cpf52998224700" também é pega). Separador: espaço, quebra de linha, `. , : ; / \\ | _ * ~`,
   hífens e travessões, bullet, aspas, parênteses, colchetes, `<`, `>` ou tag HTML curta (cada tag vale 1);
+- antes da regra por quantidade de dígitos, dois formatos inequívocos ganham a máscara do próprio tipo (revisão de
+  usuário do bloco B, 22/11): telefone com DDD entre parênteses ou com +55 ("(21) 99999-8888", "+55 21 99999-8888")
+  vira `(21) *****-8888`, como o campo `telefone`; CNPJ com pontos e barra ("12.345.678/0001-90") vira
+  `**.***.***/**01-90`, que mostra os mesmos 4 dígitos que a máscara de cartão mostraria. Qualquer outra forma
+  cai na regra abaixo;
 - 11 dígitos viram CPF (`***.456.789-**`); 13 a 19, cartão (`**** **** **** 1111`); 12 dígitos ou
   mais de 19 viram `***` (na dúvida, mascara). Luhn não é usado: nunca se libera um número;
-- falsos positivos aceitos, do lado seguro: celular de 11 dígitos ("0800 123 4567") vira CPF, duas datas
+- falsos positivos aceitos, do lado seguro: número de 11 dígitos sem DDD entre parênteses ("0800 123 4567",
+  "21 99999-8888") vira CPF, duas datas
   seguidas viram cartão, e `, : ;` juntam o que o autor separou ("14:30:00 15/10/2026"). Não são texto livre,
   então não mascaram: o campo `protocolo` (AAAAMMDD-NNNNNN) e os campos de valor em reais (`valor`,
   `valor_bruto`, `valor_liquido`, `valor_total`), desde que o valor inteiro tenha o formato esperado;
 - NFKC troca caracteres de compatibilidade em todo texto livre: "1º" vira "1o", "m²" vira "m2", "½" vira
   "1⁄2", "™" vira "TM"; ZWJ/ZWNJ somem (emoji de família vira três emojis). Aceito: o sentido se mantém;
-- NÃO coberto de propósito: e-mail e telefone em texto livre (DOC-MOCK §8.3 só diz CPF e cartão; decisão
-  de produto pendente) e número por extenso ou com letra no meio;
+- NÃO coberto de propósito: e-mail em texto livre e telefone sem DDD (DOC-MOCK §8.3 só diz CPF e cartão;
+  decisão de produto pendente) e número por extenso ou com letra no meio;
+- risco residual aceito: o mesmo número escrito pelo lojista como CPF numa mensagem e como telefone em outra
+  mostra partes diferentes em cada uma. Só o próprio autor controla o formato do que escreve;
 - LIMITAÇÃO CONHECIDA: número dividido entre duas mensagens ou dois campos ("CPF 111.444" e "777-00")
   sai igual em cada pedaço, porque a máscara vê um texto por vez. Só um filtro de saída na resposta
   final (KAN-63) resolve; esta máscara não tenta.
@@ -60,6 +68,12 @@ CARACTERES_INVISIVEIS = re.compile(
 FORMATO_DE_CAMPOS_DE_VALOR = re.compile(r"R\$ \d{1,3}(?:\.\d{3})*,\d{2}")
 CAMPOS_DE_VALOR = frozenset({"valor", "valor_bruto", "valor_liquido", "valor_total"})
 DIGITO_NAO_ASCII = re.compile(r"(?![0-9])\d")
+# Formatos inequívocos, procurados antes da regra por quantidade de dígitos (ver o topo do arquivo).
+TELEFONE_NO_TEXTO = re.compile(
+    r"(?<![\d+])(?P<pais>\+55[ ]?)?\((?P<ddd>\d{2})\)[ ]?(?P<meio>9?\d{4})[- ]?(?P<fim>\d{4})(?!\d)"
+    r"|(?<![\d+])(?P<pais2>\+55[ ]?)(?P<ddd2>\d{2})[ ]?(?P<meio2>9?\d{4})[- ]?(?P<fim2>\d{4})(?!\d)"
+)
+CNPJ_NO_TEXTO = re.compile(r"(?<!\d)\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}(?!\d)")
 # Forma de cada valor depois de mascarado: mascarar de novo devolve o mesmo valor.
 JA_MASCARADO = {
     "cpf": re.compile(r"\*\*\*\.\d{3}\.\d{3}-\*\*"),
@@ -131,8 +145,24 @@ def _numero_no_texto(trecho):
     return trecho
 
 
+def _telefone_no_texto(achado):
+    pais = achado.group("pais") or achado.group("pais2") or ""
+    ddd = achado.group("ddd") or achado.group("ddd2")
+    meio = achado.group("meio") or achado.group("meio2")
+    fim = achado.group("fim") or achado.group("fim2")
+    return f"{pais}({ddd}) {'*' * len(meio)}-{fim}"
+
+
+def _cnpj_no_texto(achado):
+    digitos = _digitos(achado.group())
+    return f"**.***.***/**{digitos[10:12]}-{digitos[12:]}"
+
+
 def _texto_livre(valor):
-    return SEQUENCIA_DE_DIGITOS.sub(lambda m: _numero_no_texto(m.group()), _normalizar(valor))
+    texto = _normalizar(valor)
+    texto = TELEFONE_NO_TEXTO.sub(_telefone_no_texto, texto)
+    texto = CNPJ_NO_TEXTO.sub(_cnpj_no_texto, texto)
+    return SEQUENCIA_DE_DIGITOS.sub(lambda m: _numero_no_texto(m.group()), texto)
 
 
 MASCARAS = {

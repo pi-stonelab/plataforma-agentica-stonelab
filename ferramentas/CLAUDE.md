@@ -1,24 +1,26 @@
 # ferramentas/ (frente 4: Pedro)
 
 Catálogo das ações que o agente pode pedir, a regra de quem pode usar cada uma e a ligação com os dados da Stone
-simulada (`mock/`). Hoje são 43 ferramentas em 8 áreas. Doze estão ativas. As outras 31 são esqueletos: o
+simulada (`mock/`). Hoje são 43 ferramentas em 8 áreas. Treze estão ativas. As outras 30 são esqueletos: o
 `func.py` existe, mas `rodar` só devolve `ferramenta_inativa` ("ainda sem lógica").
 
 Ativas: `consultar_cliente`, `consultar_transacoes_cliente`, `calcular_multa_atraso`, `consultar_endereco_cep`,
 `solicitar_ferramenta_ausente`, `consultar_liquidacoes_cliente`, `listar_chamados_cliente`,
-`consultar_historico_contato`, `listar_faturas_em_atraso`, `calcular_parcelas`, `consultar_contatos_lojista` e
-`enviar_email` (escrita em duas fases, ver "Escrita em duas fases").
+`consultar_historico_contato`, `listar_faturas_em_atraso`, `calcular_parcelas`, `consultar_contatos_lojista`,
+`consultar_cotacao_moeda` e `enviar_email` (escrita em duas fases, ver "Escrita em duas fases"). Ferramenta ativa cuja
+integração está desligada ou mal configurada no .env some do índice que o modelo lê e aparece `inativa` na tela.
 
 Fontes citadas neste arquivo: `KAN-xx` (cards do Jira), `DOC-MOCK §x` (documento das regras do mock),
 `Dx` (decisões do Pedro) e `Ox` (decisões do orquestrador). Todas estão em `docs/decisoes.md`. Onde não há fonte,
 o texto diz "SEM FONTE".
 
-## Decisão D10: ferramentas não vão para o banco
+## Decisão D10 (revogada em parte em 22/11): ferramentas não vão para o banco
 
-As ferramentas ficam no código (`func.py` e `agents.md`). Não existe tabela `ferramentas` e não existe rota que
-liste ferramentas para a interface. Quem enxerga o catálogo é o agente, e só o que a pessoa pode usar. A pessoa vê
-apenas as integrações, na aba de conectores (ex.: conectar o Gmail). Conexão por usuário fica para a Sprint 3.
-O banco guarda só os dados do mock.
+As ferramentas ficam no código (`func.py` e `agents.md`). Não existe tabela `ferramentas`, e o banco guarda só os
+dados do mock. A parte que dizia "nenhuma rota lista ferramentas para a pessoa" foi revogada pelo Pedro em 22/11: o
+front do professor lista o catálogo na criação guiada (`GET /ferramentas`, §4.10), então a pessoa vê o catálogo
+filtrado para ela por `catalogo.listar_fichas` (nome, descrição simples, liberada e motivo em linguagem simples). O
+modelo continua vendo só o que a pessoa pode usar agora (`catalogo.ler`). Conexão por usuário fica para a Sprint 3.
 
 ## Decisão D11: funcionário inativo é barrado em um lugar só
 
@@ -61,10 +63,14 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
   o código descarta.
 - `<area>/<nome>/func.py`: a ficha e a lógica de uma ferramenta.
 - `integracoes/`: como a plataforma fala com cada sistema. `conector.py` (classe `Conector`: modo `real`, `simulado`
-  ou `desligado` pelo .env, `configurado`, `saude`, `testar` e `chamar` com o disjuntor de 3 falhas e 60 s de pausa,
-  um por serviço), `http.py` (cliente HTTP comum: HTTPS fora do localhost, redirecionamento só para a mesma origem,
-  teto de 1 MB, 429, 5xx e JSON quebrado viram `ConnectionError`), `registro.py` (`estado_integracoes()`, sem
-  segredo) e um `conector.py` por pasta que já tem código (`apis_publicas/`, `email/`). `sistemas_internos.py` vê o
+  ou `desligado` pelo .env, `configurado`, `saude` e `saude_por_servico` sem fazer chamada, `testar`, `credencial`
+  da plataforma ou da pessoa, `exigir_destino` para canal, chat ou projeto em lista permitida, e `chamar` com o
+  disjuntor de 3 falhas de rede e 60 s de pausa, um por serviço; 4xx não conta), `cliente_http.py` (cliente HTTP
+  comum: HTTPS fora do localhost, `montar_url` que codifica cada pedaço do caminho, redirecionamento só para a mesma
+  origem, prazo total do pedido, teto de 1 MB, 429, 5xx e JSON quebrado viram `ConnectionError`, 401 e 403 viram
+  `CredencialRecusada`, outros 4xx viram `parametro_invalido`, e escrita que perdeu a resposta vira `EfeitoIncerto`;
+  os loggers do httpx ficam em WARNING para não gravar URL), `registro.py` (`estado_integracoes()`, sem segredo) e
+  um `conector.py` por pasta que já tem código (`apis_publicas/`, `email/`). `sistemas_internos.py` vê o
   mock como os sistemas internos (crm, sql, bigquery, datahub) e `planejados.py` lista os que ainda não têm conector.
   Cada pasta tem o README do sistema; o agente não lê. Terminal: `python -m ferramentas.integracoes estado` e
   `MODO_TERMINAL=1 python -m ferramentas.integracoes testar <integração>`. Testes em `test_integracoes_*.py`, contra
@@ -244,7 +250,7 @@ Exemplo: `listar_acordos_cliente`, que lê dados que o mock já tem.
 5. Quem pode usar: coloque a categoria nas `categorias_dado` dos cargos certos em `mock/regras.py::CARGOS`.
    Sem isso, nenhum cargo alcança a ferramenta.
    Se a ferramenta fala com um sistema de fora, a chamada passa pelo conector da integração (`integracoes/`), com
-   `chamar(...)` e o cliente `integracoes/http.py`; nunca `requests` ou `httpx` direto no `func.py`.
+   `chamar(...)` e o cliente `integracoes/cliente_http.py`; nunca `requests` ou `httpx` direto no `func.py`.
 6. Atualize as listas escritas à mão: `ferramentas/<area>/agents.md` (seção "Para quem mantém"),
    `ferramentas/agents.md` (contagem em "Situação hoje") e `ferramentas/integracoes/<sistema>/README.md`.
    Nenhum teste confere essas listas. Elas desatualizam sozinhas.
@@ -343,7 +349,7 @@ linha num comentário. Exemplo entre crases, como os de cima, não conta.
 - Não aceite `nivel`, `area`, `carteira` ou `usuario` como argumento. A identidade vem do `Usuario`.
 - Não devolva mensagens diferentes para lojista inexistente e lojista fora do escopo.
 - Não monte `governanca.Usuario` na mão no código de produção. Use `usuario_do_cargo` com o diretório.
-- Não crie tabela `ferramentas` nem rota que liste ferramentas (D10).
+- Não crie tabela `ferramentas` (D10). A lista para a tela sai só de `catalogo.listar_fichas`.
 - Não acrescente ferramenta ou área sem o Pedro pedir.
 
 ## Limites conhecidos

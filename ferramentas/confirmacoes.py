@@ -26,6 +26,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 from ferramentas import governanca, mascara
 from ferramentas.base import (
@@ -44,12 +45,19 @@ PENDENTE = "pendente"
 APROVADA = "aprovada"
 CANCELADA = "cancelada"
 VALIDADE = timedelta(minutes=15)
+# Quanto tempo a decisão (aprovada ou cancelada) fica lembrada, para o back-end responder 409 em vez de 404.
+LEMBRAR_DECISAO = timedelta(hours=1)
+FUSO_DA_INTERFACE = ZoneInfo("America/Sao_Paulo")  # `expira_em` sai no horário de Brasília (ISO com -03:00)
 LIMITE_POR_USUARIO = 5
 LIMITE_PEDIDOS = 1000
 TAMANHO_DO_ID = 10
 LETRAS_DO_ID = string.ascii_uppercase  # sem dígitos: a máscara de texto livre não confunde com CPF
 CAMPOS_DO_CONTEXTO = ("execucao_id", "passo", "agente_id")
 MENSAGEM_NAO_ENCONTRADO = "Prévia não encontrada, expirada ou já usada."
+MENSAGEM_PREVIAS_DA_PESSOA = (
+    f"Você já tem {LIMITE_POR_USUARIO} prévias abertas. Confirme ou descarte uma antes de pedir outra."
+)
+MENSAGEM_JA_DECIDIDA = {APROVADA: "Esta prévia já foi confirmada.", CANCELADA: "Esta prévia já foi descartada."}
 MENSAGEM_FORA_DO_AR = "Integração fora do ar. Nada foi enviado; peça uma nova prévia."
 MENSAGEM_EFEITO_INCERTO = (
     "O servidor de destino não confirmou: a ação pode ter sido feita. Confira antes de pedir uma nova prévia."
@@ -59,6 +67,8 @@ MENSAGEM_EFEITO_INCERTO = (
 # depois de resolvidos) e criar as rotas de listar, confirmar e cancelar, chamando `pendentes`,
 # `confirmar` e `cancelar` com o usuário do login]
 PEDIDOS = {}
+# confirmacao_id -> (id_usuario, situação, quando). Só isso: nada do conteúdo nem da prévia.
+DECIDIDAS = {}
 TRAVA_DOS_PEDIDOS = threading.Lock()
 logger = logging.getLogger(__name__)
 
@@ -127,7 +137,7 @@ def _como_mostrar(pedido):
     return {
         "confirmacao_id": pedido.confirmacao_id,
         "situacao": AGUARDANDO,
-        "expira_em": pedido.expira_em.isoformat(timespec="minutes"),
+        "expira_em": pedido.expira_em.astimezone(FUSO_DA_INTERFACE).isoformat(timespec="minutes"),
         **pedido.previa,
     }
 
@@ -146,8 +156,10 @@ def _guardar(ferramenta, usuario, contexto, conteudo, previa):
         with TRAVA_DOS_PEDIDOS:
             vencidos = _recolher_vencidos()
             do_usuario = sum(p.id_usuario == usuario.id_usuario for p in PEDIDOS.values())
-            if do_usuario >= LIMITE_POR_USUARIO or len(PEDIDOS) >= LIMITE_PEDIDOS:
-                raise ErroFerramenta("integracao_indisponivel", "Há prévias demais esperando confirmação.")
+            if do_usuario >= LIMITE_POR_USUARIO:
+                raise ErroFerramenta("integracao_indisponivel", MENSAGEM_PREVIAS_DA_PESSOA)
+            if len(PEDIDOS) >= LIMITE_PEDIDOS:
+                raise ErroFerramenta("integracao_indisponivel", "Há prévias demais esperando confirmação na plataforma.")
             pedido = Pedido(
                 confirmacao_id=_novo_id(),
                 ferramenta=ferramenta,
@@ -247,11 +259,8 @@ def _para_interface(pedido, situacao=PENDENTE):
 
 
 def confirmacoes_da_execucao(execucao_id, usuario):
-    """As prévias que esta execução do agente deixou esperando o `usuario`, no formato `Confirmacao` (§4.9).
-
-    [A FAZER (Marcelo e Isabel, back-end, KAN-60): depois de `rodar_turno`, o orquestrador chama esta função
-    com o mesmo `execucao_id` do contexto e põe o resultado em `RespostaAgente.confirmacao` (tipo "confirmacao")]
-    """
+    """Todas as prévias que esta execução do agente deixou esperando o `usuario`, no formato `Confirmacao` (§4.9),
+    na ordem em que foram montadas. Para a resposta do turno, use `confirmacao_da_execucao` (uma só)."""
     if execucao_id is None:
         return []
     with TRAVA_DOS_PEDIDOS:
@@ -265,6 +274,49 @@ def confirmacoes_da_execucao(execucao_id, usuario):
         ]
     _registrar_expirados(vencidos)
     return lista
+
+
+def confirmacao_da_execucao(execucao_id, usuario):
+    """A prévia mais recente que esta execução deixou esperando o `usuario` (`Confirmacao`, §4.9), ou None.
+
+    O contrato tem uma `confirmacao` por resposta (`RespostaAgente`, §4.6). Se o agente montou mais de uma no
+    mesmo turno, a interface mostra a última; as anteriores continuam valendo e aparecem em `pendentes`.
+    [A FAZER (Marcelo e Isabel, back-end, KAN-60): depois de `rodar_turno`, o orquestrador chama esta função
+    com o mesmo `execucao_id` do contexto e põe o resultado em `RespostaAgente.confirmacao` (tipo "confirmacao")]
+    """
+    lista = confirmacoes_da_execucao(execucao_id, usuario)
+    return lista[-1] if lista else None
+
+
+def _lembrar_decisao(pedido, situacao):
+    with TRAVA_DOS_PEDIDOS:
+        limite = agora() - LEMBRAR_DECISAO
+        for antiga in [c for c, (_, _, quando) in DECIDIDAS.items() if quando <= limite]:
+            del DECIDIDAS[antiga]
+        while len(DECIDIDAS) >= LIMITE_PEDIDOS:
+            del DECIDIDAS[next(iter(DECIDIDAS))]
+        DECIDIDAS[pedido.confirmacao_id] = (pedido.id_usuario, situacao, agora())
+
+
+def situacao_da_decisao(confirmacao_id, usuario):
+    """`aprovada` ou `cancelada` se o `usuario` já decidiu esta prévia há pouco (`LEMBRAR_DECISAO`); senão None.
+
+    [A FAZER (Marcelo e Isabel, back-end, KAN-60): a rota de confirmação responde 409 quando esta função diz que
+    a prévia já foi decidida e 404 quando `confirmacao_para_interface` e esta função devolvem None]
+    """
+    with TRAVA_DOS_PEDIDOS:
+        decisao = DECIDIDAS.get(confirmacao_id) if isinstance(confirmacao_id, str) else None
+    if decisao is None or decisao[0] != getattr(usuario, "id_usuario", None):
+        return None
+    _, situacao, quando = decisao
+    return situacao if agora() - quando < LEMBRAR_DECISAO else None
+
+
+def _sem_pedido(confirmacao_id, usuario):
+    """Resposta de `confirmar` e `cancelar` quando a prévia não está na fila: já decidida ou não existe."""
+    situacao = situacao_da_decisao(confirmacao_id, usuario)
+    mensagem = MENSAGEM_JA_DECIDIDA.get(situacao, MENSAGEM_NAO_ENCONTRADO)
+    return resposta("erro", None, mensagem, "nao_encontrado")
 
 
 def confirmacao_para_interface(confirmacao_id, usuario):
@@ -304,7 +356,7 @@ def confirmar(confirmacao_id, usuario):
     inicio = time.monotonic()
     pedido = _retirar(confirmacao_id, usuario)
     if pedido is None:
-        return resposta("erro", None, MENSAGEM_NAO_ENCONTRADO, "nao_encontrado")
+        return _sem_pedido(confirmacao_id, usuario)
     ferramenta = pedido.ferramenta
     if governanca.motivo_bloqueio(ferramenta, usuario) is not None or not ferramenta.esta_ativa():
         pedido.conteudo.clear()
@@ -317,22 +369,27 @@ def confirmar(confirmacao_id, usuario):
     except governanca.RegistroIndisponivel:  # O9: sem rastro da intenção, nada é enviado
         _devolver(pedido)
         return resposta("erro", None, MENSAGEM_REGISTRO, "integracao_indisponivel")
+    pode_ter_saido = True  # só "nada saiu" (recusa ou falha antes do envio) muda isto
     try:
         dados = mascara.mascarar(
             ferramenta.efetivar(pedido.conteudo, usuario), ferramenta.categorias_dados, ferramenta.campos_liberados
         )
         resultado = resposta("ok", dados, "Enviado.")
     except ErroFerramenta as erro:
+        pode_ter_saido = False
         resultado = resposta("erro", None, erro.mensagem, erro.tipo_erro)
     except EfeitoIncerto:  # saiu, mas sem confirmação: dizer "nada foi enviado" seria mentir
         resultado = resposta("erro", None, MENSAGEM_EFEITO_INCERTO, "integracao_indisponivel")
     except (ConnectionError, TimeoutError):
+        pode_ter_saido = False
         resultado = resposta("erro", None, MENSAGEM_FORA_DO_AR, "integracao_indisponivel")
     except Exception as erro:  # noqa: BLE001 (só o tipo vai ao log: a mensagem pode ter o e-mail)
         logger.error("confirmação falhou: ferramenta=%s tipo=%s", ferramenta.nome, type(erro).__name__)
         resultado = resposta("erro", None, "Erro interno.", "erro_interno")
     finally:
         pedido.conteudo.clear()
+    if pode_ter_saido:  # a prévia não se confirma de novo; quem tentar ouve "já foi confirmada" (409)
+        _lembrar_decisao(pedido, APROVADA)
     try:
         _registrar(pedido, usuario, resultado, None, inicio)
     except governanca.RegistroIndisponivel:
@@ -344,8 +401,9 @@ def cancelar(confirmacao_id, usuario):
     """Descarta a prévia sem agir. Só quem pediu descarta."""
     pedido = _retirar(confirmacao_id, usuario)
     if pedido is None:
-        return resposta("erro", None, MENSAGEM_NAO_ENCONTRADO, "nao_encontrado")
+        return _sem_pedido(confirmacao_id, usuario)
     pedido.conteudo.clear()
+    _lembrar_decisao(pedido, CANCELADA)
     with suppress(governanca.RegistroIndisponivel):  # descartar não age: vale mesmo sem rastro
         _registrar(pedido, usuario, resposta("cancelada"), None, time.monotonic())
     return resposta("ok", {"confirmacao_id": pedido.confirmacao_id, "situacao": "cancelada"}, "Descartado.")
@@ -357,3 +415,4 @@ def limpar():
         for pedido in PEDIDOS.values():
             pedido.conteudo.clear()
         PEDIDOS.clear()
+        DECIDIDAS.clear()

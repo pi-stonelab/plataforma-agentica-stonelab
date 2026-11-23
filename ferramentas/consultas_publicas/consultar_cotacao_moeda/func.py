@@ -1,26 +1,50 @@
-import re
 from datetime import timedelta
 
 from ferramentas.base import ErroFerramenta, Ferramenta
-from ferramentas.dados_sinteticos import HOJE_DO_MOCK
-from ferramentas.integracoes.apis_publicas.conector import CONECTOR as APIS_PUBLICAS
+from ferramentas.integracoes.apis_publicas.conector import (
+    CONECTOR as APIS_PUBLICAS,
+)
+from ferramentas.integracoes.apis_publicas.conector import (
+    DATA_MINIMA_DA_COTACAO,
+    FONTE_COTACAO_SIMULADA,
+    FONTE_PTAX,
+    MOEDAS_SIMULADAS,
+    PADRAO_MOEDA,
+    SABADO,
+)
 
-MOEDA_RE = re.compile(r"[A-Za-z]{3}")
 DIAS_PARA_TRAS = 7  # fim de semana e feriado não têm boletim: volta até achar, no máximo uma semana
-SABADO = 5
 FECHAMENTO = "Fechamento"
-FONTE_REAL = "Banco Central do Brasil (PTAX)"
-FONTE_SIMULADA = "Valores ilustrativos (modo simulado), não são cotações de verdade"
 
 
 def _reais(valor):
     return "R$ " + f"{valor:.4f}".replace(".", ",")
 
 
+def _brasileira(dia):
+    return f"{dia:%d/%m/%Y}"
+
+
 def _boletim_do_dia(boletins):
     """O de fechamento, se já saiu; senão o mais recente do dia."""
     fechamento = [b for b in boletins if b["boletim"].startswith(FECHAMENTO)]
     return fechamento[-1] if fechamento else max(boletins, key=lambda b: b["momento"])
+
+
+def _dia_pedido(argumentos, simulado):
+    hoje = APIS_PUBLICAS.hoje()
+    dia = argumentos.get("data", hoje)
+    if dia > hoje:
+        if simulado:
+            mensagem = f"Nesta plataforma de demonstração, hoje é {_brasileira(hoje)}. Escolha uma data até esse dia."
+        else:
+            mensagem = f"A data não pode ser depois de hoje ({_brasileira(hoje)})."
+        raise ErroFerramenta("parametro_invalido", mensagem)
+    if dia < DATA_MINIMA_DA_COTACAO:
+        raise ErroFerramenta(
+            "parametro_invalido", f"O Banco Central tem cotação a partir de {_brasileira(DATA_MINIMA_DA_COTACAO)}."
+        )
+    return dia
 
 
 class ConsultarCotacaoMoeda(Ferramenta):
@@ -34,6 +58,7 @@ class ConsultarCotacaoMoeda(Ferramenta):
     sensibilidade = "publica"
     conteudo_terceiros = False
     status = "ativa"
+    descricao_para_pessoa = "Mostra a cotação oficial de uma moeda estrangeira em reais (PTAX do Banco Central)."
     parametros = {
         "moeda": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": 3},
         "data": {"tipo": "data", "obrigatorio": False},
@@ -41,17 +66,19 @@ class ConsultarCotacaoMoeda(Ferramenta):
 
     def rodar(self, argumentos, usuario):
         moeda = argumentos["moeda"].upper()
-        if not MOEDA_RE.fullmatch(moeda):
-            raise ErroFerramenta("parametro_invalido", "A moeda deve ser o código de 3 letras, como USD.")
-        dia = argumentos.get("data", HOJE_DO_MOCK)
-        if dia > HOJE_DO_MOCK:
-            raise ErroFerramenta("parametro_invalido", "A data não pode ser depois de hoje.")
+        if not PADRAO_MOEDA.fullmatch(moeda):
+            raise ErroFerramenta("parametro_invalido", "Use o código de 3 letras da moeda, como USD.")
+        simulado = APIS_PUBLICAS.modo() == "simulado"
+        dia = _dia_pedido(argumentos, simulado)
         moedas = APIS_PUBLICAS.moedas()
         if moeda not in moedas:
+            if simulado:
+                disponiveis = ", ".join(sorted(MOEDAS_SIMULADAS))
+                raise ErroFerramenta("parametro_invalido", f"No modo de demonstração só há {disponiveis}.")
             raise ErroFerramenta("parametro_invalido", "O Banco Central não publica cotação dessa moeda.")
         for dias_antes in range(DIAS_PARA_TRAS):
             tentativa = dia - timedelta(days=dias_antes)
-            if tentativa.weekday() >= SABADO:
+            if tentativa.weekday() >= SABADO or tentativa < DATA_MINIMA_DA_COTACAO:
                 continue
             boletins = APIS_PUBLICAS.boletins(moeda, tentativa)
             if boletins:
@@ -63,7 +90,7 @@ class ConsultarCotacaoMoeda(Ferramenta):
                     "boletim": escolhido["boletim"],
                     "cotacao_compra": _reais(escolhido["compra"]),
                     "cotacao_venda": _reais(escolhido["venda"]),
-                    "fonte": FONTE_SIMULADA if APIS_PUBLICAS.modo() == "simulado" else FONTE_REAL,
+                    "fonte": FONTE_COTACAO_SIMULADA if simulado else FONTE_PTAX,
                 }
         raise ErroFerramenta("nao_encontrado", "Sem boletim do Banco Central nos 7 dias até essa data.")
 

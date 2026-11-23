@@ -11,8 +11,10 @@ A suíte inteira usa um servidor destes (`ambiente_da_suite`): nenhum teste vai 
 
 import json
 import re
+import socket
 import threading
 import time
+from contextlib import contextmanager
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -182,3 +184,12 @@ def dia_util_anterior(dia):
     while dia.weekday() >= 5 or dia == FERIADO:
         dia -= timedelta(days=1)
     return dia
+
+
+@contextmanager
+def porta_que_recusa():
+    """URL de uma porta local que recusa conexão na hora: o socket fica ligado sem `listen` durante o uso,
+    então nenhum outro servidor do teste pega a mesma porta por acaso."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as ocupada:
+        ocupada.bind(("127.0.0.1", 0))
+        yield f"http://127.0.0.1:{ocupada.getsockname()[1]}"

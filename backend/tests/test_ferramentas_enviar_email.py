@@ -126,7 +126,9 @@ def test_lojista_fora_da_carteira_e_cargo_sem_contato_nao_preparam(engine, ana):
 def test_previas_demais_esperando_param_no_limite(ana):
     for _ in range(confirmacoes.LIMITE_POR_USUARIO):
         assert preparar(ana)["status"] == "ok"
-    assert preparar(ana)["tipo_erro"] == "integracao_indisponivel"
+    resposta = preparar(ana)
+    assert resposta["tipo_erro"] == "integracao_indisponivel"
+    assert resposta["mensagem"] == "Você já tem 5 prévias abertas. Confirme ou descarte uma antes de pedir outra."
 
 
 # --- fase 2: a confirmação -----------------------------------------------------------------------
