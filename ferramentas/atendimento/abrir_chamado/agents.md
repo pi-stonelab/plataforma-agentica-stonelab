@@ -1,6 +1,6 @@
 # abrir_chamado
 
-Prepara um chamado novo do lojista; só abre quando o funcionário confirma.
+Prepara a abertura de um chamado novo do lojista. Nada acontece antes da confirmação do funcionário.
 
 ## Quando usar
 

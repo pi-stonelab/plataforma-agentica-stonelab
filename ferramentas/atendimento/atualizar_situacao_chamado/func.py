@@ -24,8 +24,7 @@ class AtualizarSituacaoChamado(FerramentaComConfirmacao):
     areas_permitidas = ("atendimento",)
     categorias_dados = ("chamado",)
     campos_liberados = (
-        *FerramentaComConfirmacao.campos_liberados, "id_cliente", "id_chamado", "situacao_atual", "nova_situacao",
-        "encaminhar_para", "suspeita_fraude", "nivel_atendimento",
+        *FerramentaComConfirmacao.campos_liberados, "situacao_atual", "nova_situacao", "encaminhar_para", "suspeita_fraude", "nivel_atendimento",
     )
     sensibilidade = "interna"
     conteudo_terceiros = False

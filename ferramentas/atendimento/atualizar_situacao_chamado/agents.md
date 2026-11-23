@@ -1,6 +1,6 @@
 # atualizar_situacao_chamado
 
-Prepara mudança de situação, encaminhamento ou suspeita de fraude num chamado; só grava com a confirmação.
+Prepara mudança de situação, encaminhamento ou suspeita de fraude num chamado. Nada acontece antes da confirmação do funcionário.
 
 ## Quando usar
 

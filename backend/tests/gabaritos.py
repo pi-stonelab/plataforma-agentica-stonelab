@@ -74,12 +74,24 @@ CAMINHO = {
 # Ferramentas que nunca podem executar nos cenários (envio direto, escrita, exportação).
 FERRAMENTAS_DE_ENVIO = ("enviar_mensagem_slack", "enviar_aviso_telegram")
 FERRAMENTAS_DE_EXPORTACAO = ("criar_planilha", "entregar_arquivo", "adicionar_linha_planilha")
-FERRAMENTAS_DE_ESCRITA = ("atualizar_status_ticket", "adicionar_nota_ticket", "abrir_ticket")
-NUNCA_EXECUTAM = FERRAMENTAS_DE_ENVIO + FERRAMENTAS_DE_EXPORTACAO + FERRAMENTAS_DE_ESCRITA
+NUNCA_EXECUTAM = FERRAMENTAS_DE_ENVIO + FERRAMENTAS_DE_EXPORTACAO
 # enviar_email monta só a prévia (duas fases): o agente alcança, mas nada sai sem a confirmação de
 # quem pediu. Os cenários 1, 3, 5 e 7 não mandam e-mail.
 ENVIAR_EMAIL = "enviar_email"
-NAO_USAM_NOS_CENARIOS = NUNCA_EXECUTAM + (ENVIAR_EMAIL,)
+# As escritas no mock (bloco D) também só montam a prévia: o agente alcança, nada muda sem a confirmação.
+ABRIR_CHAMADO = "abrir_chamado"
+ADICIONAR_NOTA = "adicionar_nota_chamado"
+ATUALIZAR_CHAMADO = "atualizar_situacao_chamado"
+REGISTRAR_PEDIDO_ANTECIPACAO = "registrar_pedido_antecipacao"
+EXECUTAR_ANTECIPACAO = "executar_antecipacao"
+REPROCESSAR_LIQUIDACAO = "reprocessar_liquidacao"
+REGISTRAR_ACORDO = "registrar_acordo"
+APROVAR_ACORDO = "aprovar_acordo"
+ESCRITAS_NO_MOCK = (
+    ABRIR_CHAMADO, ADICIONAR_NOTA, ATUALIZAR_CHAMADO, REGISTRAR_PEDIDO_ANTECIPACAO, EXECUTAR_ANTECIPACAO,
+    REPROCESSAR_LIQUIDACAO, REGISTRAR_ACORDO, APROVAR_ACORDO,
+)
+NAO_USAM_NOS_CENARIOS = NUNCA_EXECUTAM + (ENVIAR_EMAIL,) + ESCRITAS_NO_MOCK
 # Argumentos que só o sistema pode definir (KAN-69 A-21); a lista da governança é conferida contra esta.
 PARAMETROS_RESERVADOS = (
     "usuario",
@@ -291,17 +303,23 @@ _ATENDIMENTO = {
 }
 _COMUNS = {CONSULTAR_CLIENTE, CALCULAR_MULTA, CALCULAR_PARCELAS, CONSULTAR_CEP, CONSULTAR_COTACAO, SOLICITAR_AUSENTE}
 # O que o agente geral (que lista todas as ferramentas do catálogo) deixa cada cargo alcançar.
+# Escritas no mock por cargo (DOC-MOCK §6.5, §7.3, §7.4, §7.9 e §8.2): quem atende chamados abre, escreve e muda a
+# situação; o pedido de antecipação é de quem vê a agenda; executar é do N2; reprocessar, dos recebíveis; acordo, da
+# cobrança; aprovar, do coordenador.
+_CHAMADOS = {ABRIR_CHAMADO, ADICIONAR_NOTA, ATUALIZAR_CHAMADO}
 FERRAMENTAS_DO_CARGO = {
-    "atendente_n1": _ATENDIMENTO,
-    "especialista_n2": _ATENDIMENTO,
-    "supervisor_atendimento": _ATENDIMENTO,
+    "atendente_n1": _ATENDIMENTO | _CHAMADOS | {REGISTRAR_PEDIDO_ANTECIPACAO},
+    "especialista_n2": _ATENDIMENTO | _CHAMADOS | {REGISTRAR_PEDIDO_ANTECIPACAO, EXECUTAR_ANTECIPACAO},
+    "supervisor_atendimento": _ATENDIMENTO | _CHAMADOS | {REGISTRAR_PEDIDO_ANTECIPACAO, EXECUTAR_ANTECIPACAO},
     "analista_ouvidoria": _COMUNS
-    | {CONSULTAR_CONTATOS, CONSULTAR_HISTORICO, LISTAR_CHAMADOS, ENVIAR_EMAIL},
-    "analista_cobranca": _COMUNS | {CONSULTAR_CONTATOS, LISTAR_FATURAS, ENVIAR_EMAIL},
+    | {CONSULTAR_CONTATOS, CONSULTAR_HISTORICO, LISTAR_CHAMADOS, ENVIAR_EMAIL}
+    | _CHAMADOS,
+    "analista_cobranca": _COMUNS | {CONSULTAR_CONTATOS, LISTAR_FATURAS, ENVIAR_EMAIL, REGISTRAR_ACORDO},
     "analista_disputas": _COMUNS | {CONSULTAR_TRANSACOES},
-    "analista_recebiveis": _COMUNS | {CONSULTAR_LIQUIDACOES},
+    "analista_recebiveis": _COMUNS | {CONSULTAR_LIQUIDACOES, REPROCESSAR_LIQUIDACAO},
     "coordenador_financeiro": _COMUNS
-    | {CONSULTAR_CONTATOS, CONSULTAR_LIQUIDACOES, CONSULTAR_TRANSACOES, LISTAR_FATURAS, ENVIAR_EMAIL},
+    | {CONSULTAR_CONTATOS, CONSULTAR_LIQUIDACOES, CONSULTAR_TRANSACOES, LISTAR_FATURAS, ENVIAR_EMAIL}
+    | {REPROCESSAR_LIQUIDACAO, REGISTRAR_ACORDO, APROVAR_ACORDO},
     "auditor_compliance": set(),  # sem ferramenta de dado na Sprint 2 (O5)
     "admin_plataforma": set(),
 }

@@ -1,6 +1,6 @@
 # adicionar_nota_chamado
 
-Prepara uma nota interna ou resposta ao lojista num chamado; só grava com a confirmação.
+Prepara uma nota interna ou uma resposta ao lojista num chamado. Nada acontece antes da confirmação do funcionário.
 
 ## Quando usar
 

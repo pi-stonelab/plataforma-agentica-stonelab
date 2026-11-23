@@ -51,5 +51,7 @@ def test_do_indice_vai_direto_para_a_ficha_e_a_area_continua_disponivel():
 
 
 def test_indice_nao_cresce_sem_controle():
+    # Pior caso: o cargo com mais ferramentas liberadas e o agente com o catálogo inteiro. Era 3500; subiu para
+    # 4000 com as 8 escritas do bloco D (frases do índice já mínimas). O agente de verdade recebe só a lista dele.
     maior = max(len(catalogo.ler("", usuario_do_cargo(c), TODAS)) for c in CARGOS)
-    assert maior < 3500
+    assert maior < 4000

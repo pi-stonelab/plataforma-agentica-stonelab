@@ -15,6 +15,21 @@ from mock.regras import CAMPOS_NAO_RESTRITOS, CLASSIFICACAO_CAMPOS
 # (a prévia), então só ela entra aqui. Leitura nunca libera: o texto dela é de lojista.
 LIBERACOES_PERMITIDAS = {
     "enviar_email": frozenset({"confirmacao_id", "expira_em", "assunto", "corpo", "id_mensagem"}),
+    "abrir_chamado": frozenset({"confirmacao_id", "expira_em", "nivel_atendimento"}),
+    "adicionar_nota_chamado": frozenset({"confirmacao_id", "expira_em", "tipo_da_nota"}),
+    "atualizar_situacao_chamado": frozenset(
+        {"confirmacao_id", "expira_em", "situacao_atual", "nova_situacao", "encaminhar_para", "suspeita_fraude",
+         "nivel_atendimento"}
+    ),
+    "registrar_pedido_antecipacao": frozenset(
+        {"confirmacao_id", "expira_em", "nivel_atendimento", "valor_antecipado", "desconto", "data_credito"}
+    ),
+    "executar_antecipacao": frozenset(
+        {"confirmacao_id", "expira_em", "valor_antecipado", "desconto", "data_credito", "taxa_mensal"}
+    ),
+    "reprocessar_liquidacao": frozenset({"confirmacao_id", "expira_em", "nova_tentativa_em"}),
+    "registrar_acordo": frozenset({"confirmacao_id", "expira_em", "encargos", "valor_da_parcela", "aprovacao"}),
+    "aprovar_acordo": frozenset({"confirmacao_id", "expira_em", "id_acordo", "decisao"}),
 }
 COMO_LIBERAR = "Para liberar um campo novo, edite LIBERACOES_PERMITIDAS em test_ferramentas_campos_liberados.py."
 

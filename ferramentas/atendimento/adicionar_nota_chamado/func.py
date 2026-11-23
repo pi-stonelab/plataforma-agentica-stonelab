@@ -18,7 +18,7 @@ class AdicionarNotaChamado(FerramentaComConfirmacao):
     nivel_minimo = "N1"
     areas_permitidas = ("atendimento",)
     categorias_dados = ("chamado", "interacao")
-    campos_liberados = (*FerramentaComConfirmacao.campos_liberados, "id_cliente", "id_chamado", "tipo_da_nota")
+    campos_liberados = (*FerramentaComConfirmacao.campos_liberados, "tipo_da_nota")
     sensibilidade = "pessoal"
     conteudo_terceiros = False
     status = "ativa"

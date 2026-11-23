@@ -17,7 +17,7 @@ class AbrirChamado(FerramentaComConfirmacao):
     nivel_minimo = "N1"
     areas_permitidas = ("atendimento",)
     categorias_dados = ("cadastral", "chamado")
-    campos_liberados = (*FerramentaComConfirmacao.campos_liberados, "id_cliente", "nivel_atendimento", "prazo_em", "canal")
+    campos_liberados = (*FerramentaComConfirmacao.campos_liberados, "nivel_atendimento")
     sensibilidade = "pessoal"
     conteudo_terceiros = False
     status = "ativa"
