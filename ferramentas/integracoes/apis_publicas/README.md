@@ -10,7 +10,7 @@ moedas). Nenhuma recebe dado de lojista: só o CEP ou o código da moeda e a dat
 
 ## Conector
 
-`conector.py` (`ConectorApisPublicas`), sobre a base `integracoes/conector.py` e o cliente `integracoes/http.py`.
+`conector.py` (`ConectorApisPublicas`), sobre a base `integracoes/conector.py` e o cliente `integracoes/cliente_http.py`.
 Cada API tem o próprio disjuntor (`viacep` e `ptax`): o ViaCEP fora do ar não pausa a cotação. A saúde vem das
 últimas chamadas; `python -m ferramentas.integracoes testar apis_publicas` (com `MODO_TERMINAL=1`) consulta o CEP
 da Praça da Sé e a lista de moedas.
