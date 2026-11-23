@@ -7,6 +7,7 @@ from datetime import date
 
 import pytest
 from ferramentas import dados_sinteticos
+from ferramentas.mascara import mascarar
 from mock import consultas, regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 from mock.banco import criar_engine
 from mock.falhas import SistemaIndisponivel, desligar_todas, ligar
@@ -390,11 +391,18 @@ def test_dicionario_descreve_todas_as_tabelas_sem_dado(sessao):
 
 def test_dicionario_marca_restrita_pela_mesma_lista_da_mascara():
     colunas = {
-        (t["tabela"], c["nome"]): c["restrita"] for t in consultas.dicionario_de_dados() for c in t["colunas"]
+        (t["tabela"], c["coluna"]): c["restrita"] for t in consultas.dicionario_de_dados() for c in t["colunas"]
     }
     assert colunas[("contatos_lojista", "cpf")] and colunas[("pesquisas_satisfacao", "comentario")]
     assert not colunas[("recebiveis", "valor_parcela_centavos")]
     assert {nome for (_, nome), restrita in colunas.items() if restrita} == set(CLASSIFICACAO_CAMPOS)
+
+
+def test_dicionario_passa_pela_mascara_sem_virar_asterisco():
+    dicionario = consultas.dicionario_de_dados()
+    assert mascarar(dicionario, ("metadado",)) == dicionario
+    for tabela in dicionario:
+        assert set(tabela) | {campo for coluna in tabela["colunas"] for campo in coluna} <= CAMPOS_NAO_RESTRITOS
 
 
 def test_dicionario_traz_a_linhagem_da_base_analitica():

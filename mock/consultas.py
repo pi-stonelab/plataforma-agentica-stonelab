@@ -837,15 +837,16 @@ def dicionario_de_dados() -> list[dict]:
     """Uma entrada por tabela do mock: sistema dono, descrição, de onde vem (base analítica) e colunas.
 
     Não lê o banco: descreve o esquema (`modelos.py`). Coluna restrita é a de `regras.CLASSIFICACAO_CAMPOS`,
-    a mesma lista que a máscara usa; nenhum dado sai daqui.
+    a mesma lista que a máscara usa; nenhum dado sai daqui. As chaves têm nome próprio (`coluna`, e não
+    `nome`, que a máscara trata como nome de pessoa) e estão em `regras.CAMPOS_NAO_RESTRITOS`.
     """
     tabelas = []
     for tabela in BaseMock.metadata.sorted_tables:
         colunas = [
             {
-                "nome": coluna.name,
-                "tipo": type(coluna.type).__name__.lower(),
-                "descricao": coluna.comment or "",
+                "coluna": coluna.name,
+                "tipo_da_coluna": type(coluna.type).__name__.lower(),
+                "descricao_da_coluna": coluna.comment or "",
                 "restrita": coluna.name in regras.CLASSIFICACAO_CAMPOS,
             }
             for coluna in tabela.columns
@@ -853,7 +854,7 @@ def dicionario_de_dados() -> list[dict]:
         tabelas.append({
             "tabela": tabela.name,
             "sistema": SISTEMA_DONO_DA_TABELA[tabela.name],
-            "descricao": tabela.comment or "",
+            "descricao_da_tabela": tabela.comment or "",
             "origem": list(ORIGEM_DAS_TABELAS_ANALITICAS.get(tabela.name, ())),
             "colunas": colunas,
         })
