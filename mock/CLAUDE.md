@@ -51,12 +51,13 @@ Dinheiro é sempre inteiro em centavos (O8). Quem mostra para o modelo converte 
   para cargo desconhecido (quem chama nega). E as regras de negócio com os números que o gerador planta e as
   ferramentas calculam: `AGORA_DO_MOCK`, SLA e dias úteis, encargos, antecipação, alçadas, chargeback, MED e o
   corte da base analítica.
-- `base_conhecimento.py`: os artigos públicos de ajuda (KB001 a KB014), com os números de `regras.py`.
-- `modelos.py`: o esquema. 20 tabelas SQLAlchemy numa base própria (`BaseMock`), separada da `Base` do back-end.
+- `base_conhecimento.py`: os artigos públicos de ajuda (KB001 a KB018), falando com o lojista ("você"), com os
+  números de `regras.py` e os sinônimos que a busca usa.
+- `modelos.py`: o esquema. 21 tabelas SQLAlchemy numa base própria (`BaseMock`), separada da `Base` do back-end.
   Fase 1: `times`, `funcionarios`, `lojistas`, `contatos_lojista`, `contas_recebimento`, `vendas`, `liquidacoes`,
   `faturas`, `chamados`, `interacoes`. Fase 2: `recebiveis`, `acordos`, `chargebacks`, `casos_pix`,
   `pesquisas_satisfacao`, `artigos_ajuda`. Base analítica: `analitica_atualizacao`, `analitica_vendas_diarias`,
-  `analitica_chamados_diarios`, `analitica_contestacoes_mensais`. Também as listas de valores aceitos,
+  `analitica_chamados_diarios`, `analitica_contestacoes_mensais`, `analitica_resultado_diario`. Também as listas de valores aceitos,
   `VERSAO_DO_ESQUEMA`, o sistema dono de cada tabela (`SISTEMA_DONO_DA_TABELA`) e a linhagem da base analítica.
 - `exportar.py`: grava o SQL pronto em `sql/` a partir do esquema e do gerador. `--conferir` só confere.
 - `sql/`: o SQL pronto que vai para o Git (`sqlite/` e `postgres/`: `01_esquema.sql`, `02_dados.sql`; no
@@ -141,7 +142,8 @@ confirmou) ou 2 (argumento ou CSV recusado, ou o banco recusou, como com o papel
 `create_all` não altera tabela que já existe: mudar o esquema é recriar (ver "Esquema e SQL pronto").
 
 No fim, `verificar` confere as invariantes (liquidação paga bate com os recebíveis das vendas, sem cartão completo
-fora das interações marcadas, e-mail só `.example`, os quatro cenários plantados, o nome armadilha em um só lojista). Se falhar,
+fora das interações marcadas, e-mail só `.example`, os cenários plantados das fases 1 e 2, o nome armadilha em um
+só lojista, a liquidação que falhou retida na agenda, a base analítica somando as vendas e o aluguel). Se falhar,
 `recriar` levanta `ErroVerificacao` e nada é entregue.
 
 Nos testes: `from mock.gerar import recriar` e `recriar(criar_engine("sqlite://"))`, depois
@@ -167,9 +169,15 @@ Os códigos são fixos. As funções que plantam estão em `gerar.py` (`plantar_
 - Casos negativos do DOC-MOCK §8.4: F0014 `desligado` e F0015 `afastado`.
 - Cenários 2, 4, 6, 9, 10 e 11, o onboarding 8 (acordos esperando o coordenador), o caso 5 da KAN-14 (liquidação
   abaixo da agenda) e o comentário de pesquisa armadilha: valores no `README.md` e em `backend/tests/gabaritos.py`.
-  Funções `_plantar_cenario_2` a `_plantar_cenario_11`, `_plantar_acordos` e `_plantar_divergencia_de_liquidacao`,
+  Funções `_plantar_cenario_2` a `_plantar_cenario_11`, `_plantar_acordos` e `_plantar_divergencias_de_liquidacao`,
   conferidas em `_verificar_cenarios_da_fase_2`. São plantados depois da fase 1, e `test_mock_fase2.py` congela as
-  linhas da fase 1 por digest: nada da fase 2 pode mudar o que já existia.
+  linhas da fase 1 por digest. Só três linhas da fase 1 mudam de propósito, e o teste as devolve ao valor antigo
+  antes do digest: a liquidação de 14/10 da M00013 (caso 5), a de 04/09 da M00007 (causa do cenário 9) e a conta da
+  M00019 (em verificação). A venda T0000650 (lastro do cenário 1) e o CB00003 são linhas novas.
+- Quem roda cada passo do cenário 4: o N1 da carteira pme simula a M00004 (Auto Peças, R$ 12.000,00 na agenda,
+  R$ 11.782,46 antecipáveis porque a parcela de 16/10 já cai no dia do crédito, líquido R$ 10.628,98); o N1 do
+  varejo (Ana, F0001) simula a M00003 (recusada por fatura vencida há mais de 15 dias). A M00019 é recusada por conta
+  em verificação. Um N1 de uma carteira recebe `permissao_negada` no lojista da outra, como deve.
 
 Decisão: o cenário 7 fica em M00009 e o mock é a referência. O gabarito da KAN-69 dizia M00001. A suíte de
 regressão (`docs/regressao.md`) segue o mock.
@@ -262,12 +270,18 @@ Plante em `plantar_cenarios` com código fixo, acrescente a verificação em `_v
 
 - Volume pequeno (D5). O volume completo do DOC-MOCK (38 funcionários, mais cenários, 6 falhas por 8 sistemas) fica
   para a Sprint 3 (V12 da KAN-69).
-- Esquema separado por sistema (DOC-MOCK §11.6: cadastro, core, cobrança, CRM, diretório) não foi adotado: as 10
+- Esquema separado por sistema (DOC-MOCK §11.6: cadastro, core, cobrança, CRM, diretório) não foi adotado: as
   tabelas ficam juntas (H11). O SQLite não tem schemas, e um papel por sistema só ajuda quando o back-end conectar
   com um papel por cargo, o que hoje não existe. A separação que vale agora é dono x leitura, mais as quatro camadas da
   aplicação. Fica como próximo passo, junto com Row-Level Security para a carteira.
-- As alçadas estão em `regras.py` (`alcada_do_acordo`), mas `ferramentas/financeiro/calcular_parcelas/` ainda tem as
-  suas constantes. Os valores são os mesmos; trocar para as do mock fica para quem mexer na ferramenta.
+- As alçadas estão em `regras.py` (`alcada_do_acordo`, com o perdão de encargos e o desconto sobre o principal), mas
+  `ferramentas/financeiro/calcular_parcelas/` ainda tem as suas constantes, sem o perdão e a dupla aprovação: trocar
+  para as do mock fica para o bloco C.
+- A falha "dado desatualizado" corta por dia, mas as contestações são guardadas por mês: com a falha ligada, o mês do
+  corte ainda mostra os dias depois dele. E os chamados estourados são contados no corte real. Corrigir pede guardar
+  as contestações por dia e o dia do estouro de cada chamado.
+- Feriados não existem no mock (A4): 07/09 e 12/10 contam como dia útil.
+- Nenhum chargeback está perdido ou aceito: a coluna de perdas com chargeback do resultado existe e soma zero.
 - A antecipação só é simulada: não há tabela de antecipações executadas (o N2 executa com pedido do lojista, Sprint 3).
 - A Cobrança não guarda pagamentos de fatura nem parcelas de acordo; o acordo tem só o resumo.
 - A base analítica é recalculada a cada geração (cópia de um dia só), não acumula histórico de cópias.

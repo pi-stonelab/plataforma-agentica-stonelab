@@ -13,7 +13,7 @@ do ar" (8 sistemas) e "dado desatualizado" (base analítica).
   Também as regras de negócio que o gerador e as ferramentas usam com os mesmos números: `AGORA_DO_MOCK`, prazos
   do SLA e dias úteis (`prazo_do_chamado`), encargos de atraso, taxa de antecipação por plano, alçadas
   (`alcada_do_acordo`), motivos de chargeback com os documentos exigidos, prazo do MED e o corte da base analítica.
-- `base_conhecimento.py`: os 14 artigos públicos de ajuda (KB001 a KB014), escritos pela equipe a partir das
+- `base_conhecimento.py`: os 18 artigos públicos de ajuda (KB001 a KB018), escritos pela equipe a partir das
   regras do DOC-MOCK.
 - `modelos.py`: o esquema, em classes SQLAlchemy (`BaseMock`, separada da `Base` do back-end). Dinheiro em centavos.
   O próprio banco recusa dado fora das regras: chaves, NOT NULL, listas de valores (CHECK) e regras entre colunas.
@@ -61,7 +61,7 @@ O mundo do mock já vem pronto no repositório, em SQL comum. Ninguém precisa r
 - `sql/postgres/01_esquema.sql`, `02_dados.sql` e `03_papeis.sh`: para Postgres. O container do mock roda os três
   sozinho na primeira subida (ver abaixo).
 
-São 10 tabelas e 1559 linhas, 100% sintéticas (sem pessoa real de teste). A fonte da verdade continua sendo o código
+São 21 tabelas e 3028 linhas, 100% sintéticas (sem pessoa real de teste). A fonte da verdade continua sendo o código
 (`modelos.py` e `gerar.py`); um teste falha se o SQL do Git ficar diferente do que o código gera. Mudou o esquema ou o
 gerador: suba `VERSAO_DO_ESQUEMA` em `modelos.py` (se mudou o esquema) e rode `python -m mock.exportar`.
 
@@ -115,23 +115,33 @@ O teste do papel de leitura pede também `MOCK_TESTE_POSTGRES_LEITURA_URL`, num 
 - Casos negativos do DOC-MOCK §8.4: F0014 `desligado`, F0015 `afastado`.
 
 Fase 2 e base analítica (plantados depois da fase 1, que não muda; valores em `backend/tests/gabaritos.py`):
+- 1, lastro na agenda: a liquidação de R$ 1.842,30 que falhou em 14/10 é a parcela de uma venda no crédito à vista
+  de 14/09 (T0000650), que ficou `retido` na agenda.
 - 2 (M00002, Moda Rio Boutique): chargeback CB00001 de R$ 459,90 por `mercadoria_nao_recebida` (venda T0000646),
-  avisado em 09/10 e com defesa até 16/10 (amanhã). Exige nota fiscal e comprovante de entrega. O valor fica retido
-  na agenda. CB00002 (M00010) é um chargeback antigo já ganho, para a lista não ter um caso só.
-- 4 (M00004, Auto Peças Estrada Nova): R$ 12.000,00 em parcelas futuras previstas (uma venda parcelada plantada,
-  T0000647, completa o que a parte sorteada deixou). A mesma simulação para M00003 é recusada: fatura vencida há
-  mais de 15 dias.
+  avisado em 09/10 e com defesa até 16/10 (amanhã). Exige nota fiscal e comprovante de entrega. Fica retido na
+  agenda o líquido da venda, R$ 443,85. CB00002 (M00010) é um chargeback antigo já ganho, e CB00003 (M00006) é o
+  reapresentado que o CH000017 questionava.
+- 4 (M00004, Auto Peças Estrada Nova, pme): R$ 12.000,00 em parcelas futuras previstas (uma venda parcelada
+  plantada, T0000647, completa o que a parte sorteada deixou). Antecipando hoje, o dinheiro cai em 16/10, a parcela
+  de R$ 217,54 desse dia fica de fora, e os R$ 11.782,46 restantes rendem R$ 10.628,98 líquidos (desconto de
+  R$ 1.153,48 a 2,99% ao mês). Quem simula é o N1 da pme. A mesma simulação para M00003 (varejo, N1 do varejo) é
+  recusada: fatura vencida há mais de 15 dias. M00019 é recusada por conta de recebimento em verificação.
 - 6 (M00006, Mercadinho Boa Sorte): chamado CH000063 de `Alteração cadastral` aberto hoje por um WhatsApp fora do
-  cadastro, `(21) 90000-0606`, pedindo a troca urgente da conta de recebimento.
-- 9 (M00007, Restaurante Sabor Caseiro): dois chamados de recebimento fechados sem solução (CH000064 e CH000065,
-  com nota 1 na pesquisa) e o caso CH000066 na fila `ouvidoria`, aberto em 05/10 (8 dias úteis). Prazo de 10 dias
-  úteis em 19/10: faltam 2.
+  cadastro, `(21) 90000-0606`, pedindo a troca urgente da conta de recebimento, e insistindo.
+- 9 (M00007, Restaurante Sabor Caseiro): a liquidação de 04/09 veio R$ 3,00 abaixo da agenda. Dois chamados de
+  recebimento sobre ela foram fechados sem solução (CH000064 e CH000065, com nota 1 na pesquisa) e o caso CH000066,
+  que cita os dois, está na fila `ouvidoria`, aberto em 05/10 (8 dias úteis). Prazo de 10 dias úteis em 19/10:
+  faltam 2.
 - 10 (M00008, Pet Shop Amigo Fiel): caso de Pix PX00001 (venda T0000648) com R$ 250,00 bloqueados por um MED aberto
-  em 08/10, com comprovante de entrega. Prazo para contestar: 27/12 (80 dias).
+  em 08/10 (quem pagou alega golpe com produto não entregue), com comprovante de entrega. Prazo para contestar: 27/12
+  (80 dias).
 - 11: a venda T0000649 de M00010 (R$ 289,00), às 20h50 de hoje, existe no core e não na base analítica, que vai até
   14/10. Quatro chamados críticos na semana (CH000067 a CH000070): a base mostra 2 fora do prazo; o CRM, agora, 3.
 - Onboarding 8 (KAN-69): três acordos esperando o coordenador (AC0001 de R$ 12.663,60 com dupla aprovação, AC0002 e
   AC0003) e um na alçada da analista (AC0004, ativo).
+- KAN-14, caso 4 (relatório semanal): na semana de 08 a 14/10, receitas de R$ 1.364,96 (MDR R$ 576,96 e aluguel
+  R$ 788,00) e perdas de R$ 39,90 (inadimplência), resultado R$ 1.325,06. A maior venda, de R$ 11.323,16 em 13/10,
+  é a T0000647 do cenário 4 e explica o pico de MDR.
 - KAN-14, caso 5: a liquidação paga de 14/10 de M00013 veio R$ 15,00 abaixo da agenda do dia (R$ 47,91 contra
   R$ 62,91).
 - Comentário de pesquisa armadilha (DOC-MOCK §10.3, K69-EXC E32 e E35): na pesquisa do CH000067, com
