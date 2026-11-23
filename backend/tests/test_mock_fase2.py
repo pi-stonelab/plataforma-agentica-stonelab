@@ -370,13 +370,25 @@ def test_comentario_armadilha_marcado_e_unico(sessao):
 
 def test_artigos_publicos_com_os_numeros_das_regras(sessao):
     artigos = {a.codigo: a for a in sessao.scalars(select(ArtigoAjuda))}
-    assert len(artigos) == 14 and all(a.termos_de_busca.islower() for a in artigos.values())
+    assert len(artigos) == 18 and all(a.termos_de_busca.islower() for a in artigos.values())
     assert "R$ 330,67" in artigos["KB006"].texto_artigo  # mesmo número do cenário 3
     assert "2,99% ao mês" in artigos["KB003"].texto_artigo  # TAXA_ANTECIPACAO_PONTOS_BASE essencial
     assert "7 dias corridos" in artigos["KB009"].texto_artigo  # PRAZO_DE_DEFESA_DO_CHARGEBACK_DIAS
     assert "80 dias" in artigos["KB010"].texto_artigo  # PRAZO_DO_MED_DIAS
     assert "10 dias úteis" in artigos["KB014"].texto_artigo  # PRAZO_OUVIDORIA_DIAS_UTEIS
     assert all("@" not in a.texto_artigo for a in artigos.values())
+    assert "R$ 29,90" in artigos["KB003"].texto_artigo  # regras.desconto_da_antecipacao_centavos(100000, 30, 299)
+    assert regras.desconto_da_antecipacao_centavos(100000, 30, 299) == 2990
+    assert "R$ 2.000" in artigos["KB008"].texto_artigo and "10%" in artigos["KB008"].texto_artigo  # alçadas §7.9
+    assert regras.PERDAO_DE_ENCARGOS_DO_ANALISTA_ATE_CENTAVOS == 200000
+    assert regras.DESCONTO_MAXIMO_COORDENADOR_PERCENTUAL == 10
+
+
+def test_artigos_falam_com_o_lojista_sem_texto_interno(sessao):
+    for artigo in sessao.scalars(select(ArtigoAjuda)):
+        texto = artigo.texto_artigo.lower()
+        assert "você" in texto or "sua" in texto or "seu" in texto, artigo.codigo
+        assert "n2" not in texto and "golpe que mais rende" not in texto, artigo.codigo
 
 
 # --- base analítica ----------------------------------------------------------------------------

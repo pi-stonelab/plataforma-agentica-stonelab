@@ -776,10 +776,11 @@ def criar_pesquisas_satisfacao(sessao: Session, rng: random.Random) -> None:
 
 def criar_artigos(sessao: Session) -> None:
     """Base de conhecimento: artigos públicos escritos pela equipe (mock/base_conhecimento.py)."""
-    for codigo, titulo, categoria, texto in ARTIGOS:
+    for codigo, titulo, categoria, texto, sinonimos in ARTIGOS:
         sessao.add(ArtigoAjuda(
             codigo=codigo, titulo_artigo=titulo, categoria=categoria, texto_artigo=texto,
-            termos_de_busca=_ascii_minusculo(f"{titulo} {texto}"), atualizado_em=DATA_DOS_ARTIGOS,
+            termos_de_busca=_ascii_minusculo(f"{titulo} {categoria} {texto} {sinonimos}"),
+            atualizado_em=DATA_DOS_ARTIGOS,
         ))
     sessao.flush()
 

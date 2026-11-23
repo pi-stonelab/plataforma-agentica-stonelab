@@ -342,19 +342,39 @@ def test_busca_de_artigo_ignora_acento_e_caixa(sessao):
     assert com_acento and com_acento == sem_acento
 
 
-def test_busca_de_artigo_exige_todas_as_palavras(sessao):
-    uma = consultas.buscar_artigos(sessao, "prazo")["total"]
-    duas = consultas.buscar_artigos(sessao, "prazo chargeback")["total"]
-    assert 0 < duas <= uma
+# A pergunta como o lojista escreve -> o artigo que responde vem primeiro.
+PERGUNTAS_DOS_LOJISTAS = [
+    ("Minha maquininha não liga", "KB015"),
+    ("Por que meu depósito veio menor?", "KB016"),
+    ("Quero a segunda via do boleto", "KB017"),
+    ("Onde encontro o comprovante?", "KB018"),
+    ("Qual a taxa?", "KB012"),
+    ("Quanto eu pago para antecipar?", "KB003"),
+    ("A antecipação foi recusada", "KB004"),
+    ("Quero trocar a conta de recebimento", "KB013"),
+    ("Cancelar uma venda", "KB011"),
+    ("Chargeback: quais documentos?", "KB009"),
+    ("MED", "KB010"),
+]
+
+
+@pytest.mark.parametrize(("pergunta", "artigo"), PERGUNTAS_DOS_LOJISTAS)
+def test_pergunta_do_lojista_acha_o_artigo_certo_primeiro(sessao, pergunta, artigo):
+    assert consultas.buscar_artigos(sessao, pergunta)["itens"][0]["codigo"] == artigo
+
+
+def test_busca_de_artigo_casa_palavra_inteira(sessao):
+    assert consultas.buscar_artigos(sessao, "médio")["total"] == 0  # "med" não é pedaço de "médio"
     assert consultas.buscar_artigos(sessao, "palavraquenaoexiste")["total"] == 0
+    assert [a["codigo"] for a in consultas.buscar_artigos(sessao, "maquininhas")["itens"]] == [
+        a["codigo"] for a in consultas.buscar_artigos(sessao, "maquininha")["itens"]]
 
 
-def test_busca_de_artigo_com_caractere_curinga_casa_so_o_literal(sessao):
-    com_porcento = consultas.buscar_artigos(sessao, "%")["itens"]
+def test_busca_sem_palavra_que_conte_nao_acha_nada_e_sem_termo_acha_todos(sessao):
     todos = consultas.buscar_artigos(sessao)["total"]
-    assert 0 < len(com_porcento) < todos
-    assert all("%" in a["titulo_artigo"] + a["texto_artigo"] for a in com_porcento)
-    assert consultas.buscar_artigos(sessao, "_")["total"] == 0
+    assert todos == consultas.buscar_artigos(sessao, "   ")["total"] > 0
+    assert consultas.buscar_artigos(sessao, "%")["total"] == consultas.buscar_artigos(sessao, "_")["total"] == 0
+    assert consultas.buscar_artigos(sessao, "de para com")["total"] == 0
 
 
 def test_artigo_por_categoria(sessao):

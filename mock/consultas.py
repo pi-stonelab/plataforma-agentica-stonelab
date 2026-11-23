@@ -6,6 +6,7 @@ mostra). Listas devolvem no máximo 50 linhas, mais o total encontrado. Aqui nã
 permissão: quem decide se o cargo pode chamar é a governança das ferramentas.
 """
 
+import re
 import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -660,8 +661,28 @@ def resumo_satisfacao(
     return {"respostas": respostas, "notas": notas, "media_centesimos": media}
 
 
+# Palavras que não ajudam a achar o artigo ("minha maquininha não liga" procura só "maquininha" e "liga").
+PALAVRAS_SEM_PESO = frozenset({
+    "a", "o", "as", "os", "um", "uma", "uns", "umas", "de", "da", "do", "das", "dos", "em", "no", "na", "nos",
+    "nas", "ao", "aos", "e", "ou", "que", "para", "pra", "por", "com", "sem", "se", "eu", "meu", "minha",
+    "meus", "minhas", "seu", "sua", "seus", "suas", "nao", "sim", "como", "qual", "quais", "esta", "esse",
+    "essa", "isso", "ja", "foi", "ser", "tem", "ter", "estou",
+})
+
+
 def _sem_acento_minusculo(texto: str) -> str:
     return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()
+
+
+def _raiz(palavra: str) -> str:
+    """Plural simples volta ao singular: "maquininhas" acha "maquininha"."""
+    return palavra[:-1] if len(palavra) > 3 and palavra.endswith("s") else palavra
+
+
+def palavras_de_busca(texto: str | None) -> frozenset[str]:
+    """Palavras inteiras (sem acento, sem caixa, sem plural simples) que contam na busca."""
+    palavras = re.findall(r"[a-z0-9]+", _sem_acento_minusculo(texto or ""))
+    return frozenset(_raiz(p) for p in palavras if p not in PALAVRAS_SEM_PESO)
 
 
 def buscar_artigos(
@@ -670,25 +691,40 @@ def buscar_artigos(
     categoria: str | None = None,
     limite: int | None = None,
 ) -> dict:
-    """Artigos da base de conhecimento com todas as palavras do termo (sem acento, sem caixa)."""
+    """Artigos da base de conhecimento que têm alguma palavra do termo, do mais parecido para o menos.
+
+    A pergunta chega como o lojista escreve ("minha maquininha não liga"): conta cada palavra que bate
+    inteira com o texto ou os sinônimos do artigo, e em dobro com o título ou a categoria ("med" não acha
+    "médio"). Sem termo, todos; termo sem nenhuma palavra que conte ("%"), nenhum. A base é pequena (dezenas
+    de artigos), então a conta é feita aqui, depois de ler.
+    """
     falhas.verificar("crm")
     consulta = select(
         ArtigoAjuda.codigo, ArtigoAjuda.titulo_artigo, ArtigoAjuda.categoria, ArtigoAjuda.texto_artigo,
-        ArtigoAjuda.atualizado_em,
-    )
-    for palavra in _sem_acento_minusculo(termo or "").split():
-        consulta = consulta.where(ArtigoAjuda.termos_de_busca.contains(palavra, autoescape=True))
+        ArtigoAjuda.atualizado_em, ArtigoAjuda.termos_de_busca,
+    ).order_by(ArtigoAjuda.codigo)
     if categoria is not None:
         consulta = consulta.where(ArtigoAjuda.categoria == categoria)
-    consulta = consulta.order_by(ArtigoAjuda.codigo)
-
-    def formatar(linha) -> dict:
-        item = dict(linha._mapping)
-        item["atualizado_em"] = _iso(item["atualizado_em"])
-        return item
-
+    procuradas = palavras_de_busca(termo)
+    sem_termo = not (termo or "").strip()
     with _sessao_de(origem) as sessao:
-        return _lista(sessao, consulta, limite, formatar)
+        linhas = sessao.execute(consulta).all()
+    pontuados = []
+    for linha in linhas:
+        no_titulo = procuradas & palavras_de_busca(f"{linha.titulo_artigo} {linha.categoria}")
+        pontos = len(procuradas & palavras_de_busca(linha.termos_de_busca)) + len(no_titulo)
+        if pontos or sem_termo:
+            pontuados.append((-pontos, linha.codigo, linha))
+    pontuados.sort(key=lambda item: item[:2])
+    teto = _limite_efetivo(limite)
+    itens = [
+        {
+            "codigo": linha.codigo, "titulo_artigo": linha.titulo_artigo, "categoria": linha.categoria,
+            "texto_artigo": linha.texto_artigo, "atualizado_em": _iso(linha.atualizado_em),
+        }
+        for _, _, linha in pontuados[:teto]
+    ]
+    return {"itens": itens, "total": len(pontuados), "limite": teto}
 
 
 def _so_digitos(texto: str | None) -> str:

@@ -97,7 +97,7 @@ SITUACOES_CHARGEBACK = (
 SITUACOES_CASO_PIX = ("bloqueado", "contestado", "devolvido", "liberado")
 CATEGORIAS_DE_ARTIGO = (
     "Recebimento", "Antecipação", "Fatura e aluguel", "Contestação", "Pix e devolução",
-    "Alteração cadastral", "Taxas e planos", "Atendimento",
+    "Alteração cadastral", "Taxas e planos", "Atendimento", "Maquininha",
 )
 
 
@@ -522,7 +522,7 @@ class ArtigoAjuda(BaseMock):
     categoria: Mapped[str] = mapped_column(String(40))
     texto_artigo: Mapped[str] = mapped_column(Text)
     termos_de_busca: Mapped[str] = mapped_column(
-        Text, comment="Título e texto sem acento e em minúsculas, para a busca por palavra."
+        Text, comment="Título, categoria, texto e sinônimos sem acento e em minúsculas, para a busca por palavra."
     )
     atualizado_em: Mapped[date] = mapped_column(Date)
 

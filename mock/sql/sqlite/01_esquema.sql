@@ -45,7 +45,7 @@ CREATE TABLE artigos_ajuda (
     termos_de_busca TEXT NOT NULL,
     atualizado_em DATE NOT NULL,
     CONSTRAINT pk_artigos_ajuda PRIMARY KEY (codigo),
-    CONSTRAINT ck_artigos_ajuda_categoria CHECK (categoria IN ('Recebimento', 'Antecipação', 'Fatura e aluguel', 'Contestação', 'Pix e devolução', 'Alteração cadastral', 'Taxas e planos', 'Atendimento')),
+    CONSTRAINT ck_artigos_ajuda_categoria CHECK (categoria IN ('Recebimento', 'Antecipação', 'Fatura e aluguel', 'Contestação', 'Pix e devolução', 'Alteração cadastral', 'Taxas e planos', 'Atendimento', 'Maquininha')),
     CONSTRAINT ck_artigos_ajuda_codigo_formato CHECK (codigo LIKE 'KB___')
 );
 

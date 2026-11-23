@@ -46,11 +46,11 @@ CREATE TABLE artigos_ajuda (
     termos_de_busca TEXT NOT NULL,
     atualizado_em DATE NOT NULL,
     CONSTRAINT pk_artigos_ajuda PRIMARY KEY (codigo),
-    CONSTRAINT ck_artigos_ajuda_categoria CHECK (categoria IN ('Recebimento', 'Antecipação', 'Fatura e aluguel', 'Contestação', 'Pix e devolução', 'Alteração cadastral', 'Taxas e planos', 'Atendimento')),
+    CONSTRAINT ck_artigos_ajuda_categoria CHECK (categoria IN ('Recebimento', 'Antecipação', 'Fatura e aluguel', 'Contestação', 'Pix e devolução', 'Alteração cadastral', 'Taxas e planos', 'Atendimento', 'Maquininha')),
     CONSTRAINT ck_artigos_ajuda_codigo_formato CHECK (codigo LIKE 'KB___')
 );
 COMMENT ON TABLE artigos_ajuda IS 'Base de conhecimento do atendimento: artigos públicos escritos pela equipe a partir das regras do DOC-MOCK. Público.';
-COMMENT ON COLUMN artigos_ajuda.termos_de_busca IS 'Título e texto sem acento e em minúsculas, para a busca por palavra.';
+COMMENT ON COLUMN artigos_ajuda.termos_de_busca IS 'Título, categoria, texto e sinônimos sem acento e em minúsculas, para a busca por palavra.';
 
 CREATE TABLE times (
     id SERIAL NOT NULL,
