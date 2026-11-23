@@ -14,8 +14,9 @@ No Postgres, quem grava é o papel `mock_escrita` (`PRIVILEGIOS_DE_ESCRITA`, ger
 `mock/exportar.py`): lê tudo, insere só nas tabelas abaixo e altera só as colunas listadas.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, time
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
@@ -77,13 +78,39 @@ class EscritaRecusada(Exception):
         self.mensagem = mensagem
 
 
+_EM_ENSAIO: ContextVar[bool] = ContextVar("escrita_em_ensaio", default=False)
+
+
 @contextmanager
 def _transacao(engine: Engine, *sistemas: str) -> Iterator[Session]:
-    """Confere os sistemas antes de abrir e grava tudo de uma vez no fim (ou nada, se algo levantar)."""
+    """Confere os sistemas antes de abrir e grava tudo de uma vez no fim (ou nada, se algo levantar).
+
+    Em ensaio (`ensaiar`), a transação inteira roda e é desfeita no fim: nada fica gravado."""
     for sistema in sistemas:
         falhas.verificar(sistema)
-    with trava_de_acesso(engine), Session(engine) as sessao, sessao.begin():
-        yield sessao
+    with trava_de_acesso(engine), Session(engine) as sessao:
+        transacao = sessao.begin()
+        try:
+            yield sessao
+        except BaseException:
+            transacao.rollback()
+            raise
+        if _EM_ENSAIO.get():
+            transacao.rollback()
+        else:
+            transacao.commit()
+
+
+def ensaiar(operacao: Callable[..., dict], *argumentos, **opcoes) -> dict:
+    """Roda a operação com todas as regras dela e desfaz tudo no fim.
+
+    A prévia das ferramentas usa: o que a confirmação recusaria, a prévia já recusa, com a mesma frase.
+    """
+    marca = _EM_ENSAIO.set(True)
+    try:
+        return operacao(*argumentos, **opcoes)
+    finally:
+        _EM_ENSAIO.reset(marca)
 
 
 def _lojista(sessao: Session, codigo: str) -> Lojista:
@@ -125,7 +152,7 @@ def _proximo_protocolo(sessao: Session, momento: datetime) -> str:
     return f"{prefixo}{numero:06d}"
 
 
-def _proximo_dia_util() -> date:
+def proximo_dia_util() -> date:
     return regras.somar_dias_uteis(datetime.combine(regras.HOJE_DO_MOCK, time()), 1).date()
 
 
@@ -386,7 +413,7 @@ def reprocessar_liquidacao(engine: Engine, codigo_lojista: str, id_liquidacao: i
             )
         nova = Liquidacao(
             id_lojista=codigo_lojista,
-            data=_proximo_dia_util(),  # o core tenta de novo no próximo dia útil (§7.3)
+            data=proximo_dia_util(),  # o core tenta de novo no próximo dia útil (§7.3)
             valor_total_centavos=liquidacao.valor_total_centavos,
             situacao="agendada",
             motivo_falha=None,

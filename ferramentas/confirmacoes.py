@@ -102,6 +102,7 @@ class FerramentaComConfirmacao(Ferramenta):
     age_ao_executar = False  # a fase 1 só guarda a prévia; o efeito é do `confirmar`
     campos_liberados = ("confirmacao_id", "expira_em")  # a subclasse soma os campos da sua prévia
     titulo = ""  # como a interface chama a ação ("Enviar e-mail")
+    mensagem_feito = "Enviado."  # a frase da confirmação que deu certo ("Chamado aberto.")
     rotulos_da_previa = {}  # campo da prévia -> rótulo, na ordem em que a interface mostra
 
     def texto_do_campo(self, campo, valor):
@@ -374,7 +375,7 @@ def confirmar(confirmacao_id, usuario):
         dados = mascara.mascarar(
             ferramenta.efetivar(pedido.conteudo, usuario), ferramenta.categorias_dados, ferramenta.campos_liberados
         )
-        resultado = resposta("ok", dados, "Enviado.")
+        resultado = resposta("ok", dados, ferramenta.mensagem_feito)
     except ErroFerramenta as erro:
         pode_ter_saido = False
         resultado = resposta("erro", None, erro.mensagem, erro.tipo_erro)
