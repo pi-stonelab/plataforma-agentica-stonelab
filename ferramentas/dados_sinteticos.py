@@ -7,6 +7,7 @@ converter centavos.
 """
 
 import sqlite3
+from datetime import date
 
 from mock import consultas, modelos, regras
 from mock.banco import criar_engine, url_padrao
@@ -25,6 +26,7 @@ CAMPOS_DO_CADASTRO = (
     "nome_fantasia",
     "segmento",
     "porte",
+    "plano",
     "cidade",
     "uf",
     "situacao",
@@ -57,10 +59,10 @@ def _engine():
     return _CONEXAO["engine"]
 
 
-def _ler(consulta, *argumentos):
+def _ler(consulta, *argumentos, **opcoes):
     """Roda uma consulta do mock; banco ou sistema fora do ar vira ConnectionError."""
     try:
-        return consulta(_engine(), *argumentos)
+        return consulta(_engine(), *argumentos, **opcoes)
     except FALHAS_DE_INTEGRACAO:
         raise ConnectionError("integração indisponível") from None
 
@@ -252,14 +254,52 @@ def resumo_da_agenda(codigo):
     }
 
 
+def percentual(pontos_base):
+    """Pontos-base em texto no padrão brasileiro: 299 vira "2,99%". None continua None."""
+    if pontos_base is None:
+        return None
+    inteiro, resto = divmod(pontos_base, 100)
+    return f"{inteiro},{resto:02d}%"
+
+
 def recebiveis_para_antecipacao(codigo):
-    """Parcelas antecipáveis: [{"data_prevista", "valor_centavos"}] (centavos: é para calcular)."""
+    """O que dá para antecipar, parcela por parcela: [{"data_prevista", "valor_centavos"}] (centavos: para calcular)."""
     return _ler(consultas.recebiveis_para_antecipacao, codigo)
 
 
+def simulacao_de_antecipacao(codigo):
+    """Antecipar hoje tudo o que dá (§7.4), ou None se o lojista não existe. Não olha os motivos de recusa:
+    quem chama confere `motivos_de_recusa_da_antecipacao` antes.
+
+    {"data_credito", "taxa_mensal", "quantidade_de_parcelas", "valor_antecipado", "desconto", "valor_liquido"}.
+    """
+    taxa = taxa_de_antecipacao(codigo)
+    if taxa is None:
+        return None
+    credito = regras.data_de_credito_da_antecipacao()
+    bruto = desconto = 0
+    parcelas = recebiveis_para_antecipacao(codigo)
+    for item in parcelas:
+        dias = (date.fromisoformat(item["data_prevista"]) - credito).days
+        bruto += item["valor_centavos"]
+        desconto += regras.desconto_da_antecipacao_centavos(item["valor_centavos"], dias, taxa)
+    return {
+        "data_credito": credito.isoformat(),
+        "taxa_mensal": percentual(taxa),
+        "quantidade_de_parcelas": len(parcelas),
+        "valor_antecipado": reais(bruto),
+        "desconto": reais(desconto),
+        "valor_liquido": reais(bruto - desconto),
+    }
+
+
 def motivos_de_recusa_da_antecipacao(codigo):
-    """Motivos que recusam a antecipação do lojista (lista vazia: pode), ou None se ele não existe."""
-    return _ler(consultas.motivos_de_recusa_da_antecipacao, codigo)
+    """Motivos que recusam a antecipação do lojista, em texto para a pessoa (lista vazia: pode), ou None se ele
+    não existe."""
+    motivos = _ler(consultas.motivos_de_recusa_da_antecipacao, codigo)
+    if motivos is None:
+        return None
+    return [regras.ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO[motivo] for motivo in motivos]
 
 
 def taxa_de_antecipacao(codigo):
@@ -282,7 +322,8 @@ def buscar_acordos(codigo, situacao, limite):
             "valor_renegociado": reais(item["valor_renegociado_centavos"]),
             "entrada": reais(item["entrada_centavos"]),
             "numero_de_parcelas": item["numero_de_parcelas"],
-            "desconto": reais(item["desconto_centavos"]),
+            "perdao_encargos": reais(item["perdao_encargos_centavos"]),
+            "desconto_principal": reais(item["desconto_principal_centavos"]),
             "alcada": item["alcada"],
             "id_solicitante": item["id_solicitante"],
             "id_aprovador": item["id_aprovador"],
@@ -295,17 +336,22 @@ def buscar_acordos(codigo, situacao, limite):
 
 
 def buscar_chargebacks(codigo, limite):
-    """Chargebacks do lojista com os documentos que o motivo exige: (lista, total)."""
+    """Chargebacks do lojista com os documentos que o motivo exige: (lista, total).
+
+    `valor` é o contestado (o bruto da venda); `valor_retido` é o que está preso na agenda por causa dele (o
+    líquido, já sem a taxa). `dias_para_o_prazo` é None quando o prazo da defesa já não corre.
+    """
     resposta = _ler(consultas.buscar_chargebacks, codigo, limite)
     chargebacks = [
         {
             "codigo": item["codigo"],
             "id_venda": item["id_venda"],
-            "motivo": item["motivo"],
+            "motivo": regras.ROTULOS_DOS_MOTIVOS_DE_CHARGEBACK[item["motivo"]],
             "data_notificacao": item["data_notificacao"],
             "prazo_defesa": item["prazo_defesa"],
             "dias_para_o_prazo": item["dias_para_o_prazo"],
             "valor": reais(item["valor_contestado_centavos"]),
+            "valor_retido": reais(item["valor_retido_centavos"]),
             "documentos_exigidos": _documentos(regras.DOCUMENTOS_POR_MOTIVO[item["motivo"]]),
             "documentos_enviados": _documentos(item["documentos_enviados"]),
             "situacao": item["situacao"],
@@ -326,6 +372,7 @@ def buscar_casos_pix(codigo, limite):
             "prazo_contestacao": item["prazo_contestacao"],
             "dias_para_o_prazo": item["dias_para_o_prazo"],
             "valor": reais(item["valor_bloqueado_centavos"]),
+            "motivo_alegado": regras.ROTULOS_DOS_MOTIVOS_DO_MED[item["motivo_alegado"]],
             "tem_comprovante_entrega": item["tem_comprovante_entrega"],
             "situacao": item["situacao"],
         }
@@ -334,14 +381,29 @@ def buscar_casos_pix(codigo, limite):
     return casos, resposta["total"]
 
 
-def resumo_satisfacao(data_inicio, data_fim, fila):
-    """Notas CSAT do período: {"respostas", "notas", "media_centesimos"}."""
-    return _ler(consultas.resumo_satisfacao, data_inicio, data_fim, fila)
+def _decimal(centesimos):
+    """Centésimos em texto com vírgula: 352 vira "3,52". None continua None."""
+    if centesimos is None:
+        return None
+    inteiro, resto = divmod(centesimos, 100)
+    return f"{inteiro},{resto:02d}"
 
 
-def buscar_comentarios_satisfacao(data_inicio, data_fim, fila, nota_maxima, limite):
-    """Respostas CSAT com comentário (texto livre de terceiros): (lista, total)."""
-    resposta = _ler(consultas.buscar_pesquisas, data_inicio, data_fim, fila, nota_maxima, limite)
+def resumo_satisfacao(data_inicio, data_fim, fila, carteira=None):
+    """Notas CSAT do período: {"respostas", "notas", "media"} ("3,52", ou None sem respostas)."""
+    resumo = _ler(consultas.resumo_satisfacao, data_inicio, data_fim, fila, carteira=carteira)
+    return {"respostas": resumo["respostas"], "notas": resumo["notas"], "media": _decimal(resumo["media_centesimos"])}
+
+
+def buscar_comentarios_satisfacao(data_inicio, data_fim, fila, nota_maxima, limite, carteira=None):
+    """Respostas CSAT que TÊM comentário (texto livre de terceiros), da mais recente: (lista, total).
+
+    `carteira` recorta o escopo de quem só vê o próprio time; None é todas.
+    """
+    resposta = _ler(
+        consultas.buscar_pesquisas, data_inicio, data_fim, fila, nota_maxima, limite,
+        carteira=carteira, somente_com_comentario=True,
+    )
     return resposta["itens"], resposta["total"]
 
 
@@ -382,6 +444,31 @@ def resumo_de_vendas(data_inicio, data_fim):
     return {"data_corte": resposta["data_corte"], "modalidades": modalidades, "total": total}
 
 
+def resumo_de_resultado(data_inicio, data_fim):
+    """Receitas, perdas e resultado da Stone no período, da base analítica (até ontem), com valores em texto.
+
+    {"data_corte", "receitas": {"mdr", "aluguel_e_tarifas", "total"}, "perdas": {"inadimplencia",
+    "concessoes_em_acordos", "chargebacks_perdidos", "total"}, "resultado", "maior_venda": {"dia", "valor"}}.
+    """
+    resposta = _ler(consultas.resultado_por_periodo, data_inicio, data_fim)
+    receitas = (resposta["receita_mdr_dia_centavos"], resposta["receita_aluguel_e_tarifas_dia_centavos"])
+    perdas = (
+        resposta["inadimplencia_dia_centavos"], resposta["concessao_em_acordos_dia_centavos"],
+        resposta["perda_chargeback_dia_centavos"],
+    )
+    maior = resposta["maior_venda"]
+    return {
+        "data_corte": resposta["data_corte"],
+        "receitas": {"mdr": reais(receitas[0]), "aluguel_e_tarifas": reais(receitas[1]), "total": reais(sum(receitas))},
+        "perdas": {
+            "inadimplencia": reais(perdas[0]), "concessoes_em_acordos": reais(perdas[1]),
+            "chargebacks_perdidos": reais(perdas[2]), "total": reais(sum(perdas)),
+        },
+        "resultado": reais(sum(receitas) - sum(perdas)),
+        "maior_venda": {"dia": maior["dia"], "valor": reais(maior["maior_venda_dia_centavos"])} if maior else None,
+    }
+
+
 def vendas_por_dia(data_inicio, data_fim, limite):
     """Vendas por dia da base analítica: (lista, total de dias, data de corte)."""
     resposta = _ler(consultas.vendas_por_dia, data_inicio, data_fim, limite)
@@ -402,9 +489,29 @@ def chamados_por_fila(data_inicio, data_fim, prioridade):
     return _ler(consultas.chamados_por_fila, data_inicio, data_fim, prioridade)
 
 
-def contestacoes_por_mes(mes_inicio, mes_fim, codigo):
-    """Chargebacks e taxa por mês da base analítica, de um lojista ou de todos: {"data_corte", "itens"}."""
-    return _ler(consultas.contestacoes_por_mes, mes_inicio, mes_fim, codigo)
+def _contestacoes(mes_inicio, mes_fim, codigo):
+    resposta = _ler(consultas.contestacoes_por_mes, mes_inicio, mes_fim, codigo)
+    itens = [
+        {
+            "mes": item["mes"],
+            "quantidade_vendas_cartao": item["quantidade_vendas_cartao"],
+            "quantidade_chargebacks": item["quantidade_chargebacks"],
+            "taxa_chargeback": percentual(item["taxa_chargeback_pontos_base"]),
+        }
+        for item in resposta["itens"]
+    ]
+    return {"data_corte": resposta["data_corte"], "itens": itens}
+
+
+def contestacoes_por_mes(mes_inicio, mes_fim):
+    """Chargebacks e taxa ("0,45%") por mês, somando TODOS os lojistas (indicador agregado): {"data_corte", "itens"}."""
+    return _contestacoes(mes_inicio, mes_fim, None)
+
+
+def contestacoes_do_lojista_por_mes(codigo, mes_inicio, mes_fim):
+    """O mesmo de um lojista só. É dado de disputa daquele lojista: a ficha que usa pede a categoria `disputa`
+    e passa pelas portas do lojista (carteira e janela), não `indicador_agregado`."""
+    return _contestacoes(mes_inicio, mes_fim, codigo)
 
 
 def dicionario_de_dados():

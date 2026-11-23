@@ -34,7 +34,8 @@ from .modelos import VERSAO_DO_ESQUEMA, BaseMock, Funcionario
 PASTA_SQL = Path(__file__).resolve().parent / "sql"
 ARQUIVO_ESQUEMA = "01_esquema.sql"
 ARQUIVO_DADOS = "02_dados.sql"
-DIALETOS: dict[str, Dialect] = {"sqlite": sqlite.dialect(), "postgres": postgresql.dialect()}
+# paramstyle "named": com o padrão (pyformat) o literal_binds escreve "2,99%" como "2,99%%" no SQL pronto.
+DIALETOS: dict[str, Dialect] = {"sqlite": sqlite.dialect(), "postgres": postgresql.dialect(paramstyle="named")}
 
 CABECALHO = f"""-- Mock da Stone (Plataforma Agêntica Institucional). 100% sintético: nenhum dado real.
 -- Gerado por `python -m mock.exportar` a partir de mock/modelos.py e mock/gerar.py

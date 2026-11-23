@@ -120,6 +120,8 @@ C1_LIQUIDACAO_CENTAVOS = 184230
 C1_LIQUIDACAO_TEXTO = "R$ 1.842,30"
 C1_LIQUIDACAO_SITUACAO = "falhou"  # DOC-MOCK diz "recusada"; o enum do mock é paga/falhou/devolvida
 C1_MOTIVO_DA_FALHA = "conta_invalida"
+# Lastro na agenda (fase 2): a parcela da venda no crédito à vista de 14/09 que caía em 14/10 ficou retida.
+C1_LASTRO_NA_AGENDA = ("T0000650", "2026-10-14", 184230)
 C1_CHAMADO = "CH000061"
 C1_PROTOCOLO = "20261014-000001"
 C1_CHAMADO_CATEGORIA = "Recebimento"
@@ -381,6 +383,8 @@ C2_VENDA = "T0000646"
 C2_VALOR_CENTAVOS = 45990
 C2_VALOR_TEXTO = "R$ 459,90"
 C2_MOTIVO = "mercadoria_nao_recebida"
+C2_MOTIVO_TEXTO = "mercadoria não recebida"
+C2_VALOR_RETIDO_TEXTO = "R$ 443,85"  # o líquido da venda (bruto R$ 459,90 menos a taxa) fica retido na agenda
 C2_AVISO = "2026-10-09"
 C2_PRAZO_DA_DEFESA = "2026-10-16"
 C2_DIAS_PARA_O_PRAZO = 1
@@ -393,8 +397,21 @@ C4_VENDA_PARCELADA = "T0000647"
 C4_AGENDA_FUTURA_CENTAVOS = 1200000
 C4_AGENDA_FUTURA_TEXTO = "R$ 12.000,00"
 C4_TAXA_MENSAL_PONTOS_BASE = 299  # plano Essencial (EPP)
+# Antecipar hoje (§7.4): o dinheiro cai em 16/10 (1 dia útil); a parcela que já cai em 16/10 fica de fora.
+C4_DATA_DO_CREDITO = "2026-10-16"
+C4_PARCELA_QUE_JA_CAI_NO_CREDITO_CENTAVOS = 21754
+C4_ANTECIPAVEL_CENTAVOS = 1178246  # R$ 12.000,00 menos R$ 217,54
+C4_SIMULACAO = {
+    "data_credito": "2026-10-16",
+    "taxa_mensal": "2,99%",
+    "quantidade_de_parcelas": 25,
+    "valor_antecipado": "R$ 11.782,46",
+    "desconto": "R$ 1.153,48",
+    "valor_liquido": "R$ 10.628,98",
+}
 C4_LOJISTA_RECUSADO = "M00003"
 C4_MOTIVO_DA_RECUSA = "fatura_vencida_ha_mais_de_15_dias"
+C4_MOTIVO_DA_RECUSA_TEXTO = "há fatura vencida há mais de 15 dias"
 
 # ---------- cenário 6: golpe da troca de conta (M00006) ----------
 C6_LOJISTA = "M00006"
@@ -441,3 +458,17 @@ K14C5_DIA = "2026-10-14"
 K14C5_LIQUIDACAO_TEXTO = "R$ 47,91"
 K14C5_AGENDA_DO_DIA_TEXTO = "R$ 62,91"
 K14C5_DIFERENCA_CENTAVOS = 1500
+
+
+# KAN-14 caso 4: relatório semanal de receitas e perdas (base analítica, decisão A9). Semana de 08 a 14/10.
+K4_SEMANA = ("2026-10-08", "2026-10-14")
+K4_RESUMO_DA_SEMANA = {
+    "data_corte": "2026-10-14",
+    "receitas": {"mdr": "R$ 576,96", "aluguel_e_tarifas": "R$ 788,00", "total": "R$ 1.364,96"},
+    "perdas": {
+        "inadimplencia": "R$ 39,90", "concessoes_em_acordos": "R$ 0,00", "chargebacks_perdidos": "R$ 0,00",
+        "total": "R$ 39,90",
+    },
+    "resultado": "R$ 1.325,06",
+    "maior_venda": {"dia": "2026-10-13", "valor": "R$ 11.323,16"},  # a T0000647 do cenário 4
+}

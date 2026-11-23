@@ -168,5 +168,5 @@ def test_criar_tabelas_cria_so_as_tabelas_do_mock():
         "recebiveis", "acordos", "chargebacks", "casos_pix", "pesquisas_satisfacao", "artigos_ajuda",
         # base analítica
         "analitica_atualizacao", "analitica_vendas_diarias", "analitica_chamados_diarios",
-        "analitica_contestacoes_mensais",
+        "analitica_contestacoes_mensais", "analitica_resultado_diario",
     }

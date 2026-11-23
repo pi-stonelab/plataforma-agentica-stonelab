@@ -6,6 +6,7 @@ mostra). Listas devolvem no máximo 50 linhas, mais o total encontrado. Aqui nã
 permissão: quem decide se o cargo pode chamar é a governança das ferramentas.
 """
 
+import re
 import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -24,6 +25,7 @@ from .modelos import (
     AnaliticaAtualizacao,
     AnaliticaChamadosDiarios,
     AnaliticaContestacoesMensais,
+    AnaliticaResultadoDiario,
     AnaliticaVendasDiarias,
     ArtigoAjuda,
     BaseMock,
@@ -87,6 +89,7 @@ def buscar_lojista(origem: Session | Engine, codigo: str) -> dict | None:
             "nome_fantasia": lojista.nome_fantasia,
             "segmento": lojista.segmento,
             "porte": lojista.porte,
+            "plano": regras.PLANO_POR_PORTE[lojista.porte],
             "cidade": lojista.cidade,
             "uf": lojista.uf,
             "carteira": lojista.carteira,
@@ -361,9 +364,6 @@ def buscar_chamado(origem: Session | Engine, codigo_lojista: str, codigo_chamado
 # Agenda de recebíveis e antecipação (core, DOC-MOCK §7.2 e §7.4)
 # ---------------------------------------------------------------------------------------------
 
-TETO_PARA_CALCULO = 1000  # recebíveis que uma simulação de antecipação lê de uma vez (nunca vão ao modelo)
-
-
 def buscar_recebiveis(
     origem: Session | Engine,
     codigo: str,
@@ -412,25 +412,23 @@ def resumo_da_agenda(origem: Session | Engine, codigo: str) -> dict:
 
 
 def recebiveis_para_antecipacao(origem: Session | Engine, codigo: str) -> list[dict]:
-    """Parcelas futuras que podem ser antecipadas (situação "previsto"): data e valor em centavos.
+    """O que dá para antecipar hoje, parcela por parcela: [{"data_prevista", "valor_centavos"}].
 
-    Retida e bloqueada ficam de fora (DOC-MOCK §7.4). Sem o teto de 50 linhas: é para calcular, não para
-    listar ao modelo (teto de segurança em TETO_PARA_CALCULO).
+    Só parcela "previsto" (retida e bloqueada ficam de fora, §7.4) e que cai DEPOIS do dia em que o dinheiro
+    da antecipação cairia (`regras.data_de_credito_da_antecipacao`): a de amanhã já chega amanhã. Sem teto de
+    linhas: o desconto é calculado recebível por recebível (§7.4), e nada disso vai ao modelo.
     """
     falhas.verificar("core")
     consulta = (
         select(Recebivel.data_prevista, Recebivel.valor_parcela_centavos)
         .where(
             Recebivel.id_lojista == codigo, Recebivel.situacao == "previsto",
-            Recebivel.data_prevista >= regras.HOJE_DO_MOCK,
+            Recebivel.data_prevista > regras.data_de_credito_da_antecipacao(),
         )
         .order_by(Recebivel.data_prevista, Recebivel.codigo)
-        .limit(TETO_PARA_CALCULO)
     )
     with _sessao_de(origem) as sessao:
-        return [
-            {"data_prevista": _iso(dia), "valor_centavos": valor} for dia, valor in sessao.execute(consulta)
-        ]
+        return [{"data_prevista": _iso(dia), "valor_centavos": valor} for dia, valor in sessao.execute(consulta)]
 
 
 def motivos_de_recusa_da_antecipacao(origem: Session | Engine, codigo: str) -> list[str] | None:
@@ -478,7 +476,8 @@ def buscar_acordos(
     falhas.verificar("cobranca")
     consulta = select(
         Acordo.codigo, Acordo.id_lojista, Acordo.valor_original_centavos, Acordo.valor_renegociado_centavos,
-        Acordo.entrada_centavos, Acordo.numero_de_parcelas, Acordo.desconto_centavos, Acordo.alcada,
+        Acordo.entrada_centavos, Acordo.numero_de_parcelas, Acordo.perdao_encargos_centavos,
+        Acordo.desconto_principal_centavos, Acordo.alcada,
         Acordo.id_solicitante, Acordo.id_aprovador, Acordo.criado_em, Acordo.situacao,
     )
     if codigo is not None:
@@ -511,7 +510,9 @@ def buscar_acordos(
 def buscar_chargebacks(origem: Session | Engine, codigo: str, limite: int | None = None) -> dict:
     """Chargebacks do lojista, do aviso mais recente para o mais antigo.
 
-    `documentos_enviados` vira lista; `dias_para_o_prazo` conta a partir de hoje (negativo se já passou).
+    `documentos_enviados` vira lista; `dias_para_o_prazo` conta a partir de hoje e só existe enquanto o prazo
+    da defesa corre (`regras.SITUACOES_COM_PRAZO_DO_CHARGEBACK`); `valor_retido_centavos` é o que está retido
+    na agenda por causa da venda contestada (o líquido, já sem a taxa, §7.6).
     """
     falhas.verificar("disputas")
     consulta = (
@@ -524,15 +525,26 @@ def buscar_chargebacks(origem: Session | Engine, codigo: str, limite: int | None
         .order_by(Chargeback.data_notificacao.desc(), Chargeback.codigo)
     )
 
-    def formatar(linha) -> dict:
-        item = dict(linha._mapping)
-        item["documentos_enviados"] = [d for d in item["documentos_enviados"].split(",") if d]
-        item["dias_para_o_prazo"] = (item["prazo_defesa"] - regras.HOJE_DO_MOCK).days
-        item["data_notificacao"] = _iso(item["data_notificacao"])
-        item["prazo_defesa"] = _iso(item["prazo_defesa"])
-        return item
+    retido_por_venda = (
+        select(Recebivel.id_venda, func.sum(Recebivel.valor_parcela_centavos))
+        .where(Recebivel.id_lojista == codigo, Recebivel.situacao == "retido",
+               Recebivel.data_prevista >= regras.HOJE_DO_MOCK)
+        .group_by(Recebivel.id_venda)
+    )
 
     with _sessao_de(origem) as sessao:
+        retido = {venda: int(soma) for venda, soma in sessao.execute(retido_por_venda)}
+
+        def formatar(linha) -> dict:
+            item = dict(linha._mapping)
+            prazo_corre = item["situacao"] in regras.SITUACOES_COM_PRAZO_DO_CHARGEBACK
+            item["documentos_enviados"] = [d for d in item["documentos_enviados"].split(",") if d]
+            item["dias_para_o_prazo"] = (item["prazo_defesa"] - regras.HOJE_DO_MOCK).days if prazo_corre else None
+            item["valor_retido_centavos"] = retido.get(item["id_venda"], 0)
+            item["data_notificacao"] = _iso(item["data_notificacao"])
+            item["prazo_defesa"] = _iso(item["prazo_defesa"])
+            return item
+
         return _lista(sessao, consulta, limite, formatar)
 
 
@@ -542,8 +554,8 @@ def buscar_casos_pix(origem: Session | Engine, codigo: str, limite: int | None =
     consulta = (
         select(
             CasoPix.codigo, CasoPix.id_venda, CasoPix.data_abertura, CasoPix.prazo_contestacao,
-            CasoPix.valor_bloqueado_centavos, CasoPix.tem_comprovante_entrega, CasoPix.id_analista,
-            CasoPix.situacao,
+            CasoPix.valor_bloqueado_centavos, CasoPix.motivo_alegado, CasoPix.tem_comprovante_entrega,
+            CasoPix.id_analista, CasoPix.situacao,
         )
         .where(CasoPix.id_lojista == codigo)
         .order_by(CasoPix.data_abertura.desc(), CasoPix.codigo)
@@ -551,7 +563,8 @@ def buscar_casos_pix(origem: Session | Engine, codigo: str, limite: int | None =
 
     def formatar(linha) -> dict:
         item = dict(linha._mapping)
-        item["dias_para_o_prazo"] = (item["prazo_contestacao"] - regras.HOJE_DO_MOCK).days
+        prazo_corre = item["situacao"] in regras.SITUACOES_COM_PRAZO_DO_CASO_PIX
+        item["dias_para_o_prazo"] = (item["prazo_contestacao"] - regras.HOJE_DO_MOCK).days if prazo_corre else None
         item["data_abertura"] = _iso(item["data_abertura"])
         item["prazo_contestacao"] = _iso(item["prazo_contestacao"])
         return item
@@ -565,7 +578,15 @@ def buscar_casos_pix(origem: Session | Engine, codigo: str, limite: int | None =
 # ---------------------------------------------------------------------------------------------
 
 
-def _periodo_das_pesquisas(consulta, data_inicio: date | None, data_fim: date | None, fila: str | None):
+def _periodo_das_pesquisas(
+    consulta, data_inicio: date | None, data_fim: date | None, fila: str | None,
+    codigo: str | None = None, carteira: str | None = None,
+):
+    """Filtros comuns das pesquisas. Lojista e carteira recortam o escopo de quem só vê o próprio time."""
+    if codigo is not None:
+        consulta = consulta.where(Chamado.id_lojista == codigo)
+    if carteira is not None:
+        consulta = consulta.join(Lojista, Chamado.id_lojista == Lojista.codigo).where(Lojista.carteira == carteira)
     if data_inicio is not None:
         consulta = consulta.where(PesquisaSatisfacao.respondida_em >= datetime.combine(data_inicio, time.min))
     if data_fim is not None:
@@ -583,8 +604,13 @@ def buscar_pesquisas(
     fila: str | None = None,
     nota_maxima: int | None = None,
     limite: int | None = None,
+    *,
+    codigo: str | None = None,
+    carteira: str | None = None,
+    somente_com_comentario: bool = False,
 ) -> dict:
-    """Respostas CSAT no período (de todos os lojistas), da mais recente para a mais antiga.
+    """Respostas CSAT no período, da mais recente para a mais antiga (de todos os lojistas, de um só ou de uma
+    carteira).
 
     O comentário é texto livre do lojista (RESTRITO, conteúdo de terceiros): sai em claro para a máscara.
     """
@@ -593,9 +619,11 @@ def buscar_pesquisas(
         PesquisaSatisfacao.id_chamado, Chamado.fila, PesquisaSatisfacao.nota, PesquisaSatisfacao.comentario,
         PesquisaSatisfacao.respondida_em,
     ).join(Chamado, PesquisaSatisfacao.id_chamado == Chamado.codigo)
-    consulta = _periodo_das_pesquisas(consulta, data_inicio, data_fim, fila)
+    consulta = _periodo_das_pesquisas(consulta, data_inicio, data_fim, fila, codigo, carteira)
     if nota_maxima is not None:
         consulta = consulta.where(PesquisaSatisfacao.nota <= nota_maxima)
+    if somente_com_comentario:
+        consulta = consulta.where(PesquisaSatisfacao.comentario.is_not(None), PesquisaSatisfacao.comentario != "")
     consulta = consulta.order_by(PesquisaSatisfacao.respondida_em.desc(), PesquisaSatisfacao.id)
 
     def formatar(linha) -> dict:
@@ -612,6 +640,9 @@ def resumo_satisfacao(
     data_inicio: date | None = None,
     data_fim: date | None = None,
     fila: str | None = None,
+    *,
+    codigo: str | None = None,
+    carteira: str | None = None,
 ) -> dict:
     """Notas CSAT no período: respostas, quantas de cada nota e a média em centésimos (4,25 vira 425)."""
     falhas.verificar("crm")
@@ -620,7 +651,7 @@ def resumo_satisfacao(
         .join(Chamado, PesquisaSatisfacao.id_chamado == Chamado.codigo)
         .group_by(PesquisaSatisfacao.nota)
     )
-    consulta = _periodo_das_pesquisas(consulta, data_inicio, data_fim, fila)
+    consulta = _periodo_das_pesquisas(consulta, data_inicio, data_fim, fila, codigo, carteira)
     notas = {nota: 0 for nota in range(1, 6)}
     with _sessao_de(origem) as sessao:
         for nota, quantidade in sessao.execute(consulta):
@@ -631,8 +662,28 @@ def resumo_satisfacao(
     return {"respostas": respostas, "notas": notas, "media_centesimos": media}
 
 
+# Palavras que não ajudam a achar o artigo ("minha maquininha não liga" procura só "maquininha" e "liga").
+PALAVRAS_SEM_PESO = frozenset({
+    "a", "o", "as", "os", "um", "uma", "uns", "umas", "de", "da", "do", "das", "dos", "em", "no", "na", "nos",
+    "nas", "ao", "aos", "e", "ou", "que", "para", "pra", "por", "com", "sem", "se", "eu", "meu", "minha",
+    "meus", "minhas", "seu", "sua", "seus", "suas", "nao", "sim", "como", "qual", "quais", "esta", "esse",
+    "essa", "isso", "ja", "foi", "ser", "tem", "ter", "estou",
+})
+
+
 def _sem_acento_minusculo(texto: str) -> str:
     return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()
+
+
+def _raiz(palavra: str) -> str:
+    """Plural simples volta ao singular: "maquininhas" acha "maquininha"."""
+    return palavra[:-1] if len(palavra) > 3 and palavra.endswith("s") else palavra
+
+
+def palavras_de_busca(texto: str | None) -> frozenset[str]:
+    """Palavras inteiras (sem acento, sem caixa, sem plural simples) que contam na busca."""
+    palavras = re.findall(r"[a-z0-9]+", _sem_acento_minusculo(texto or ""))
+    return frozenset(_raiz(p) for p in palavras if p not in PALAVRAS_SEM_PESO)
 
 
 def buscar_artigos(
@@ -641,25 +692,40 @@ def buscar_artigos(
     categoria: str | None = None,
     limite: int | None = None,
 ) -> dict:
-    """Artigos da base de conhecimento com todas as palavras do termo (sem acento, sem caixa)."""
+    """Artigos da base de conhecimento que têm alguma palavra do termo, do mais parecido para o menos.
+
+    A pergunta chega como o lojista escreve ("minha maquininha não liga"): conta cada palavra que bate
+    inteira com o texto ou os sinônimos do artigo, e em dobro com o título ou a categoria ("med" não acha
+    "médio"). Sem termo, todos; termo sem nenhuma palavra que conte ("%"), nenhum. A base é pequena (dezenas
+    de artigos), então a conta é feita aqui, depois de ler.
+    """
     falhas.verificar("crm")
     consulta = select(
         ArtigoAjuda.codigo, ArtigoAjuda.titulo_artigo, ArtigoAjuda.categoria, ArtigoAjuda.texto_artigo,
-        ArtigoAjuda.atualizado_em,
-    )
-    for palavra in _sem_acento_minusculo(termo or "").split():
-        consulta = consulta.where(ArtigoAjuda.termos_de_busca.contains(palavra, autoescape=True))
+        ArtigoAjuda.atualizado_em, ArtigoAjuda.termos_de_busca,
+    ).order_by(ArtigoAjuda.codigo)
     if categoria is not None:
         consulta = consulta.where(ArtigoAjuda.categoria == categoria)
-    consulta = consulta.order_by(ArtigoAjuda.codigo)
-
-    def formatar(linha) -> dict:
-        item = dict(linha._mapping)
-        item["atualizado_em"] = _iso(item["atualizado_em"])
-        return item
-
+    procuradas = palavras_de_busca(termo)
+    sem_termo = not (termo or "").strip()
     with _sessao_de(origem) as sessao:
-        return _lista(sessao, consulta, limite, formatar)
+        linhas = sessao.execute(consulta).all()
+    pontuados = []
+    for linha in linhas:
+        no_titulo = procuradas & palavras_de_busca(f"{linha.titulo_artigo} {linha.categoria}")
+        pontos = len(procuradas & palavras_de_busca(linha.termos_de_busca)) + len(no_titulo)
+        if pontos or sem_termo:
+            pontuados.append((-pontos, linha.codigo, linha))
+    pontuados.sort(key=lambda item: item[:2])
+    teto = _limite_efetivo(limite)
+    itens = [
+        {
+            "codigo": linha.codigo, "titulo_artigo": linha.titulo_artigo, "categoria": linha.categoria,
+            "texto_artigo": linha.texto_artigo, "atualizado_em": _iso(linha.atualizado_em),
+        }
+        for _, _, linha in pontuados[:teto]
+    ]
+    return {"itens": itens, "total": len(pontuados), "limite": teto}
 
 
 def _so_digitos(texto: str | None) -> str:
@@ -794,6 +860,46 @@ def chamados_por_fila(
     return {"data_corte": _iso(corte), "itens": itens}
 
 
+def resultado_por_periodo(
+    origem: Session | Engine, data_inicio: date | None = None, data_fim: date | None = None
+) -> dict:
+    """Receitas e perdas da Stone no período, até o corte, em centavos (KAN-14 caso 4).
+
+    Receitas: MDR das vendas aprovadas e aluguel e tarifas pelo vencimento. Perdas: inadimplência (o que venceu
+    no período e segue vencido), concessões em acordos e chargebacks perdidos. Mais a maior venda do período
+    (dia e valor), que explica um pico de receita.
+    """
+    falhas.verificar("analitica")
+    vendas, resultado = AnaliticaVendasDiarias, AnaliticaResultadoDiario
+    with _sessao_de(origem) as sessao:
+        corte = _corte(sessao)
+        receita_mdr = sessao.scalar(select(func.coalesce(func.sum(vendas.receita_mdr_dia_centavos), 0)).where(
+            *_periodo_ate_o_corte(vendas.dia, corte, data_inicio, data_fim)))
+        somas = sessao.execute(
+            select(*(func.coalesce(func.sum(coluna), 0) for coluna in (
+                resultado.receita_aluguel_e_tarifas_dia_centavos, resultado.inadimplencia_dia_centavos,
+                resultado.concessao_em_acordos_dia_centavos, resultado.perda_chargeback_dia_centavos,
+            ))).where(*_periodo_ate_o_corte(resultado.dia, corte, data_inicio, data_fim))
+        ).one()
+        maior = sessao.execute(
+            select(vendas.dia, vendas.maior_venda_dia_centavos)
+            .where(*_periodo_ate_o_corte(vendas.dia, corte, data_inicio, data_fim))
+            .order_by(vendas.maior_venda_dia_centavos.desc(), vendas.dia)
+            .limit(1)
+        ).first()
+    aluguel, inadimplencia, concessao, perda = (int(valor) for valor in somas)  # Decimal no Postgres
+    return {
+        "data_corte": _iso(corte),
+        "receita_mdr_dia_centavos": int(receita_mdr),
+        "receita_aluguel_e_tarifas_dia_centavos": aluguel,
+        "inadimplencia_dia_centavos": inadimplencia,
+        "concessao_em_acordos_dia_centavos": concessao,
+        "perda_chargeback_dia_centavos": perda,
+        "maior_venda": {"dia": _iso(maior.dia), "maior_venda_dia_centavos": maior.maior_venda_dia_centavos}
+        if maior else None,
+    }
+
+
 def _taxa_em_pontos_base(chargebacks: int, vendas: int) -> int | None:
     return (20000 * chargebacks + vendas) // (2 * vendas) if vendas else None
 
@@ -836,15 +942,16 @@ def dicionario_de_dados() -> list[dict]:
     """Uma entrada por tabela do mock: sistema dono, descrição, de onde vem (base analítica) e colunas.
 
     Não lê o banco: descreve o esquema (`modelos.py`). Coluna restrita é a de `regras.CLASSIFICACAO_CAMPOS`,
-    a mesma lista que a máscara usa; nenhum dado sai daqui.
+    a mesma lista que a máscara usa; nenhum dado sai daqui. As chaves têm nome próprio (`coluna`, e não
+    `nome`, que a máscara trata como nome de pessoa) e estão em `regras.CAMPOS_NAO_RESTRITOS`.
     """
     tabelas = []
     for tabela in BaseMock.metadata.sorted_tables:
         colunas = [
             {
-                "nome": coluna.name,
-                "tipo": type(coluna.type).__name__.lower(),
-                "descricao": coluna.comment or "",
+                "coluna": coluna.name,
+                "tipo_da_coluna": type(coluna.type).__name__.lower(),
+                "descricao_da_coluna": coluna.comment or "",
                 "restrita": coluna.name in regras.CLASSIFICACAO_CAMPOS,
             }
             for coluna in tabela.columns
@@ -852,7 +959,7 @@ def dicionario_de_dados() -> list[dict]:
         tabelas.append({
             "tabela": tabela.name,
             "sistema": SISTEMA_DONO_DA_TABELA[tabela.name],
-            "descricao": tabela.comment or "",
+            "descricao_da_tabela": tabela.comment or "",
             "origem": list(ORIGEM_DAS_TABELAS_ANALITICAS.get(tabela.name, ())),
             "colunas": colunas,
         })

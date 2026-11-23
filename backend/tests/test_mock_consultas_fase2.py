@@ -3,16 +3,18 @@
 Roda sobre o mundo gerado de verdade, em SQLite na memória. Os valores esperados estão em `gabaritos.py`.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from ferramentas import dados_sinteticos
+from ferramentas.mascara import mascarar
 from mock import consultas, regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 from mock.banco import criar_engine
 from mock.falhas import SistemaIndisponivel, desligar_todas, ligar
 from mock.gerar import CHAMADOS_CRITICOS_CENARIO_11, COMENTARIO_ARMADILHA, recriar
 from mock.modelos import BaseMock
 from mock.regras import CAMPOS_NAO_RESTRITOS, CLASSIFICACAO_CAMPOS
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from tests import gabaritos as gab
@@ -63,6 +65,7 @@ def _todas_as_leituras(sessao):
         *consultas.vendas_por_dia(sessao)["itens"],
         *consultas.chamados_por_fila(sessao)["itens"],
         *consultas.contestacoes_por_mes(sessao)["itens"],
+        consultas.resultado_por_periodo(sessao),
     ]
 
 
@@ -93,6 +96,7 @@ LEITURAS_POR_SISTEMA = [
     ("analitica", lambda s: consultas.vendas_por_dia(s)),
     ("analitica", lambda s: consultas.chamados_por_fila(s)),
     ("analitica", lambda s: consultas.contestacoes_por_mes(s)),
+    ("analitica", lambda s: consultas.resultado_por_periodo(s)),
 ]
 
 
@@ -161,13 +165,41 @@ def test_agenda_por_periodo_e_situacao(sessao):
     assert datas == sorted(datas)
 
 
-def test_parcelas_antecipaveis_somam_a_agenda_futura(fachada):
+def test_parcelas_antecipaveis_sao_a_agenda_futura_menos_a_que_ja_cai_no_credito(fachada):
     parcelas = fachada.recebiveis_para_antecipacao(gab.C4_LOJISTA)
-    assert sum(p["valor_centavos"] for p in parcelas) == gab.C4_AGENDA_FUTURA_CENTAVOS
+    assert sum(p["valor_centavos"] for p in parcelas) == gab.C4_ANTECIPAVEL_CENTAVOS
+    assert gab.C4_AGENDA_FUTURA_CENTAVOS - gab.C4_ANTECIPAVEL_CENTAVOS == gab.C4_PARCELA_QUE_JA_CAI_NO_CREDITO_CENTAVOS
+    assert all(p["data_prevista"] > gab.C4_DATA_DO_CREDITO for p in parcelas)
+    assert regras.data_de_credito_da_antecipacao().isoformat() == gab.C4_DATA_DO_CREDITO
+
+
+def test_desconto_da_antecipacao_pela_formula_do_doc_mock():
+    assert regras.desconto_da_antecipacao_centavos(100000, 30, 299) == 2990  # R$ 1.000 por 30 dias a 2,99%
+    assert regras.desconto_da_antecipacao_centavos(100000, 15, 299) == 1495
+    assert regras.desconto_da_antecipacao_centavos(100000, 0, 299) == 0
+
+
+def test_simulacao_do_cenario_4_confere_com_a_conta_feita_a_mao(fachada):
+    simulacao = fachada.simulacao_de_antecipacao(gab.C4_LOJISTA)
+    assert simulacao == gab.C4_SIMULACAO
+    credito = date.fromisoformat(gab.C4_DATA_DO_CREDITO)
+    parcelas = fachada.recebiveis_para_antecipacao(gab.C4_LOJISTA)
+    taxa = gab.C4_TAXA_MENSAL_PONTOS_BASE
+    a_mao = sum(round(p["valor_centavos"] * taxa / 10000 * (date.fromisoformat(p["data_prevista"]) - credito).days / 30)
+                for p in parcelas)
+    assert fachada.reais(a_mao) == gab.C4_SIMULACAO["desconto"]
+    assert fachada.simulacao_de_antecipacao("M99999") is None
+
+
+def test_percentual_em_texto(fachada):
+    assert (fachada.percentual(299), fachada.percentual(2000), fachada.percentual(5)) == ("2,99%", "20,00%", "0,05%")
+    assert fachada.percentual(None) is None
 
 
 def test_antecipacao_recusada_para_quem_tem_fatura_vencida_ha_mais_de_15_dias(fachada):
-    assert fachada.motivos_de_recusa_da_antecipacao(gab.C4_LOJISTA_RECUSADO) == [gab.C4_MOTIVO_DA_RECUSA]
+    assert fachada.motivos_de_recusa_da_antecipacao(gab.C4_LOJISTA_RECUSADO) == [gab.C4_MOTIVO_DA_RECUSA_TEXTO]
+    assert consultas.motivos_de_recusa_da_antecipacao(fachada._engine(), gab.C4_LOJISTA_RECUSADO) == [
+        gab.C4_MOTIVO_DA_RECUSA]
     assert fachada.motivos_de_recusa_da_antecipacao(gab.C4_LOJISTA) == []
     assert fachada.motivos_de_recusa_da_antecipacao("M99999") is None
 
@@ -181,8 +213,12 @@ def test_retida_nao_entra_na_antecipacao(sessao):
     retidas = consultas.buscar_recebiveis(sessao, gab.C2_LOJISTA, situacao="retido")["itens"]
     assert retidas and all(p["id_venda"] == gab.C2_VENDA for p in retidas)
     antecipaveis = consultas.recebiveis_para_antecipacao(sessao, gab.C2_LOJISTA)
-    assert sum(p["valor_centavos"] for p in antecipaveis) == consultas.resumo_da_agenda(
-        sessao, gab.C2_LOJISTA)["previsto"]["valor_centavos"]
+    credito = regras.data_de_credito_da_antecipacao()
+    previstas = consultas.buscar_recebiveis(sessao, gab.C2_LOJISTA, data_inicio=credito + timedelta(days=1),
+                                            situacao="previsto", limite=50)
+    assert sum(p["valor_centavos"] for p in antecipaveis) == sum(
+        p["valor_parcela_centavos"] for p in previstas["itens"])
+    assert previstas["total"] == len(antecipaveis)
 
 
 # --- acordos (onboarding 8) -----------------------------------------------------------------------
@@ -213,9 +249,10 @@ def test_chargeback_do_cenario_2_vence_amanha_com_os_documentos_do_motivo(fachad
     chargebacks, total = fachada.buscar_chargebacks(gab.C2_LOJISTA, None)
     assert total == 1
     (caso,) = chargebacks
-    assert (caso["codigo"], caso["id_venda"], caso["motivo"]) == (gab.C2_CHARGEBACK, gab.C2_VENDA, gab.C2_MOTIVO)
+    assert (caso["codigo"], caso["id_venda"], caso["motivo"]) == (gab.C2_CHARGEBACK, gab.C2_VENDA, gab.C2_MOTIVO_TEXTO)
     assert (caso["data_notificacao"], caso["prazo_defesa"]) == (gab.C2_AVISO, gab.C2_PRAZO_DA_DEFESA)
     assert caso["dias_para_o_prazo"] == gab.C2_DIAS_PARA_O_PRAZO and caso["valor"] == gab.C2_VALOR_TEXTO
+    assert caso["valor_retido"] == gab.C2_VALOR_RETIDO_TEXTO
     assert tuple(caso["documentos_exigidos"]) == gab.C2_DOCUMENTOS_EXIGIDOS
     assert caso["documentos_enviados"] == []
 
@@ -260,6 +297,66 @@ def test_comentarios_de_nota_baixa_trazem_o_da_ouvidoria_e_a_armadilha_como_dado
     assert armadilha and armadilha[0]["comentario"] == COMENTARIO_ARMADILHA
 
 
+def test_chargeback_encerrado_nao_tem_prazo_correndo(fachada):
+    ganhos = [c for c in fachada.buscar_chargebacks("M00010", None)[0] if c["situacao"] == "ganho"]
+    assert ganhos and all(c["dias_para_o_prazo"] is None and c["valor_retido"] == "R$ 0,00" for c in ganhos)
+
+
+def test_comentarios_so_com_comentario_e_no_escopo_da_carteira(fachada, sessao):
+    todos, total = fachada.buscar_comentarios_satisfacao(None, None, None, None, 50)
+    assert total == len(todos) and all(c["comentario"] for c in todos)
+    da_pme, _ = fachada.buscar_comentarios_satisfacao(None, None, None, None, 50, "pme")
+    lojistas_da_pme = {codigo for codigo, in sessao.execute(text("SELECT codigo FROM lojistas WHERE carteira = 'pme'"))}
+    chamados_da_pme = {codigo for codigo, in sessao.execute(text(
+        "SELECT codigo FROM chamados WHERE id_lojista IN (SELECT codigo FROM lojistas WHERE carteira = 'pme')"))}
+    assert lojistas_da_pme and {c["id_chamado"] for c in da_pme} <= chamados_da_pme
+    assert len(da_pme) < len(todos)
+
+
+def test_media_da_satisfacao_em_texto(fachada):
+    resumo = fachada.resumo_satisfacao(None, None, None)
+    assert set(resumo) == {"respostas", "notas", "media"}
+    inteiro, centesimos = resumo["media"].split(",")
+    soma = sum(nota * quantidade for nota, quantidade in resumo["notas"].items())
+    assert abs(int(inteiro) * 100 + int(centesimos) - 100 * soma / resumo["respostas"]) <= 0.5
+    assert fachada.resumo_satisfacao(date(2020, 1, 1), date(2020, 1, 2), None)["media"] is None
+
+
+def test_relatorio_semanal_de_receitas_e_perdas(fachada):
+    inicio, fim = (date.fromisoformat(dia) for dia in gab.K4_SEMANA)
+    assert fachada.resumo_de_resultado(inicio, fim) == gab.K4_RESUMO_DA_SEMANA
+
+
+def test_resultado_confere_com_as_tabelas_de_origem(sessao):
+    """A base analítica do resultado soma o que as tabelas de origem dizem, até o corte."""
+    corte = regras.HOJE_DO_MOCK - timedelta(days=1)
+    resultado = consultas.resultado_por_periodo(sessao, date(2026, 1, 1), corte)
+    aluguel = sessao.scalar(text(
+        "SELECT SUM(valor_centavos) FROM faturas WHERE tipo IN ('aluguel', 'tarifa') AND situacao <> 'cancelada'"
+        " AND vencimento <= :corte"), {"corte": corte.isoformat()})
+    vencidas = sessao.scalar(text(
+        "SELECT SUM(valor_centavos) FROM faturas WHERE situacao = 'vencida' AND vencimento <= :corte"), {"corte": corte.isoformat()})
+    concessao = sessao.scalar(text(
+        "SELECT SUM(perdao_encargos_centavos + desconto_principal_centavos) FROM acordos"
+        " WHERE situacao IN ('ativo', 'quitado', 'quebrado') AND criado_em <= :corte"), {"corte": corte.isoformat()})
+    assert resultado["receita_aluguel_e_tarifas_dia_centavos"] == aluguel
+    assert resultado["inadimplencia_dia_centavos"] == vencidas
+    assert resultado["concessao_em_acordos_dia_centavos"] == (concessao or 0)
+
+
+def test_resultado_nao_ve_a_venda_de_hoje(sessao):
+    hoje = regras.HOJE_DO_MOCK
+    assert consultas.resultado_por_periodo(sessao, hoje, hoje)["maior_venda"] is None
+
+
+def test_contestacoes_agregadas_e_do_lojista_saem_separadas(fachada):
+    mes, _ = gab.C2_TAXA_DE_CHARGEBACK_DO_MES_DA_VENDA
+    do_lojista = fachada.contestacoes_do_lojista_por_mes(gab.C2_LOJISTA, mes, mes)["itens"]
+    assert [(i["mes"], i["taxa_chargeback"]) for i in do_lojista] == [(mes, "20,00%")]
+    agregado = fachada.contestacoes_por_mes(mes, mes)["itens"]
+    assert len(agregado) == 1 and agregado[0]["quantidade_vendas_cartao"] > do_lojista[0]["quantidade_vendas_cartao"]
+
+
 def test_pesquisas_por_fila(sessao):
     da_varejo = consultas.buscar_pesquisas(sessao, fila="varejo", limite=50)["itens"]
     assert da_varejo and {p["fila"] for p in da_varejo} == {"varejo"}
@@ -274,19 +371,39 @@ def test_busca_de_artigo_ignora_acento_e_caixa(sessao):
     assert com_acento and com_acento == sem_acento
 
 
-def test_busca_de_artigo_exige_todas_as_palavras(sessao):
-    uma = consultas.buscar_artigos(sessao, "prazo")["total"]
-    duas = consultas.buscar_artigos(sessao, "prazo chargeback")["total"]
-    assert 0 < duas <= uma
+# A pergunta como o lojista escreve -> o artigo que responde vem primeiro.
+PERGUNTAS_DOS_LOJISTAS = [
+    ("Minha maquininha não liga", "KB015"),
+    ("Por que meu depósito veio menor?", "KB016"),
+    ("Quero a segunda via do boleto", "KB017"),
+    ("Onde encontro o comprovante?", "KB018"),
+    ("Qual a taxa?", "KB012"),
+    ("Quanto eu pago para antecipar?", "KB003"),
+    ("A antecipação foi recusada", "KB004"),
+    ("Quero trocar a conta de recebimento", "KB013"),
+    ("Cancelar uma venda", "KB011"),
+    ("Chargeback: quais documentos?", "KB009"),
+    ("MED", "KB010"),
+]
+
+
+@pytest.mark.parametrize(("pergunta", "artigo"), PERGUNTAS_DOS_LOJISTAS)
+def test_pergunta_do_lojista_acha_o_artigo_certo_primeiro(sessao, pergunta, artigo):
+    assert consultas.buscar_artigos(sessao, pergunta)["itens"][0]["codigo"] == artigo
+
+
+def test_busca_de_artigo_casa_palavra_inteira(sessao):
+    assert consultas.buscar_artigos(sessao, "médio")["total"] == 0  # "med" não é pedaço de "médio"
     assert consultas.buscar_artigos(sessao, "palavraquenaoexiste")["total"] == 0
+    assert [a["codigo"] for a in consultas.buscar_artigos(sessao, "maquininhas")["itens"]] == [
+        a["codigo"] for a in consultas.buscar_artigos(sessao, "maquininha")["itens"]]
 
 
-def test_busca_de_artigo_com_caractere_curinga_casa_so_o_literal(sessao):
-    com_porcento = consultas.buscar_artigos(sessao, "%")["itens"]
+def test_busca_sem_palavra_que_conte_nao_acha_nada_e_sem_termo_acha_todos(sessao):
     todos = consultas.buscar_artigos(sessao)["total"]
-    assert 0 < len(com_porcento) < todos
-    assert all("%" in a["titulo_artigo"] + a["texto_artigo"] for a in com_porcento)
-    assert consultas.buscar_artigos(sessao, "_")["total"] == 0
+    assert todos == consultas.buscar_artigos(sessao, "   ")["total"] > 0
+    assert consultas.buscar_artigos(sessao, "%")["total"] == consultas.buscar_artigos(sessao, "_")["total"] == 0
+    assert consultas.buscar_artigos(sessao, "de para com")["total"] == 0
 
 
 def test_artigo_por_categoria(sessao):
@@ -390,11 +507,18 @@ def test_dicionario_descreve_todas_as_tabelas_sem_dado(sessao):
 
 def test_dicionario_marca_restrita_pela_mesma_lista_da_mascara():
     colunas = {
-        (t["tabela"], c["nome"]): c["restrita"] for t in consultas.dicionario_de_dados() for c in t["colunas"]
+        (t["tabela"], c["coluna"]): c["restrita"] for t in consultas.dicionario_de_dados() for c in t["colunas"]
     }
     assert colunas[("contatos_lojista", "cpf")] and colunas[("pesquisas_satisfacao", "comentario")]
     assert not colunas[("recebiveis", "valor_parcela_centavos")]
     assert {nome for (_, nome), restrita in colunas.items() if restrita} == set(CLASSIFICACAO_CAMPOS)
+
+
+def test_dicionario_passa_pela_mascara_sem_virar_asterisco():
+    dicionario = consultas.dicionario_de_dados()
+    assert mascarar(dicionario, ("metadado",)) == dicionario
+    for tabela in dicionario:
+        assert set(tabela) | {campo for coluna in tabela["colunas"] for campo in coluna} <= CAMPOS_NAO_RESTRITOS
 
 
 def test_dicionario_traz_a_linhagem_da_base_analitica():

@@ -91,3 +91,10 @@ def test_script_de_papeis_so_concede_leitura():
     privilegios = {linha.removeprefix("GRANT ").split(" ON ")[0] for linha in concessoes}
     assert privilegios == {"CONNECT", "USAGE", "SELECT"}
     assert "\r" not in texto  # roda no Linux do container
+
+
+def test_sql_do_postgres_escreve_o_porcento_uma_vez_so():
+    # O paramstyle padrão do dialeto do Postgres dobra o "%" com literal_binds: "2,99%" virava "2,99%%".
+    dados = (exportar.PASTA_SQL / "postgres" / exportar.ARQUIVO_DADOS).read_text(encoding="utf-8")
+    assert "%%" not in dados
+    assert "2,99% ao mês" in dados

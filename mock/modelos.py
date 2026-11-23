@@ -38,6 +38,7 @@ from .regras import (
     CARTEIRAS,
     FILAS,
     MOTIVOS_DE_CHARGEBACK,
+    MOTIVOS_DO_MED,
     PORTES,
 )
 
@@ -52,7 +53,7 @@ CONVENCAO_DE_NOMES = {
 
 # Sobe quando o esquema muda. O SQLite local guarda a versão (PRAGMA user_version) e é refeito
 # sozinho quando ela é diferente (`gerar.garantir_mundo_local`).
-VERSAO_DO_ESQUEMA = 3
+VERSAO_DO_ESQUEMA = 4
 
 
 class BaseMock(DeclarativeBase):
@@ -96,7 +97,7 @@ SITUACOES_CHARGEBACK = (
 SITUACOES_CASO_PIX = ("bloqueado", "contestado", "devolvido", "liberado")
 CATEGORIAS_DE_ARTIGO = (
     "Recebimento", "Antecipação", "Fatura e aluguel", "Contestação", "Pix e devolução",
-    "Alteração cadastral", "Taxas e planos", "Atendimento",
+    "Alteração cadastral", "Taxas e planos", "Atendimento", "Maquininha",
 )
 
 
@@ -272,8 +273,9 @@ class Fatura(BaseMock):
         _regra("valor_positivo", "valor_centavos > 0"),
         _regra(
             "acordo_conforme_situacao",
+            # Acordo pendente de aprovação ainda não vale: a fatura segue vencida (régua do §7.5), já ligada a ele.
             "(situacao = 'em_acordo' AND id_acordo IS NOT NULL)"
-            " OR (situacao <> 'em_acordo' AND id_acordo IS NULL)",
+            " OR (situacao <> 'em_acordo' AND (id_acordo IS NULL OR situacao = 'vencida'))",
         ),
         Index(None, "id_lojista", "vencimento"),
         {"comment": "O que o lojista deve à Stone (aluguel, tarifa ou saldo negativo). Confidencial."},
@@ -386,7 +388,7 @@ class Acordo(BaseMock):
         _regra("codigo_formato", "codigo LIKE 'AC____'"),
         _regra("parcelas_validas", "numero_de_parcelas BETWEEN 1 AND 12"),
         _regra("entrada_ate_o_valor", "entrada_centavos BETWEEN 0 AND valor_renegociado_centavos"),
-        _regra("desconto_nao_negativo", "desconto_centavos >= 0"),
+        _regra("descontos_nao_negativos", "desconto_principal_centavos >= 0 AND perdao_encargos_centavos >= 0"),
         _regra(
             "aprovador_conforme_situacao",
             "(situacao IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NULL)"
@@ -408,12 +410,15 @@ class Acordo(BaseMock):
     id_lojista: Mapped[str] = mapped_column(ForeignKey("lojistas.codigo"))
     valor_original_centavos: Mapped[int] = mapped_column(BigInteger, comment="Soma das faturas incluídas.")
     valor_renegociado_centavos: Mapped[int] = mapped_column(
-        BigInteger, comment="Faturas mais multa e juros até a criação, menos o desconto."
+        BigInteger, comment="Faturas mais multa e juros até a criação, menos o perdão e o desconto."
     )
     entrada_centavos: Mapped[int] = mapped_column(BigInteger)
     numero_de_parcelas: Mapped[int] = mapped_column(Integer)
-    desconto_centavos: Mapped[int] = mapped_column(
-        BigInteger, default=0, comment="Desconto no principal: só o coordenador, até 10% (DOC-MOCK §7.9)."
+    perdao_encargos_centavos: Mapped[int] = mapped_column(
+        BigInteger, default=0, comment="Multa e juros perdoados: o analista perdoa em dívida de até R$ 2.000 (§7.9)."
+    )
+    desconto_principal_centavos: Mapped[int] = mapped_column(
+        BigInteger, default=0, comment="Desconto no principal: só o coordenador, até 10% do principal (§7.9)."
     )
     alcada: Mapped[str] = mapped_column(String(20))
     id_solicitante: Mapped[str] = mapped_column(ForeignKey("funcionarios.id"))
@@ -456,6 +461,7 @@ class CasoPix(BaseMock):
     __table_args__ = (
         _um_de("situacao", SITUACOES_CASO_PIX),
         _regra("codigo_formato", "codigo LIKE 'PX_____'"),
+        _um_de("motivo_alegado", MOTIVOS_DO_MED),
         _regra("valor_positivo", "valor_bloqueado_centavos > 0"),
         _regra("prazo_depois_da_abertura", "prazo_contestacao > data_abertura"),
         Index(None, "id_lojista", "data_abertura"),
@@ -470,6 +476,7 @@ class CasoPix(BaseMock):
     data_abertura: Mapped[date] = mapped_column(Date)
     prazo_contestacao: Mapped[date] = mapped_column(Date)
     valor_bloqueado_centavos: Mapped[int] = mapped_column(BigInteger)
+    motivo_alegado: Mapped[str] = mapped_column(String(40), comment="O que quem pagou alegou (regras.MOTIVOS_DO_MED).")
     tem_comprovante_entrega: Mapped[bool] = mapped_column(Boolean, default=False)
     id_analista: Mapped[str | None] = mapped_column(ForeignKey("funcionarios.id"))
     situacao: Mapped[str] = mapped_column(String(15))
@@ -515,7 +522,7 @@ class ArtigoAjuda(BaseMock):
     categoria: Mapped[str] = mapped_column(String(40))
     texto_artigo: Mapped[str] = mapped_column(Text)
     termos_de_busca: Mapped[str] = mapped_column(
-        Text, comment="Título e texto sem acento e em minúsculas, para a busca por palavra."
+        Text, comment="Título, categoria, texto e sinônimos sem acento e em minúsculas, para a busca por palavra."
     )
     atualizado_em: Mapped[date] = mapped_column(Date)
 
@@ -550,6 +557,9 @@ class AnaliticaVendasDiarias(BaseMock):
     valor_bruto_dia_centavos: Mapped[int] = mapped_column(BigInteger)
     valor_liquido_dia_centavos: Mapped[int] = mapped_column(BigInteger)
     receita_mdr_dia_centavos: Mapped[int] = mapped_column(BigInteger, comment="Bruto menos líquido: a receita de MDR.")
+    maior_venda_dia_centavos: Mapped[int] = mapped_column(
+        BigInteger, default=0, comment="Bruto da maior venda aprovada do dia (explica picos no relatório)."
+    )
 
 
 class AnaliticaChamadosDiarios(BaseMock):
@@ -587,6 +597,25 @@ class AnaliticaContestacoesMensais(BaseMock):
     quantidade_chargebacks: Mapped[int] = mapped_column(Integer)
 
 
+class AnaliticaResultadoDiario(BaseMock):
+    __tablename__ = "analitica_resultado_diario"
+    __table_args__ = (
+        {
+            "comment": "O que a Stone fatura e perde por dia, até o corte, para o relatório semanal do "
+            "financeiro (KAN-14 caso 4): aluguel e tarifas pelo vencimento, inadimplência (o que venceu "
+            "naquele dia e segue vencido), concessões em acordos (perdão de encargos e desconto no principal, "
+            "pelo dia do acordo) e chargebacks perdidos ou aceitos (pelo aviso). A receita de MDR está em "
+            "analitica_vendas_diarias. Agregado e confidencial."
+        },
+    )
+
+    dia: Mapped[date] = mapped_column(Date, primary_key=True)
+    receita_aluguel_e_tarifas_dia_centavos: Mapped[int] = mapped_column(BigInteger, default=0)
+    inadimplencia_dia_centavos: Mapped[int] = mapped_column(BigInteger, default=0)
+    concessao_em_acordos_dia_centavos: Mapped[int] = mapped_column(BigInteger, default=0)
+    perda_chargeback_dia_centavos: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
 # Sistema simulado dono de cada tabela (DOC-MOCK §4): só o dono altera; os outros leem.
 SISTEMA_DONO_DA_TABELA = {
     "lojistas": "cadastro", "contatos_lojista": "cadastro", "contas_recebimento": "cadastro",
@@ -597,10 +626,12 @@ SISTEMA_DONO_DA_TABELA = {
     "times": "diretorio", "funcionarios": "diretorio",
     "analitica_atualizacao": "analitica", "analitica_vendas_diarias": "analitica",
     "analitica_chamados_diarios": "analitica", "analitica_contestacoes_mensais": "analitica",
+    "analitica_resultado_diario": "analitica",
 }
 # De quais tabelas cada tabela da base analítica é copiada (linhagem).
 ORIGEM_DAS_TABELAS_ANALITICAS = {
     "analitica_vendas_diarias": ("vendas",),
     "analitica_chamados_diarios": ("chamados",),
     "analitica_contestacoes_mensais": ("vendas", "chargebacks"),
+    "analitica_resultado_diario": ("faturas", "acordos", "chargebacks"),
 }

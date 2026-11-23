@@ -195,7 +195,9 @@ def test_cenario_3_fatura_atrasada(sessao):
 
 
 def test_so_o_studio_bela_unha_tem_fatura_vencida(sessao):
-    donos = set(sessao.scalars(select(Fatura.id_lojista).where(Fatura.situacao == "vencida")))
+    # Fora dos acordos ainda pendentes de aprovação da fase 2 (a fatura deles segue vencida até a aprovação).
+    donos = set(sessao.scalars(
+        select(Fatura.id_lojista).where(Fatura.situacao == "vencida", Fatura.id_acordo.is_(None))))
     assert donos == {"M00003"}
 
 

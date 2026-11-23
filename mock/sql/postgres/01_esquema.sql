@@ -1,6 +1,6 @@
 -- Mock da Stone (Plataforma Agêntica Institucional). 100% sintético: nenhum dado real.
 -- Gerado por `python -m mock.exportar` a partir de mock/modelos.py e mock/gerar.py
--- (semente 20261015, esquema versão 3). Não edite à mão: rode o exportador.
+-- (semente 20261015, esquema versão 4). Não edite à mão: rode o exportador.
 
 CREATE TABLE analitica_atualizacao (
     id INTEGER NOT NULL,
@@ -23,6 +23,16 @@ CREATE TABLE analitica_chamados_diarios (
 );
 COMMENT ON TABLE analitica_chamados_diarios IS 'Chamados por dia de abertura, fila e prioridade, com quantos estouraram o prazo do SLA até o corte. Agregado e interno.';
 
+CREATE TABLE analitica_resultado_diario (
+    dia DATE NOT NULL,
+    receita_aluguel_e_tarifas_dia_centavos BIGINT NOT NULL,
+    inadimplencia_dia_centavos BIGINT NOT NULL,
+    concessao_em_acordos_dia_centavos BIGINT NOT NULL,
+    perda_chargeback_dia_centavos BIGINT NOT NULL,
+    CONSTRAINT pk_analitica_resultado_diario PRIMARY KEY (dia)
+);
+COMMENT ON TABLE analitica_resultado_diario IS 'O que a Stone fatura e perde por dia, até o corte, para o relatório semanal do financeiro (KAN-14 caso 4): aluguel e tarifas pelo vencimento, inadimplência (o que venceu naquele dia e segue vencido), concessões em acordos (perdão de encargos e desconto no principal, pelo dia do acordo) e chargebacks perdidos ou aceitos (pelo aviso). A receita de MDR está em analitica_vendas_diarias. Agregado e confidencial.';
+
 CREATE TABLE analitica_vendas_diarias (
     dia DATE NOT NULL,
     modalidade VARCHAR(20) NOT NULL,
@@ -31,12 +41,14 @@ CREATE TABLE analitica_vendas_diarias (
     valor_bruto_dia_centavos BIGINT NOT NULL,
     valor_liquido_dia_centavos BIGINT NOT NULL,
     receita_mdr_dia_centavos BIGINT NOT NULL,
+    maior_venda_dia_centavos BIGINT NOT NULL,
     CONSTRAINT pk_analitica_vendas_diarias PRIMARY KEY (dia, modalidade),
     CONSTRAINT ck_analitica_vendas_diarias_modalidade CHECK (modalidade IN ('debito', 'credito_a_vista', 'parcelado', 'pix'))
 );
 COMMENT ON TABLE analitica_vendas_diarias IS 'Vendas por dia e modalidade, até o dia de corte. Agregado e confidencial.';
 COMMENT ON COLUMN analitica_vendas_diarias.quantidade_negadas IS 'Negadas e canceladas.';
 COMMENT ON COLUMN analitica_vendas_diarias.receita_mdr_dia_centavos IS 'Bruto menos líquido: a receita de MDR.';
+COMMENT ON COLUMN analitica_vendas_diarias.maior_venda_dia_centavos IS 'Bruto da maior venda aprovada do dia (explica picos no relatório).';
 
 CREATE TABLE artigos_ajuda (
     codigo VARCHAR(5) NOT NULL,
@@ -46,11 +58,11 @@ CREATE TABLE artigos_ajuda (
     termos_de_busca TEXT NOT NULL,
     atualizado_em DATE NOT NULL,
     CONSTRAINT pk_artigos_ajuda PRIMARY KEY (codigo),
-    CONSTRAINT ck_artigos_ajuda_categoria CHECK (categoria IN ('Recebimento', 'Antecipação', 'Fatura e aluguel', 'Contestação', 'Pix e devolução', 'Alteração cadastral', 'Taxas e planos', 'Atendimento')),
+    CONSTRAINT ck_artigos_ajuda_categoria CHECK (categoria IN ('Recebimento', 'Antecipação', 'Fatura e aluguel', 'Contestação', 'Pix e devolução', 'Alteração cadastral', 'Taxas e planos', 'Atendimento', 'Maquininha')),
     CONSTRAINT ck_artigos_ajuda_codigo_formato CHECK (codigo LIKE 'KB___')
 );
 COMMENT ON TABLE artigos_ajuda IS 'Base de conhecimento do atendimento: artigos públicos escritos pela equipe a partir das regras do DOC-MOCK. Público.';
-COMMENT ON COLUMN artigos_ajuda.termos_de_busca IS 'Título e texto sem acento e em minúsculas, para a busca por palavra.';
+COMMENT ON COLUMN artigos_ajuda.termos_de_busca IS 'Título, categoria, texto e sinônimos sem acento e em minúsculas, para a busca por palavra.';
 
 CREATE TABLE times (
     id SERIAL NOT NULL,
@@ -114,7 +126,8 @@ CREATE TABLE acordos (
     valor_renegociado_centavos BIGINT NOT NULL,
     entrada_centavos BIGINT NOT NULL,
     numero_de_parcelas INTEGER NOT NULL,
-    desconto_centavos BIGINT NOT NULL,
+    perdao_encargos_centavos BIGINT NOT NULL,
+    desconto_principal_centavos BIGINT NOT NULL,
     alcada VARCHAR(20) NOT NULL,
     id_solicitante VARCHAR(5) NOT NULL,
     id_aprovador VARCHAR(5),
@@ -126,7 +139,7 @@ CREATE TABLE acordos (
     CONSTRAINT ck_acordos_codigo_formato CHECK (codigo LIKE 'AC____'),
     CONSTRAINT ck_acordos_parcelas_validas CHECK (numero_de_parcelas BETWEEN 1 AND 12),
     CONSTRAINT ck_acordos_entrada_ate_o_valor CHECK (entrada_centavos BETWEEN 0 AND valor_renegociado_centavos),
-    CONSTRAINT ck_acordos_desconto_nao_negativo CHECK (desconto_centavos >= 0),
+    CONSTRAINT ck_acordos_descontos_nao_negativos CHECK (desconto_principal_centavos >= 0 AND perdao_encargos_centavos >= 0),
     CONSTRAINT ck_acordos_aprovador_conforme_situacao CHECK ((situacao IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NULL) OR (situacao NOT IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NOT NULL)),
     CONSTRAINT ck_acordos_dupla_aprovacao_por_outra_pessoa CHECK (alcada <> 'dupla_aprovacao' OR id_aprovador IS NULL OR id_aprovador <> id_solicitante),
     CONSTRAINT fk_acordos_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
@@ -137,8 +150,9 @@ CREATE INDEX ix_acordos_id_lojista ON acordos (id_lojista);
 CREATE INDEX ix_acordos_situacao ON acordos (situacao);
 COMMENT ON TABLE acordos IS 'Acordos de renegociação da Cobrança (DOC-MOCK §7.9). A alçada diz quem aprova. Confidencial.';
 COMMENT ON COLUMN acordos.valor_original_centavos IS 'Soma das faturas incluídas.';
-COMMENT ON COLUMN acordos.valor_renegociado_centavos IS 'Faturas mais multa e juros até a criação, menos o desconto.';
-COMMENT ON COLUMN acordos.desconto_centavos IS 'Desconto no principal: só o coordenador, até 10%% (DOC-MOCK §7.9).';
+COMMENT ON COLUMN acordos.valor_renegociado_centavos IS 'Faturas mais multa e juros até a criação, menos o perdão e o desconto.';
+COMMENT ON COLUMN acordos.perdao_encargos_centavos IS 'Multa e juros perdoados: o analista perdoa em dívida de até R$ 2.000 (§7.9).';
+COMMENT ON COLUMN acordos.desconto_principal_centavos IS 'Desconto no principal: só o coordenador, até 10% do principal (§7.9).';
 
 CREATE TABLE analitica_contestacoes_mensais (
     mes VARCHAR(7) NOT NULL,
@@ -149,7 +163,7 @@ CREATE TABLE analitica_contestacoes_mensais (
     CONSTRAINT ck_analitica_contestacoes_mensais_mes_formato CHECK (mes LIKE '____-__'),
     CONSTRAINT fk_analitica_contestacoes_mensais_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo)
 );
-COMMENT ON TABLE analitica_contestacoes_mensais IS 'Vendas no cartão e chargebacks (no mês da venda contestada) por mês e lojista, até o corte (DOC-MOCK §7.6: mais de 1%% liga o monitoramento de risco). Agregado e confidencial.';
+COMMENT ON TABLE analitica_contestacoes_mensais IS 'Vendas no cartão e chargebacks (no mês da venda contestada) por mês e lojista, até o corte (DOC-MOCK §7.6: mais de 1% liga o monitoramento de risco). Agregado e confidencial.';
 
 CREATE TABLE contas_recebimento (
     id SERIAL NOT NULL,
@@ -237,12 +251,14 @@ CREATE TABLE casos_pix (
     data_abertura DATE NOT NULL,
     prazo_contestacao DATE NOT NULL,
     valor_bloqueado_centavos BIGINT NOT NULL,
+    motivo_alegado VARCHAR(40) NOT NULL,
     tem_comprovante_entrega BOOLEAN NOT NULL,
     id_analista VARCHAR(5),
     situacao VARCHAR(15) NOT NULL,
     CONSTRAINT pk_casos_pix PRIMARY KEY (codigo),
     CONSTRAINT ck_casos_pix_situacao CHECK (situacao IN ('bloqueado', 'contestado', 'devolvido', 'liberado')),
     CONSTRAINT ck_casos_pix_codigo_formato CHECK (codigo LIKE 'PX_____'),
+    CONSTRAINT ck_casos_pix_motivo_alegado CHECK (motivo_alegado IN ('golpe_produto_nao_entregue', 'fraude_conta_invadida')),
     CONSTRAINT ck_casos_pix_valor_positivo CHECK (valor_bloqueado_centavos > 0),
     CONSTRAINT ck_casos_pix_prazo_depois_da_abertura CHECK (prazo_contestacao > data_abertura),
     CONSTRAINT uq_casos_pix_id_venda UNIQUE (id_venda),
@@ -252,6 +268,7 @@ CREATE TABLE casos_pix (
 );
 CREATE INDEX ix_casos_pix_id_lojista_data_abertura ON casos_pix (id_lojista, data_abertura);
 COMMENT ON TABLE casos_pix IS 'Pedidos de devolução de Pix pelo MED do Banco Central (DOC-MOCK §7.7). Confidencial.';
+COMMENT ON COLUMN casos_pix.motivo_alegado IS 'O que quem pagou alegou (regras.MOTIVOS_DO_MED).';
 
 CREATE TABLE chargebacks (
     codigo VARCHAR(7) NOT NULL,
@@ -294,7 +311,7 @@ CREATE TABLE faturas (
     CONSTRAINT ck_faturas_codigo_formato CHECK (codigo LIKE 'I______'),
     CONSTRAINT ck_faturas_mes_referencia_formato CHECK (mes_referencia LIKE '____-__'),
     CONSTRAINT ck_faturas_valor_positivo CHECK (valor_centavos > 0),
-    CONSTRAINT ck_faturas_acordo_conforme_situacao CHECK ((situacao = 'em_acordo' AND id_acordo IS NOT NULL) OR (situacao <> 'em_acordo' AND id_acordo IS NULL)),
+    CONSTRAINT ck_faturas_acordo_conforme_situacao CHECK ((situacao = 'em_acordo' AND id_acordo IS NOT NULL) OR (situacao <> 'em_acordo' AND (id_acordo IS NULL OR situacao = 'vencida'))),
     CONSTRAINT fk_faturas_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
     CONSTRAINT fk_faturas_id_acordo FOREIGN KEY(id_acordo) REFERENCES acordos (codigo)
 );

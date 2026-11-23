@@ -404,7 +404,8 @@ Escolhas sem fonte no DOC-MOCK, tomadas para a fase 2 (plano `plano-ferramentas-
 
 ### A6. Alçadas no mock
 - Decisão: `regras.alcada_do_acordo` aplica o §7.9 (dupla aprovação acima de R$ 10.000; coordenador para desconto no
-  principal, mais de 6 parcelas ou entrada abaixo de 20%; acima de 12 parcelas ou de 10% de desconto, proibido).
+  principal, mais de 6 parcelas, entrada abaixo de 20% ou perdão de encargos em dívida acima de R$ 2.000; acima de 12
+  parcelas ou de 10% de desconto sobre o principal, proibido).
   `calcular_parcelas` ainda tem as suas constantes, com os mesmos valores (pergunta aberta 7).
 - No código: `mock/regras.py`, `acordos.alcada`.
 
@@ -417,9 +418,52 @@ Escolhas sem fonte no DOC-MOCK, tomadas para a fase 2 (plano `plano-ferramentas-
 - No código: tabelas `analitica_*`, `consultas.totais_de_vendas`, `chamados_por_fila`, `contestacoes_por_mes`.
 
 ### A8. Satisfação e base de conhecimento
-- Decisão: 60% dos chamados resolvidos respondem a pesquisa, metade com comentário (restrito, texto livre). Os 14
-  artigos de ajuda são texto da equipe a partir das regras do DOC-MOCK, públicos, com os números de `regras.py`.
+- Decisão: 60% dos chamados resolvidos respondem a pesquisa, metade com comentário (restrito, texto livre). Os
+  artigos de ajuda (18 depois da A10) são texto da equipe a partir das regras do DOC-MOCK, públicos, com os números
+  de `regras.py`.
 - No código: `gerar.criar_pesquisas_satisfacao`, `mock/base_conhecimento.py`.
+
+## Correções do bloco A depois da revisão em dois olhares (23/11, A9 a A14)
+
+### A9. Receitas e despesas no relatório semanal (KAN-14 caso 4)
+- Decisão: o mock não tem despesa nem pagamento de fatura. O relatório semanal mostra o resultado da Stone:
+  receitas são o MDR das vendas e o aluguel e as tarifas faturados (pelo vencimento); perdas são a inadimplência nova
+  (o que venceu no período e segue vencido), as concessões em acordos ativos, quitados ou quebrados (perdão de
+  encargos e desconto no principal, pelo dia do acordo) e os chargebacks perdidos ou aceitos (pelo aviso). A maior
+  venda do período acompanha, para explicar picos.
+- Motivo: SEM FONTE; o caso de uso só diz "receitas e despesas". A Milene (produto) valida.
+- No código: `analitica_resultado_diario`, `consultas.resultado_por_periodo`, `dados_sinteticos.resumo_de_resultado`.
+
+### A10. Base de conhecimento falando com o lojista
+- Decisão: os artigos são de uma central de ajuda pública ("você"), sem procedimento interno, e a busca conta as
+  palavras inteiras da pergunta (sem acento, sem plural simples, sem palavras vazias) no título, na categoria, no
+  texto e em sinônimos escritos pela equipe, com o título valendo o dobro.
+- Motivo: o caso de uso 1 da KAN-14 é responder a dúvida do lojista; a busca por trecho achava "médio" para "med" e
+  não achava "minha maquininha não liga".
+- No código: `mock/base_conhecimento.py`, `consultas.buscar_artigos`, `consultas.palavras_de_busca`.
+
+### A11. Antecipação: o que entra e como o desconto é calculado
+- Decisão: entram as parcelas previstas que caem depois do dia do crédito (1 dia útil); a do próprio dia já chega
+  nele. O desconto é calculado parcela por parcela (§7.4) e arredondado ao centavo em cada uma.
+- No código: `regras.data_de_credito_da_antecipacao`, `regras.desconto_da_antecipacao_centavos`,
+  `dados_sinteticos.simulacao_de_antecipacao`.
+
+### A12. Contestações de um lojista são dado de disputa
+- Decisão: a base analítica de contestações por lojista sai por uma função própria
+  (`contestacoes_do_lojista_por_mes`), cuja ficha pede `disputa` e passa pelas portas do lojista;
+  `indicador_agregado` só vê o total da Stone.
+- Motivo: revisão de dev do bloco A (um MEI está muito perto de pessoa natural). Levar ao Brenno.
+
+### A13. Comentários de satisfação por categoria
+- Decisão: cada comentário sorteado combina com a categoria do chamado e a faixa da nota; os gerais só entram quando
+  a categoria não tem. A concentração no varejo vem dos chamados da fase 1 e não muda.
+- No código: `gerar.COMENTARIOS_POR_CATEGORIA`, `gerar._opcoes_de_comentario`.
+
+### A14. Quarta recusa da antecipação e quem aprova o acordo da analista
+- Decisão: a M00019 tem a conta de recebimento em verificação (trocada ontem), para a recusa por conta em
+  verificação existir no mundo. O AC0004 tem a mesma analista como solicitante e aprovadora: dentro da alçada dela,
+  a analista fecha sozinha (§7.9); "quem pediu nunca aprova" vale para a dupla aprovação.
+- No código: `gerar.CONTA_EM_VERIFICACAO`, `gerar.ACORDOS`.
 
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 

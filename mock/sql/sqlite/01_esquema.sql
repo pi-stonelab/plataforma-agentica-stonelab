@@ -1,6 +1,6 @@
 -- Mock da Stone (Plataforma Agêntica Institucional). 100% sintético: nenhum dado real.
 -- Gerado por `python -m mock.exportar` a partir de mock/modelos.py e mock/gerar.py
--- (semente 20261015, esquema versão 3). Não edite à mão: rode o exportador.
+-- (semente 20261015, esquema versão 4). Não edite à mão: rode o exportador.
 
 -- analitica_atualizacao: Quando a base analítica foi copiada e até que dia ela vai. Interno.
 CREATE TABLE analitica_atualizacao (
@@ -23,6 +23,16 @@ CREATE TABLE analitica_chamados_diarios (
     CONSTRAINT ck_analitica_chamados_diarios_prioridade CHECK (prioridade IN ('baixa', 'média', 'alta', 'crítica'))
 );
 
+-- analitica_resultado_diario: O que a Stone fatura e perde por dia, até o corte, para o relatório semanal do financeiro (KAN-14 caso 4): aluguel e tarifas pelo vencimento, inadimplência (o que venceu naquele dia e segue vencido), concessões em acordos (perdão de encargos e desconto no principal, pelo dia do acordo) e chargebacks perdidos ou aceitos (pelo aviso). A receita de MDR está em analitica_vendas_diarias. Agregado e confidencial.
+CREATE TABLE analitica_resultado_diario (
+    dia DATE NOT NULL,
+    receita_aluguel_e_tarifas_dia_centavos BIGINT NOT NULL,
+    inadimplencia_dia_centavos BIGINT NOT NULL,
+    concessao_em_acordos_dia_centavos BIGINT NOT NULL,
+    perda_chargeback_dia_centavos BIGINT NOT NULL,
+    CONSTRAINT pk_analitica_resultado_diario PRIMARY KEY (dia)
+);
+
 -- analitica_vendas_diarias: Vendas por dia e modalidade, até o dia de corte. Agregado e confidencial.
 CREATE TABLE analitica_vendas_diarias (
     dia DATE NOT NULL,
@@ -32,6 +42,7 @@ CREATE TABLE analitica_vendas_diarias (
     valor_bruto_dia_centavos BIGINT NOT NULL,
     valor_liquido_dia_centavos BIGINT NOT NULL,
     receita_mdr_dia_centavos BIGINT NOT NULL,
+    maior_venda_dia_centavos BIGINT NOT NULL,
     CONSTRAINT pk_analitica_vendas_diarias PRIMARY KEY (dia, modalidade),
     CONSTRAINT ck_analitica_vendas_diarias_modalidade CHECK (modalidade IN ('debito', 'credito_a_vista', 'parcelado', 'pix'))
 );
@@ -45,7 +56,7 @@ CREATE TABLE artigos_ajuda (
     termos_de_busca TEXT NOT NULL,
     atualizado_em DATE NOT NULL,
     CONSTRAINT pk_artigos_ajuda PRIMARY KEY (codigo),
-    CONSTRAINT ck_artigos_ajuda_categoria CHECK (categoria IN ('Recebimento', 'Antecipação', 'Fatura e aluguel', 'Contestação', 'Pix e devolução', 'Alteração cadastral', 'Taxas e planos', 'Atendimento')),
+    CONSTRAINT ck_artigos_ajuda_categoria CHECK (categoria IN ('Recebimento', 'Antecipação', 'Fatura e aluguel', 'Contestação', 'Pix e devolução', 'Alteração cadastral', 'Taxas e planos', 'Atendimento', 'Maquininha')),
     CONSTRAINT ck_artigos_ajuda_codigo_formato CHECK (codigo LIKE 'KB___')
 );
 
@@ -107,7 +118,8 @@ CREATE TABLE acordos (
     valor_renegociado_centavos BIGINT NOT NULL,
     entrada_centavos BIGINT NOT NULL,
     numero_de_parcelas INTEGER NOT NULL,
-    desconto_centavos BIGINT NOT NULL,
+    perdao_encargos_centavos BIGINT NOT NULL,
+    desconto_principal_centavos BIGINT NOT NULL,
     alcada VARCHAR(20) NOT NULL,
     id_solicitante VARCHAR(5) NOT NULL,
     id_aprovador VARCHAR(5),
@@ -119,7 +131,7 @@ CREATE TABLE acordos (
     CONSTRAINT ck_acordos_codigo_formato CHECK (codigo LIKE 'AC____'),
     CONSTRAINT ck_acordos_parcelas_validas CHECK (numero_de_parcelas BETWEEN 1 AND 12),
     CONSTRAINT ck_acordos_entrada_ate_o_valor CHECK (entrada_centavos BETWEEN 0 AND valor_renegociado_centavos),
-    CONSTRAINT ck_acordos_desconto_nao_negativo CHECK (desconto_centavos >= 0),
+    CONSTRAINT ck_acordos_descontos_nao_negativos CHECK (desconto_principal_centavos >= 0 AND perdao_encargos_centavos >= 0),
     CONSTRAINT ck_acordos_aprovador_conforme_situacao CHECK ((situacao IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NULL) OR (situacao NOT IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NOT NULL)),
     CONSTRAINT ck_acordos_dupla_aprovacao_por_outra_pessoa CHECK (alcada <> 'dupla_aprovacao' OR id_aprovador IS NULL OR id_aprovador <> id_solicitante),
     CONSTRAINT fk_acordos_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
@@ -220,12 +232,14 @@ CREATE TABLE casos_pix (
     data_abertura DATE NOT NULL,
     prazo_contestacao DATE NOT NULL,
     valor_bloqueado_centavos BIGINT NOT NULL,
+    motivo_alegado VARCHAR(40) NOT NULL,
     tem_comprovante_entrega BOOLEAN NOT NULL,
     id_analista VARCHAR(5),
     situacao VARCHAR(15) NOT NULL,
     CONSTRAINT pk_casos_pix PRIMARY KEY (codigo),
     CONSTRAINT ck_casos_pix_situacao CHECK (situacao IN ('bloqueado', 'contestado', 'devolvido', 'liberado')),
     CONSTRAINT ck_casos_pix_codigo_formato CHECK (codigo LIKE 'PX_____'),
+    CONSTRAINT ck_casos_pix_motivo_alegado CHECK (motivo_alegado IN ('golpe_produto_nao_entregue', 'fraude_conta_invadida')),
     CONSTRAINT ck_casos_pix_valor_positivo CHECK (valor_bloqueado_centavos > 0),
     CONSTRAINT ck_casos_pix_prazo_depois_da_abertura CHECK (prazo_contestacao > data_abertura),
     CONSTRAINT uq_casos_pix_id_venda UNIQUE (id_venda),
@@ -276,7 +290,7 @@ CREATE TABLE faturas (
     CONSTRAINT ck_faturas_codigo_formato CHECK (codigo LIKE 'I______'),
     CONSTRAINT ck_faturas_mes_referencia_formato CHECK (mes_referencia LIKE '____-__'),
     CONSTRAINT ck_faturas_valor_positivo CHECK (valor_centavos > 0),
-    CONSTRAINT ck_faturas_acordo_conforme_situacao CHECK ((situacao = 'em_acordo' AND id_acordo IS NOT NULL) OR (situacao <> 'em_acordo' AND id_acordo IS NULL)),
+    CONSTRAINT ck_faturas_acordo_conforme_situacao CHECK ((situacao = 'em_acordo' AND id_acordo IS NOT NULL) OR (situacao <> 'em_acordo' AND (id_acordo IS NULL OR situacao = 'vencida'))),
     CONSTRAINT fk_faturas_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
     CONSTRAINT fk_faturas_id_acordo FOREIGN KEY(id_acordo) REFERENCES acordos (codigo)
 );
@@ -370,4 +384,4 @@ CREATE TABLE pesquisas_satisfacao (
 );
 CREATE INDEX ix_pesquisas_satisfacao_respondida_em ON pesquisas_satisfacao (respondida_em);
 
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;

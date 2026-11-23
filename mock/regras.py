@@ -208,7 +208,7 @@ FORMATO_DE_IDENTIFICADORES = {"protocolo": r"\d{8}-\d{6}"}
 # `campos_liberados` da ficha dessa ferramenta (ferramentas/base.py), para as outras continuarem negando.
 CAMPOS_NAO_RESTRITOS = frozenset(
     {
-        "codigo", "nome_fantasia", "segmento", "porte", "cidade", "uf", "carteira", "situacao",
+        "codigo", "nome_fantasia", "segmento", "porte", "plano", "cidade", "uf", "carteira", "situacao",
         "data_entrada", "id_responsavel", "id", "papel", "banco", "data_hora", "modalidade",
         "parcelas", "bandeira", "valor_bruto_centavos", "valor_liquido_centavos", "data",
         "valor_total_centavos", "motivo_falha", "tipo", "mes_referencia", "vencimento",
@@ -224,12 +224,14 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "motivo", "data_notificacao", "prazo_defesa", "valor_contestado_centavos",
         "documentos_enviados", "documentos_exigidos", "dias_para_o_prazo", "id_analista",
         "data_abertura", "valor_bloqueado_centavos", "prazo_contestacao", "tem_comprovante_entrega",
+        "valor_retido_centavos", "valor_retido", "motivo_alegado",
         # acordos de cobrança (§7.9)
         "valor_original_centavos", "valor_renegociado_centavos", "entrada_centavos",
-        "numero_de_parcelas", "desconto_centavos", "alcada", "id_solicitante", "id_aprovador",
-        "criado_em", "faturas", "valor_original", "valor_renegociado", "entrada", "desconto",
+        "numero_de_parcelas", "perdao_encargos_centavos", "desconto_principal_centavos", "alcada",
+        "id_solicitante", "id_aprovador", "criado_em", "faturas", "valor_original", "valor_renegociado", "entrada",
+        "perdao_encargos", "desconto_principal",
         # satisfação (§6.7): a nota e as contagens; o comentário é restrito
-        "nota", "respondida_em", "respostas", "media_centesimos", "notas", "chamados_resolvidos",
+        "nota", "respondida_em", "respostas", "media_centesimos", "media", "notas", "chamados_resolvidos",
         # base de conhecimento (texto público escrito pela equipe)
         "titulo_artigo", "texto_artigo", "atualizado_em",
         # base analítica (agregados, DOC-MOCK §4)
@@ -237,9 +239,15 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "valor_bruto_dia_centavos", "valor_liquido_dia_centavos", "receita_mdr_dia_centavos",
         "quantidade_abertos", "quantidade_resolvidos", "quantidade_estourados",
         "quantidade_vendas_cartao", "quantidade_chargebacks", "taxa_chargeback_pontos_base",
-        "receita_mdr", "quantidade",
+        "receita_mdr", "quantidade", "taxa_chargeback", "maior_venda_dia_centavos",
+        "receita_aluguel_e_tarifas_dia_centavos", "inadimplencia_dia_centavos", "concessao_em_acordos_dia_centavos",
+        "perda_chargeback_dia_centavos", "receitas", "perdas", "resultado", "maior_venda", "aluguel_e_tarifas",
+        "inadimplencia", "concessoes_em_acordos", "chargebacks_perdidos",
         # verificação de identidade (§6.6): só diz se confere, nunca o contato
         "confere",
+        # dicionário de dados (metadado): descreve o esquema, nunca o dado
+        "tabela", "sistema", "descricao_da_tabela", "origem", "colunas", "coluna", "tipo_da_coluna",
+        "descricao_da_coluna", "restrita",
         # código do lojista: como o modelo o vê (id_cliente) e como o banco o chama (id_lojista)
         "id_cliente", "id_lojista",
     }
@@ -338,15 +346,32 @@ def encargos_de_atraso_centavos(valor_centavos: int, dias_de_atraso: int) -> tup
 TAXA_ANTECIPACAO_PONTOS_BASE = {"essencial": 299, "volume": 249, "negociado": 229}
 DIAS_UTEIS_PARA_CAIR_A_ANTECIPACAO = 1
 DIAS_DE_FATURA_VENCIDA_QUE_BLOQUEIAM_ANTECIPACAO = 15
-# Os quatro motivos de recusa do §7.4, na ordem em que a ferramenta explica.
-MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = (
-    "recebivel_retido_ou_bloqueado",
-    "lojista_bloqueado",
-    "conta_em_verificacao",
-    "fatura_vencida_ha_mais_de_15_dias",
-)
 
-# Alçadas do §7.9. As mesmas de ferramentas/financeiro/calcular_parcelas (que ainda tem as suas).
+
+def data_de_credito_da_antecipacao() -> date:
+    """Quando cai o dinheiro de uma antecipação pedida hoje: 1 dia útil (§7.4)."""
+    return somar_dias_uteis(datetime.combine(HOJE_DO_MOCK, time()), DIAS_UTEIS_PARA_CAIR_A_ANTECIPACAO).date()
+
+
+def desconto_da_antecipacao_centavos(valor_centavos: int, dias_antecipados: int, taxa_pontos_base: int) -> int:
+    """§7.4: valor da parcela × taxa mensal × dias antecipados ÷ 30, arredondado ao centavo. Ex.: R$ 1.000,00
+    antecipados 30 dias a 2,99% ao mês dão R$ 29,90."""
+    if dias_antecipados <= 0:
+        return 0
+    return _arredondar_divisao(valor_centavos * taxa_pontos_base * dias_antecipados, 10000 * 30)
+
+
+# Os quatro motivos de recusa do §7.4, na ordem em que a ferramenta explica, com o texto para a pessoa.
+ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = {
+    "recebivel_retido_ou_bloqueado": "a parcela está retida ou bloqueada",
+    "lojista_bloqueado": "o lojista está bloqueado",
+    "conta_em_verificacao": "a conta de recebimento está em verificação",
+    "fatura_vencida_ha_mais_de_15_dias": "há fatura vencida há mais de 15 dias",
+}
+MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = tuple(ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO)
+
+# Alçadas do §7.9. ferramentas/financeiro/calcular_parcelas ainda tem as suas (sem o perdão de encargos e sem a
+# dupla aprovação): pendência do bloco C.
 ENTRADA_MINIMA_ANALISTA_PERCENTUAL = 20
 PARCELAS_MAXIMAS_ANALISTA = 6
 PARCELAS_MAXIMAS_COORDENADOR = 12
@@ -357,20 +382,35 @@ ALCADAS = ("analista", "coordenador", "dupla_aprovacao", "proibido")
 
 
 def alcada_do_acordo(
-    valor_centavos: int, numero_de_parcelas: int, entrada_centavos: int, desconto_centavos: int
+    valor_original_centavos: int,
+    valor_renegociado_centavos: int,
+    numero_de_parcelas: int,
+    entrada_centavos: int,
+    perdao_encargos_centavos: int = 0,
+    desconto_principal_centavos: int = 0,
 ) -> str:
-    """Quem aprova o acordo: "analista", "coordenador", "dupla_aprovacao" ou "proibido"."""
+    """Quem aprova o acordo (DOC-MOCK §7.9): "analista", "coordenador", "dupla_aprovacao" ou "proibido".
+
+    - Desconto no principal (o valor original das faturas): só o coordenador, até 10%; acima disso, proibido.
+    - Perdão de multa e juros: o analista perdoa em dívida de até R$ 2.000; acima disso, o coordenador.
+    - Parcelas: o analista até 6, com entrada de pelo menos 20% do renegociado; o coordenador até 12.
+    - Acima de R$ 10.000 renegociados, duas aprovações (e quem pede nunca aprova).
+    """
     if (
         numero_de_parcelas > PARCELAS_MAXIMAS_COORDENADOR
-        or desconto_centavos * 100 > valor_centavos * DESCONTO_MAXIMO_COORDENADOR_PERCENTUAL
+        or desconto_principal_centavos * 100 > valor_original_centavos * DESCONTO_MAXIMO_COORDENADOR_PERCENTUAL
     ):
         return "proibido"
-    if valor_centavos > LIMITE_DA_DUPLA_APROVACAO_CENTAVOS:
+    if valor_renegociado_centavos > LIMITE_DA_DUPLA_APROVACAO_CENTAVOS:
         return "dupla_aprovacao"
+    perdao_acima_da_analista = (
+        perdao_encargos_centavos > 0 and valor_original_centavos > PERDAO_DE_ENCARGOS_DO_ANALISTA_ATE_CENTAVOS
+    )
     if (
-        desconto_centavos > 0
+        desconto_principal_centavos > 0
+        or perdao_acima_da_analista
         or numero_de_parcelas > PARCELAS_MAXIMAS_ANALISTA
-        or entrada_centavos * 100 < valor_centavos * ENTRADA_MINIMA_ANALISTA_PERCENTUAL
+        or entrada_centavos * 100 < valor_renegociado_centavos * ENTRADA_MINIMA_ANALISTA_PERCENTUAL
     ):
         return "coordenador"
     return "analista"
@@ -384,6 +424,13 @@ PRAZO_DE_DEFESA_DO_CHARGEBACK_DIAS = 7  # corridos, a partir do aviso ao lojista
 PRAZO_DA_DECISAO_DO_CHARGEBACK_DIAS = 120
 CHARGEBACK_QUE_LIGA_O_MONITORAMENTO_PONTOS_BASE = 100  # mais de 1% das vendas do mês, em quantidade
 PRAZO_DO_MED_DIAS = 80  # para contestar a devolução de um Pix, desde 1º/09/2026
+# O que quem pagou alegou no pedido de MED. O MED só vale para fraude ou golpe, nunca para arrependimento,
+# erro de chave ou desacordo comercial (§7.7).
+ROTULOS_DOS_MOTIVOS_DO_MED = {
+    "golpe_produto_nao_entregue": "golpe: quem pagou diz que o produto não foi entregue",
+    "fraude_conta_invadida": "fraude: quem pagou diz que a conta dele foi invadida",
+}
+MOTIVOS_DO_MED = tuple(ROTULOS_DOS_MOTIVOS_DO_MED)
 
 ROTULOS_DOS_DOCUMENTOS = {
     "nota_fiscal": "nota fiscal",
@@ -405,6 +452,17 @@ DOCUMENTOS_POR_MOTIVO = {
     "cancelamento_nao_processado": ("politica_de_cancelamento", "comprovante_de_estorno"),
 }
 MOTIVOS_DE_CHARGEBACK = tuple(DOCUMENTOS_POR_MOTIVO)
+ROTULOS_DOS_MOTIVOS_DE_CHARGEBACK = {
+    "compra_nao_reconhecida": "compra não reconhecida pelo dono do cartão",
+    "mercadoria_nao_recebida": "mercadoria não recebida",
+    "produto_diferente": "produto diferente do anunciado",
+    "cobranca_duplicada": "cobrança duplicada",
+    "valor_divergente": "valor cobrado diferente do combinado",
+    "cancelamento_nao_processado": "cancelamento não processado",
+}
+# Só nestas situações o prazo ainda corre para o lojista (defesa do chargeback, contestação do MED).
+SITUACOES_COM_PRAZO_DO_CHARGEBACK = ("aguardando_defesa",)
+SITUACOES_COM_PRAZO_DO_CASO_PIX = ("bloqueado",)
 
 # ---------------------------------------------------------------------------------------------
 # Satisfação e base analítica (DOC-MOCK §4, §6.7 e §10.1)

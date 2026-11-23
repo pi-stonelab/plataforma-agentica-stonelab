@@ -139,8 +139,9 @@ def test_lojista_e_carteira(sessao):
     lojista = buscar_lojista(sessao, "M00005")
     assert lojista["carteira"] == "contas_chave" and lojista["id_responsavel"] == "F0003"
     assert set(lojista) == {
-        "codigo", "nome_fantasia", "segmento", "porte", "cidade", "uf", "carteira", "situacao",
+        "codigo", "nome_fantasia", "segmento", "porte", "plano", "cidade", "uf", "carteira", "situacao",
         "data_entrada", "id_responsavel"}
+    assert lojista["plano"] == "negociado"  # média empresa: contas chave, plano Negociado (regras.PLANO_POR_PORTE)
     assert carteira_do_lojista(sessao, "M00001") == {
         "codigo": "M00001", "carteira": "varejo", "id_responsavel": None}
 
