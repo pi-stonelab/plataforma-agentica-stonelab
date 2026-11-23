@@ -54,10 +54,12 @@ CATEGORIAS_DADO = (
     "indicador_agregado",  # base analítica, sem dado de pessoa (DOC-MOCK §4)
     "metadado",  # dicionário de dados do mock (tabelas, colunas e sensibilidade)
     "base_conhecimento",  # artigos públicos de ajuda
+    "cambio",  # cotação de moeda (API pública do Banco Central)
 )
 
-# Categorias que não são dado de lojista: CEP público, pedido de ferramenta ausente e artigo público de ajuda.
-CATEGORIAS_COMUNS = frozenset({"endereco_publico", "pedido_plataforma", "base_conhecimento"})
+# Categorias que não são dado de lojista: CEP público, pedido de ferramenta ausente, artigo público de ajuda
+# e cotação de moeda.
+CATEGORIAS_COMUNS = frozenset({"endereco_publico", "pedido_plataforma", "base_conhecimento", "cambio"})
 # Dado agregado ou sobre o próprio mock, sem lojista nem pessoa: vale para todo cargo que tem área
 # (decisão do bloco A, SEM FONTE para a lista exata; ver docs/decisoes.md).
 CATEGORIAS_DE_QUEM_TEM_AREA = frozenset({"indicador_agregado", "metadado"})
@@ -70,7 +72,6 @@ CATEGORIAS_DE_FERRAMENTAS_PLANEJADAS = (
     "agenda",
     "comunicacao",
     "documento",
-    "cambio",
     "chamado_interno",
 )
 

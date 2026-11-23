@@ -15,7 +15,7 @@ LIVRE = "texto_livre"
 class EnviarEmail(FerramentaComConfirmacao):
     nome = "enviar_email"
     area = "comunicacao"
-    integracoes = ("google_workspace", "microsoft_365")  # o envio de hoje é por SMTP (email_smtp)
+    integracoes = ("email",)
     nivel_minimo = "N1"
     areas_permitidas = ("atendimento", "financeiro")
     categorias_dados = ("contato",)
@@ -23,6 +23,8 @@ class EnviarEmail(FerramentaComConfirmacao):
     sensibilidade = "pessoal"
     conteudo_terceiros = False
     status = "ativa"
+    titulo = "Enviar e-mail"
+    rotulos_da_previa = {"para": "Para", "assunto": "Assunto", "corpo": "Mensagem"}
     parametros = {
         "id_cliente": {"tipo": "texto", "obrigatorio": True},
         "assunto": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": TAMANHO_ASSUNTO},
@@ -52,6 +54,11 @@ class EnviarEmail(FerramentaComConfirmacao):
         conteudo = {**para, "assunto": assunto, "corpo": corpo}
         previa = {"para": para, "assunto": assunto, "corpo": corpo}
         return conteudo, previa
+
+    def texto_do_campo(self, campo, valor):
+        if campo == "para" and isinstance(valor, dict):
+            return f"{valor.get('email')} ({valor.get('papel')} do {valor.get('codigo')})"
+        return super().texto_do_campo(campo, valor)
 
     def efetivar(self, conteudo, usuario):
         # A carteira pode ter mudado desde a prévia: confere de novo antes de enviar.

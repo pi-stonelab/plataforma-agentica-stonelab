@@ -189,6 +189,12 @@ def enviar(para, assunto, corpo, config, funcionario=None):
     return id_mensagem
 
 
+def verificar_conexao(config):
+    """Conecta, cifra e faz o login, sem mandar nada (o `testar` da integração). Falha: `EnvioIndisponivel`."""
+    falhas.verificar("email")
+    _fechar(_abrir(config))
+
+
 def _de(config, funcionario):
     """O From: o remetente da plataforma, com o primeiro nome de quem confirmou ("Ana via Stone")."""
     nomes = str(funcionario.get("nome") or "").split()  # split também tira quebras de linha

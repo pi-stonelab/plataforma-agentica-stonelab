@@ -33,6 +33,7 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
 - `base.py`: classe `Ferramenta` (a ficha e o método `executar`), os 7 tipos de erro, `ErroFerramenta`, `resposta`.
 - `catalogo.py`: acha as ferramentas (`carregar`, `nomes`), monta o texto que o agente lê (`ler`), diz quais estão
   liberadas (`ferramentas_liberadas`) e executa (`executar`). É a única porta de entrada das ferramentas.
+  `listar_fichas(usuario)` devolve o catálogo no formato `Ferramenta` do contrato do front (§4.10).
 - `governanca.py`: quem pode usar (`motivo_bloqueio`), escopo de lojista (`lojista_no_escopo`), janela de dias
   (`janela_dias`, `inicio_da_janela`) e registro das chamadas (`registrar`, `adicionar_destino`).
 - `lojista.py`: o que toda ferramenta de dados de lojista repete: formato do código, escopo, janela e limite.
@@ -42,7 +43,8 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
 - `diretorio.py`: `buscar_usuario(id)` monta o `Usuario` do funcionário pelo diretório do mock, e só se a situação for
   exatamente `ativo`. É o ponto único para o terminal e para o `montar_acesso` do back-end (decisão D11).
 - `confirmacoes.py`: escrita em duas fases. `FerramentaComConfirmacao` (a classe-mãe), a fila de prévias e as funções
-  que a interface chama: `pendentes`, `confirmar` e `cancelar`.
+  que a interface chama: `pendentes`, `confirmar` e `cancelar`. Para o contrato do front (§4.9):
+  `confirmacoes_da_execucao`, `confirmacao_para_interface` e `decidida`.
 - `email_smtp.py`: o envio de e-mail, por SMTP (`smtplib`), configurado no .env (variáveis no `.env.example`). Sem
   `EMAIL_SMTP_HOST` o envio fica desligado e o `enviar_email` nem monta a prévia. TLS obrigatório fora do localhost, sem volta para texto puro, com o certificado conferido;
   remetente fixo, com o primeiro nome de quem confirmou ("Ana via Stone") e o e-mail dele no Reply-To, para o
@@ -58,7 +60,16 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
 - `agents.md` (raiz e de cada área e ferramenta): o texto que o modelo lê. A parte depois de `## Para quem mantém`
   o código descarta.
 - `<area>/<nome>/func.py`: a ficha e a lógica de uma ferramenta.
-- `integracoes/<sistema>/README.md`: documentação para quem mantém, uma pasta por sistema externo. O agente não lê.
+- `integracoes/`: como a plataforma fala com cada sistema. `conector.py` (classe `Conector`: modo `real`, `simulado`
+  ou `desligado` pelo .env, `configurado`, `saude`, `testar` e `chamar` com o disjuntor de 3 falhas e 60 s de pausa,
+  um por serviço), `http.py` (cliente HTTP comum: HTTPS fora do localhost, redirecionamento só para a mesma origem,
+  teto de 1 MB, 429, 5xx e JSON quebrado viram `ConnectionError`), `registro.py` (`estado_integracoes()`, sem
+  segredo) e um `conector.py` por pasta que já tem código (`apis_publicas/`, `email/`). `sistemas_internos.py` vê o
+  mock como os sistemas internos (crm, sql, bigquery, datahub) e `planejados.py` lista os que ainda não têm conector.
+  Cada pasta tem o README do sistema; o agente não lê. Terminal: `python -m ferramentas.integracoes estado` e
+  `MODO_TERMINAL=1 python -m ferramentas.integracoes testar <integração>`. Testes em `test_integracoes_*.py`, contra
+  um servidor HTTP local no formato das APIs reais (`backend/tests/apoio_http.py`); a suíte inteira aponta para ele e
+  o `conftest.py` recusa qualquer conexão fora do 127.0.0.1.
 - `ruff.toml`: regras de lint só desta pasta.
 
 Testes (todos em `backend/tests/`): `test_ferramentas_*.py`, `test_catalogo_indice.py` e `test_regressao_*.py`.
@@ -232,6 +243,8 @@ Exemplo: `listar_acordos_cliente`, que lê dados que o mock já tem.
    (`CLASSIFICACAO_CAMPOS` se for restrito, `CAMPOS_NAO_RESTRITOS` se for liberado). Veja `mock/CLAUDE.md`.
 5. Quem pode usar: coloque a categoria nas `categorias_dado` dos cargos certos em `mock/regras.py::CARGOS`.
    Sem isso, nenhum cargo alcança a ferramenta.
+   Se a ferramenta fala com um sistema de fora, a chamada passa pelo conector da integração (`integracoes/`), com
+   `chamar(...)` e o cliente `integracoes/http.py`; nunca `requests` ou `httpx` direto no `func.py`.
 6. Atualize as listas escritas à mão: `ferramentas/<area>/agents.md` (seção "Para quem mantém"),
    `ferramentas/agents.md` (contagem em "Situação hoje") e `ferramentas/integracoes/<sistema>/README.md`.
    Nenhum teste confere essas listas. Elas desatualizam sozinhas.
@@ -292,7 +305,8 @@ Regras que valem para qualquer ferramenta nova em duas fases:
   a subclasse soma os seus. O texto liberado continua passando pela máscara de CPF e cartão. A lista de quem pode
   liberar o quê é fechada em `backend/tests/test_ferramentas_campos_liberados.py`: ferramenta nova que libere um
   campo falha lá até alguém editar a lista, e essa edição passa pela revisão do CODEOWNERS.
-- Para criar uma: subclasse de `FerramentaComConfirmacao` com `montar` e `efetivar`, nome em
+- Para criar uma: subclasse de `FerramentaComConfirmacao` com `montar` e `efetivar`, `titulo` e `rotulos_da_previa`
+  (o cartão de confirmação da interface; `texto_do_campo` muda como um campo aparece), nome em
   `governanca.ESCRITA_COM_CONFIRMACAO` e testes como os de `test_ferramentas_enviar_email.py`.
 
 ## Pendências entre frentes (marcadores)

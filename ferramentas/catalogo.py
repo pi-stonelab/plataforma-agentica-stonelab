@@ -4,7 +4,7 @@ from contextlib import suppress
 from pathlib import Path
 from time import monotonic
 
-from ferramentas import governanca
+from ferramentas import governanca, integracoes
 from ferramentas.base import montar_registro, resposta
 
 NOME_ARQUIVO_INSTRUCOES = "agents.md"
@@ -13,6 +13,8 @@ RAIZ = Path(__file__).parent
 # Marcadores para pessoas (ferramentas/pendencias.py): saem do texto antes de chegar ao modelo.
 PADRAO_MARCADOR = re.compile(r"\s*\[(?:A FAZER \(|DECIDIR \(|aqui conectamos|preencher)[^\]]*\]")
 PADRAO_TITULO_VAZIO = re.compile(r"^## .*\n\s*(?=^## |\Z)", re.MULTILINE)
+# Ficha ainda planejada começa com "[preencher: o que faz... Sugestão: <frase>]": a interface mostra a sugestão.
+PADRAO_SUGESTAO = re.compile(r"Sugest[ãa]o:\s*([^\]]+)\]")
 FERRAMENTAS = {}
 
 
@@ -64,17 +66,67 @@ def _ler_arquivo(pasta):
     return (pasta / NOME_ARQUIVO_INSTRUCOES).read_text("utf-8").split("## Para quem mantém")[0]
 
 
-def _primeira_frase(pasta):
-    """Primeira frase do primeiro parágrafo depois do título, usada nas listas."""
+def _primeiro_paragrafo(pasta):
     try:
         texto = _ler_arquivo(pasta)
     except OSError:
         return ""
     paragrafos = [p for p in texto.split("\n\n") if p.strip() and not p.startswith("#")]
-    if not paragrafos:
-        return ""
-    paragrafo = " ".join(paragrafos[0].split())
-    return re.split(r"(?<=\.)\s", paragrafo)[0]
+    return " ".join(paragrafos[0].split()) if paragrafos else ""
+
+
+def _primeira_frase(pasta):
+    """Primeira frase do primeiro parágrafo depois do título, usada nas listas."""
+    return re.split(r"(?<=\.)\s", _primeiro_paragrafo(pasta))[0]
+
+
+def _descricao(pasta):
+    """Primeira frase útil para a interface: sem marcadores; na ficha planejada, a frase sugerida."""
+    paragrafo = _primeiro_paragrafo(pasta)
+    sugestao = PADRAO_SUGESTAO.search(paragrafo) if paragrafo.startswith("[") else None
+    if sugestao:
+        frase = sugestao.group(1).strip().rstrip(".")
+        return frase[:1].upper() + frase[1:] + "."
+    limpo = " ".join(PADRAO_MARCADOR.sub("", paragrafo).split())
+    return re.split(r"(?<=\.)\s", limpo)[0] if limpo else ""
+
+
+def _status_para_interface(ferramenta):
+    """`planejada` e `inativa` como na ficha; ativa com uma integração desligada no .env aparece `inativa`."""
+    if ferramenta.status == "planejada":
+        return "planejada"
+    if not ferramenta.esta_ativa():
+        return "inativa"
+    if any(integracoes.conector(nome).modo() == "desligado" for nome in ferramenta.integracoes):
+        return "inativa"
+    return "ativa"
+
+
+def listar_fichas(usuario):
+    """O catálogo inteiro no formato `Ferramenta` do contrato do front (frontend/CONTRATO_API.md §4.10).
+
+    Cada ficha vem marcada para `usuario` (o `governanca.Usuario` do login): `liberada` e `motivo` são os de
+    `governanca.motivo_bloqueio`. Só texto e listas, nunca o objeto da ferramenta (MED-3).
+    [A FAZER (Marcelo e Isabel, back-end, KAN-60): a rota GET /ferramentas devolve esta lista; o perfil
+    GestorDeAcessos, que não usa ferramentas, recebe 403 antes de chegar aqui]
+    """
+    fichas = []
+    for nome, ferramenta in sorted(carregar().items()):
+        motivo = governanca.motivo_bloqueio(ferramenta, usuario)
+        fichas.append(
+            {
+                "nome": nome,
+                "area": ferramenta.area,
+                "descricao": _descricao(RAIZ / ferramenta.area / nome),
+                "acesso": ferramenta.acesso,
+                "sensibilidade": ferramenta.sensibilidade,
+                "status": _status_para_interface(ferramenta),
+                "integracoes": list(ferramenta.integracoes),
+                "liberada": motivo is None,
+                "motivo": motivo,
+            }
+        )
+    return fichas
 
 
 def _lista(texto, titulo, itens):

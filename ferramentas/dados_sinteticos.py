@@ -31,6 +31,7 @@ CAMPOS_DO_CADASTRO = (
     "data_entrada",
 )
 PAPEIS_CONTATO = modelos.PAPEIS_CONTATO  # as func.py não importam o mock direto
+HOJE_DO_MOCK = regras.HOJE_DO_MOCK  # o "hoje" de toda regra de data (nunca date.today())
 FALHAS_DE_INTEGRACAO = (SistemaIndisponivel, OperationalError, InterfaceError, TempoEsgotadoNoPool)
 _CONEXAO = {"engine": None}
 
@@ -207,7 +208,6 @@ def buscar_endereco(cep):
 # (prazos, taxas e alçadas) também saem por aqui.
 # ---------------------------------------------------------------------------------------------
 
-HOJE_DO_MOCK = regras.HOJE_DO_MOCK
 AGORA_DO_MOCK = regras.AGORA_DO_MOCK
 MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = regras.MOTIVOS_DE_RECUSA_DA_ANTECIPACAO
 DIAS_UTEIS_PARA_CAIR_A_ANTECIPACAO = regras.DIAS_UTEIS_PARA_CAIR_A_ANTECIPACAO

@@ -55,6 +55,7 @@ CALCULAR_MULTA = "calcular_multa_atraso"
 CALCULAR_PARCELAS = "calcular_parcelas"
 CONSULTAR_CONTATOS = "consultar_contatos_lojista"
 CONSULTAR_CEP = "consultar_endereco_cep"
+CONSULTAR_COTACAO = "consultar_cotacao_moeda"
 SOLICITAR_AUSENTE = "solicitar_ferramenta_ausente"
 
 # Caminho que o modelo escreve em LER (área/ferramenta). A área de cada uma é a pasta no catálogo.
@@ -282,10 +283,11 @@ _ATENDIMENTO = {
     CALCULAR_MULTA,
     CALCULAR_PARCELAS,
     CONSULTAR_CEP,
+    CONSULTAR_COTACAO,
     SOLICITAR_AUSENTE,
     ENVIAR_EMAIL,
 }
-_COMUNS = {CONSULTAR_CLIENTE, CALCULAR_MULTA, CALCULAR_PARCELAS, CONSULTAR_CEP, SOLICITAR_AUSENTE}
+_COMUNS = {CONSULTAR_CLIENTE, CALCULAR_MULTA, CALCULAR_PARCELAS, CONSULTAR_CEP, CONSULTAR_COTACAO, SOLICITAR_AUSENTE}
 # O que o agente geral (que lista todas as ferramentas do catálogo) deixa cada cargo alcançar.
 FERRAMENTAS_DO_CARGO = {
     "atendente_n1": _ATENDIMENTO,

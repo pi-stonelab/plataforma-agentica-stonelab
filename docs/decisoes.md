@@ -260,6 +260,24 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - No código: `ferramentas/email_smtp.py`, `EnviarEmail.efetivar`, `confirmacoes.MENSAGEM_EFEITO_INCERTO`. Testes em
   `test_ferramentas_email_smtp.py`, contra um servidor SMTP em socket local (`apoio_smtp.py`).
 
+### H16. Conectores para as integrações, e as APIs públicas de verdade
+- Decisão: cada integração das fichas tem um `Conector` em `ferramentas/integracoes/` (modo `real`, `simulado` ou
+  `desligado` pelo .env, disjuntor de 3 falhas e 60 s por serviço, saúde sem segredo e `testar` para quem configura),
+  e todas as chamadas HTTP passam por `integracoes/http.py`. `consultar_endereco_cep` passa a consultar o ViaCEP e
+  `consultar_cotacao_moeda` fica ativa, com a PTAX do Banco Central. O modo `simulado` responde sem rede (os 3 CEPs
+  de exemplo e cotações ilustrativas).
+- O `enviar_email` passa a ter `integracoes = ("email",)`: o envio é por SMTP, e a ficha dizia Google e Microsoft
+  (problema conhecido do plano antigo: com os dois na ficha, a queda de um bloqueava quem usa o outro).
+- A categoria `cambio` vira comum a todos os cargos com área (`mock/regras.py::CATEGORIAS_COMUNS`), como o CEP:
+  cotação oficial é dado público.
+- Quem e quando: Pedro, 22/11 (integrações externas reais e completas, com modo simulado para testes).
+- Segurança: HTTPS obrigatório fora do localhost; URL base fixa no .env, sem credencial, parâmetro ou fragmento;
+  redirecionamento só para a mesma origem; teto de 1 MB; resposta fora do formato vira `integracao_indisponivel`;
+  log só com integração, serviço, etapa e tipo. A suíte aponta para servidores locais e recusa conexão fora do
+  127.0.0.1 (`backend/tests/conftest.py`).
+- No código: `ferramentas/integracoes/`, `catalogo.listar_fichas` e `confirmacoes.confirmacoes_da_execucao`
+  (adaptadores do contrato do front, §4.10 e §4.9). Testes em `test_integracoes_*.py` e `test_contrato_interface.py`.
+
 ## Decisões do orquestrador (O1 a O13)
 
 Todas de 11/11, PLANO v2, escritas depois da crítica ao plano. "Para o Pedro ver" quer dizer que ele leu; só a O10

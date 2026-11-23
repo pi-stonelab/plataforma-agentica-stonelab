@@ -12,7 +12,7 @@
 
 ## Conector
 
-[preencher: como a plataforma fala com ele e como checa se está de pé]
+`integracoes/sistemas_internos.py` (`ConectorInterno`), modo sempre `simulado`: o core, o cadastro e a cobrança são o mock. A saúde vem dos sistemas `cadastro`, `core` e `cobranca` de `mock.falhas`.
 
 ## Ligação
 
