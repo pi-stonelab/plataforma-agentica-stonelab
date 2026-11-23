@@ -493,6 +493,47 @@ Escolhas sem fonte no DOC-MOCK, tomadas para a fase 2 (plano `plano-ferramentas-
   a analista fecha sozinha (§7.9); "quem pediu nunca aprova" vale para a dupla aprovação.
 - No código: `gerar.CONTA_EM_VERIFICACAO`, `gerar.ACORDOS`.
 
+## Decisões do bloco D: escrita com confirmação no mock (23/11, W1 a W6)
+
+Escolhas sem fonte no DOC-MOCK para as 8 escritas do bloco D (plano `plano-ferramentas-final.md`).
+
+### W1. Quem executa a antecipação
+- Decisão: `executar_antecipacao` é de nível N2 com a categoria `agenda_recebiveis`: especialista N2, supervisor de
+  atendimento e coordenador financeiro. O N1 só registra o pedido (`registrar_pedido_antecipacao`).
+- Motivo: DOC-MOCK §7.4 ("o N1 simula; a execução fica com o N2, com o pedido do lojista registrado"). O §8.2 dá
+  "antecipações" à analista de recebíveis, que é N1; a lista exata é SEM FONTE.
+- No código: ficha de `ferramentas/financeiro/executar_antecipacao/func.py`.
+
+### W2. Pedido de antecipação recusado não vira chamado
+- Decisão: se a simulação tem motivo de recusa (§7.4), `registrar_pedido_antecipacao` recusa já na prévia, com o
+  motivo, em vez de abrir um chamado que o N2 teria de recusar.
+- No código: `registrar_pedido_antecipacao.montar`.
+
+### W3. A ouvidoria abre e escreve em chamados
+- Decisão: a analista de ouvidoria abre, escreve e muda a situação de chamados (o caso da ouvidoria só ela resolve).
+  Não registra pedido de antecipação, porque não vê a agenda (A1).
+- Motivo: `regras.NIVEL_DE_ATENDIMENTO_DO_CARGO` já põe a ouvidoria entre quem atende; o DOC-MOCK §6.5 não restringe.
+- No código: `gabaritos.FERRAMENTAS_DO_CARGO`.
+
+### W4. A prévia ensaia a gravação
+- Decisão: a prévia de toda escrita no mock roda a gravação de verdade numa transação desfeita no fim
+  (`mock/escritas.ensaiar`), para recusar com a mesma frase o que a confirmação recusaria (conta inválida no
+  reprocessamento, passagem fora do ciclo, caso da ouvidoria, alçada).
+- Motivo: a regra que o Enrico cobrou no `enviar_email` (prévia aceita e confirmação recusada faz a pessoa pedir tudo
+  de novo).
+- No código: `ferramentas/escritas_sinteticas.ensaiar`; `montar` de cada escrita.
+
+### W5. Booleanos como "sim" ou "não"
+- Decisão: `impede_vender`, `suspeita_fraude` e `perdoar_encargos` são texto `sim`/`não` (ausente é não), porque a
+  ficha só tem os tipos texto, inteiro, decimal e data.
+- No código: `escritas_sinteticas.sim_ou_nao`.
+
+### W6. Teto do índice do modelo
+- Decisão: o teste `test_indice_nao_cresce_sem_controle` passou de 3500 para 4000 caracteres com as 8 escritas, já
+  com as frases do índice no mínimo. Com os blocos C e E1, o índice com o catálogo inteiro passa disso: falta decidir
+  (Pedro, com agentes) se o índice mostra só a lista do agente, se é dividido por área ou se o teto sobe.
+- No código: `backend/tests/test_catalogo_indice.py`.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que

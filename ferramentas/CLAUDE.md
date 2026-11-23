@@ -7,7 +7,9 @@ simulada (`mock/`). Hoje são 43 ferramentas em 8 áreas. Treze estão ativas. A
 Ativas: `consultar_cliente`, `consultar_transacoes_cliente`, `calcular_multa_atraso`, `consultar_endereco_cep`,
 `solicitar_ferramenta_ausente`, `consultar_liquidacoes_cliente`, `listar_chamados_cliente`,
 `consultar_historico_contato`, `listar_faturas_em_atraso`, `calcular_parcelas`, `consultar_contatos_lojista`,
-`consultar_cotacao_moeda` e `enviar_email` (escrita em duas fases, ver "Escrita em duas fases"). Ferramenta ativa cuja
+`consultar_cotacao_moeda` e as escritas em duas fases (ver "Escrita em duas fases"): `enviar_email`, `abrir_chamado`,
+`adicionar_nota_chamado`, `atualizar_situacao_chamado`, `registrar_pedido_antecipacao`, `executar_antecipacao`,
+`reprocessar_liquidacao`, `registrar_acordo` e `aprovar_acordo`. Ferramenta ativa cuja
 integração está desligada ou mal configurada no .env some do índice que o modelo lê e aparece `inativa` na tela.
 
 Fontes citadas neste arquivo: `KAN-xx` (cards do Jira), `DOC-MOCK §x` (documento das regras do mock),
@@ -42,6 +44,9 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
   `preparar` junta tudo na ordem certa.
 - `mascara.py`: mascara CPF, telefone, e-mail, conta, cartão, nome e texto livre. Função pura.
 - `dados_sinteticos.py`: fachada do mock. Lê o banco por `mock/consultas.py` e devolve dicts.
+- `escritas_sinteticas.py`: fachada de escrita do mock. Grava por `mock/escritas.py` (só no `efetivar`, depois da
+  confirmação) e oferece as contas da prévia (`classificar_chamado`, `montar_acordo`) e o `ensaiar`. Regra do negócio
+  violada vira `ErroFerramenta` com a mesma frase; banco fora do ar vira `ConnectionError` (nada gravado).
 - `diretorio.py`: `buscar_usuario(id)` monta o `Usuario` do funcionário pelo diretório do mock, e só se a situação for
   exatamente `ativo`. É o ponto único para o terminal e para o `montar_acesso` do back-end (decisão D11).
 - `confirmacoes.py`: escrita em duas fases. `FerramentaComConfirmacao` (a classe-mãe), a fila de prévias e as funções
@@ -311,9 +316,14 @@ Regras que valem para qualquer ferramenta nova em duas fases:
   a subclasse soma os seus. O texto liberado continua passando pela máscara de CPF e cartão. A lista de quem pode
   liberar o quê é fechada em `backend/tests/test_ferramentas_campos_liberados.py`: ferramenta nova que libere um
   campo falha lá até alguém editar a lista, e essa edição passa pela revisão do CODEOWNERS.
-- Para criar uma: subclasse de `FerramentaComConfirmacao` com `montar` e `efetivar`, `titulo` e `rotulos_da_previa`
-  (o cartão de confirmação da interface; `texto_do_campo` muda como um campo aparece), nome em
-  `governanca.ESCRITA_COM_CONFIRMACAO` e testes como os de `test_ferramentas_enviar_email.py`.
+- A prévia recusa tudo o que a confirmação recusaria, com a mesma frase (a regra que o Enrico cobrou no e-mail). Nas
+  escritas no mock, `montar` termina com `escritas_sinteticas.ensaiar(self._gravar, conteudo, usuario)`: a gravação de
+  verdade roda com todas as regras e é desfeita. `efetivar` chama o mesmo `_gravar`.
+- `mensagem_feito` é a frase de sucesso da confirmação ("Chamado aberto."); o padrão é "Enviado.".
+- Para criar uma: subclasse de `FerramentaComConfirmacao` com `montar` e `efetivar`, `titulo`, `mensagem_feito` e
+  `rotulos_da_previa` (o cartão de confirmação da interface; `texto_do_campo` muda como um campo aparece), nome em
+  `governanca.ESCRITA_COM_CONFIRMACAO`, a linha dela em `gabaritos.FERRAMENTAS_DO_CARGO` e testes como os de
+  `test_ferramentas_enviar_email.py` e `test_ferramentas_escritas_mock.py`.
 
 ## Pendências entre frentes (marcadores)
 

@@ -10,9 +10,10 @@
 - `atendimento/consultar_ticket` (leitura)
 - `atendimento/consultar_historico_contato` (leitura)
 - `atendimento/consultar_contatos_lojista` (leitura)
-- `atendimento/abrir_ticket` (escrita)
-- `atendimento/atualizar_status_ticket` (escrita)
-- `atendimento/adicionar_nota_ticket` (escrita)
+- `atendimento/abrir_chamado` (escrita com confirmação)
+- `atendimento/atualizar_situacao_chamado` (escrita com confirmação)
+- `atendimento/adicionar_nota_chamado` (escrita com confirmação)
+- `atendimento/registrar_pedido_antecipacao` (escrita com confirmação)
 
 ## Conector
 

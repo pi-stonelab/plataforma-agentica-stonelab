@@ -21,7 +21,8 @@ usuário]
   - `consultar_ticket` (leitura)
   - `consultar_historico_contato` (leitura)
   - `consultar_contatos_lojista` (leitura)
-  - `abrir_ticket` (escrita)
-  - `atualizar_status_ticket` (escrita)
-  - `adicionar_nota_ticket` (escrita)
+  - `abrir_chamado` (escrita com confirmação, ativa)
+  - `atualizar_situacao_chamado` (escrita com confirmação, ativa)
+  - `adicionar_nota_chamado` (escrita com confirmação, ativa)
+  - `registrar_pedido_antecipacao` (escrita com confirmação, ativa)
 - [preencher: pendências da área]

@@ -22,4 +22,8 @@ usuário]
   - `listar_contestacoes_cliente` (leitura)
   - `calcular_multa_atraso` (cálculo)
   - `calcular_parcelas` (cálculo)
+  - `executar_antecipacao` (escrita com confirmação, ativa, só N2)
+  - `reprocessar_liquidacao` (escrita com confirmação, ativa)
+  - `registrar_acordo` (escrita com confirmação, ativa)
+  - `aprovar_acordo` (escrita com confirmação, ativa)
 - [preencher: pendências da área]

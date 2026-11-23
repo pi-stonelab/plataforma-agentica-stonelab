@@ -7,10 +7,10 @@ ar não grava; texto livre chega mascarado ao banco; o registro não leva conte�
 
 import json
 from datetime import timedelta
-from unittest.mock import falhas
 
 import pytest
 from ferramentas import catalogo, confirmacoes, governanca
+from mock import falhas  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 from mock.modelos import (
     Acordo,
     Antecipacao,
