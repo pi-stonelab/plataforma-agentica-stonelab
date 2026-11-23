@@ -458,3 +458,17 @@ K14C5_DIA = "2026-10-14"
 K14C5_LIQUIDACAO_TEXTO = "R$ 47,91"
 K14C5_AGENDA_DO_DIA_TEXTO = "R$ 62,91"
 K14C5_DIFERENCA_CENTAVOS = 1500
+
+
+# KAN-14 caso 4: relatório semanal de receitas e perdas (base analítica, decisão A9). Semana de 08 a 14/10.
+K4_SEMANA = ("2026-10-08", "2026-10-14")
+K4_RESUMO_DA_SEMANA = {
+    "data_corte": "2026-10-14",
+    "receitas": {"mdr": "R$ 576,96", "aluguel_e_tarifas": "R$ 788,00", "total": "R$ 1.364,96"},
+    "perdas": {
+        "inadimplencia": "R$ 39,90", "concessoes_em_acordos": "R$ 0,00", "chargebacks_perdidos": "R$ 0,00",
+        "total": "R$ 39,90",
+    },
+    "resultado": "R$ 1.325,06",
+    "maior_venda": {"dia": "2026-10-13", "valor": "R$ 11.323,16"},  # a T0000647 do cenário 4
+}

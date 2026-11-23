@@ -65,6 +65,7 @@ def _todas_as_leituras(sessao):
         *consultas.vendas_por_dia(sessao)["itens"],
         *consultas.chamados_por_fila(sessao)["itens"],
         *consultas.contestacoes_por_mes(sessao)["itens"],
+        consultas.resultado_por_periodo(sessao),
     ]
 
 
@@ -95,6 +96,7 @@ LEITURAS_POR_SISTEMA = [
     ("analitica", lambda s: consultas.vendas_por_dia(s)),
     ("analitica", lambda s: consultas.chamados_por_fila(s)),
     ("analitica", lambda s: consultas.contestacoes_por_mes(s)),
+    ("analitica", lambda s: consultas.resultado_por_periodo(s)),
 ]
 
 
@@ -318,6 +320,33 @@ def test_media_da_satisfacao_em_texto(fachada):
     soma = sum(nota * quantidade for nota, quantidade in resumo["notas"].items())
     assert abs(int(inteiro) * 100 + int(centesimos) - 100 * soma / resumo["respostas"]) <= 0.5
     assert fachada.resumo_satisfacao(date(2020, 1, 1), date(2020, 1, 2), None)["media"] is None
+
+
+def test_relatorio_semanal_de_receitas_e_perdas(fachada):
+    inicio, fim = (date.fromisoformat(dia) for dia in gab.K4_SEMANA)
+    assert fachada.resumo_de_resultado(inicio, fim) == gab.K4_RESUMO_DA_SEMANA
+
+
+def test_resultado_confere_com_as_tabelas_de_origem(sessao):
+    """A base analítica do resultado soma o que as tabelas de origem dizem, até o corte."""
+    corte = regras.HOJE_DO_MOCK - timedelta(days=1)
+    resultado = consultas.resultado_por_periodo(sessao, date(2026, 1, 1), corte)
+    aluguel = sessao.scalar(text(
+        "SELECT SUM(valor_centavos) FROM faturas WHERE tipo IN ('aluguel', 'tarifa') AND situacao <> 'cancelada'"
+        " AND vencimento <= :corte"), {"corte": corte.isoformat()})
+    vencidas = sessao.scalar(text(
+        "SELECT SUM(valor_centavos) FROM faturas WHERE situacao = 'vencida' AND vencimento <= :corte"), {"corte": corte.isoformat()})
+    concessao = sessao.scalar(text(
+        "SELECT SUM(perdao_encargos_centavos + desconto_principal_centavos) FROM acordos"
+        " WHERE situacao IN ('ativo', 'quitado', 'quebrado') AND criado_em <= :corte"), {"corte": corte.isoformat()})
+    assert resultado["receita_aluguel_e_tarifas_dia_centavos"] == aluguel
+    assert resultado["inadimplencia_dia_centavos"] == vencidas
+    assert resultado["concessao_em_acordos_dia_centavos"] == (concessao or 0)
+
+
+def test_resultado_nao_ve_a_venda_de_hoje(sessao):
+    hoje = regras.HOJE_DO_MOCK
+    assert consultas.resultado_por_periodo(sessao, hoje, hoje)["maior_venda"] is None
 
 
 def test_contestacoes_agregadas_e_do_lojista_saem_separadas(fachada):

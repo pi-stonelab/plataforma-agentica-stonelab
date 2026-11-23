@@ -48,6 +48,7 @@ from .modelos import (
     AnaliticaAtualizacao,
     AnaliticaChamadosDiarios,
     AnaliticaContestacoesMensais,
+    AnaliticaResultadoDiario,
     AnaliticaVendasDiarias,
     ArtigoAjuda,
     BaseMock,
@@ -715,6 +716,10 @@ def _criar_interacoes(
 # ---------------------------------------------------------------------------------------------
 
 SITUACOES_DE_CHARGEBACK_EM_ABERTO = ("aguardando_defesa", "em_analise", "reapresentado")
+SITUACOES_DE_CHARGEBACK_PERDIDO = ("perdido", "aceito")
+# Base analítica do resultado (decisão A9): o que é receita e o que conta como concessão.
+TIPOS_DE_FATURA_QUE_SAO_RECEITA = ("aluguel", "tarifa")  # saldo negativo é dívida do lojista, não receita
+SITUACOES_DE_ACORDO_COM_CONCESSAO = ("ativo", "quitado", "quebrado")  # o pendente e o recusado ainda não concedem
 
 
 def dias_com_liquidacao_que_falhou(sessao: Session) -> set[tuple[str, date]]:
@@ -792,45 +797,44 @@ def _chave_e_contadores(tabela: dict, chave: tuple, tamanho: int) -> list[int]:
 
 
 def criar_base_analitica(sessao: Session) -> None:
-    """Cópia agregada do mundo até ontem (DOC-MOCK §4): vendas, chamados e contestações."""
+    """Cópia agregada do mundo até ontem (DOC-MOCK §4): vendas, chamados, contestações e o resultado do dia.
+
+    Lê só as colunas que soma (tuplas, não objetos), para aguentar o volume da fase 3.
+    """
     corte = data_de_corte_da_base_analitica()
     momento_de_corte = momento_de_corte_da_base_analitica()
     sessao.add(AnaliticaAtualizacao(id=1, data_corte=corte))
+    _copiar_vendas_e_contestacoes(sessao, corte, momento_de_corte)
+    _copiar_chamados(sessao, momento_de_corte)
+    _copiar_resultado(sessao, corte)
+    sessao.flush()
 
+
+def _copiar_vendas_e_contestacoes(sessao: Session, corte: date, momento_de_corte: datetime) -> None:
     vendas_por_dia: dict[tuple, list[int]] = {}
     cartao_por_mes: dict[tuple, list[int]] = {}
-    for venda in sessao.scalars(select(Venda).where(Venda.data_hora < momento_de_corte)):
-        dia = venda.data_hora.date()
-        contadores = _chave_e_contadores(vendas_por_dia, (dia, venda.modalidade), 4)
-        if venda.situacao != "aprovada":
+    vendas = sessao.execute(
+        select(Venda.data_hora, Venda.modalidade, Venda.situacao, Venda.id_lojista, Venda.valor_bruto_centavos,
+               Venda.valor_liquido_centavos)
+        .where(Venda.data_hora < momento_de_corte)
+    )
+    for momento, modalidade, situacao, id_lojista, bruto, liquido in vendas:
+        dia = momento.date()
+        contadores = _chave_e_contadores(vendas_por_dia, (dia, modalidade), 5)
+        if situacao != "aprovada":
             contadores[1] += 1
             continue
         contadores[0] += 1
-        contadores[2] += venda.valor_bruto_centavos
-        contadores[3] += venda.valor_liquido_centavos
-        if venda.modalidade != "pix":
-            _chave_e_contadores(cartao_por_mes, (f"{dia:%Y-%m}", venda.id_lojista), 2)[0] += 1
-    for (dia, modalidade), (aprovadas, negadas, bruto, liquido) in sorted(vendas_por_dia.items()):
+        contadores[2] += bruto
+        contadores[3] += liquido
+        contadores[4] = max(contadores[4], bruto)
+        if modalidade != "pix":
+            _chave_e_contadores(cartao_por_mes, (f"{dia:%Y-%m}", id_lojista), 2)[0] += 1
+    for (dia, modalidade), (aprovadas, negadas, bruto, liquido, maior) in sorted(vendas_por_dia.items()):
         sessao.add(AnaliticaVendasDiarias(
             dia=dia, modalidade=modalidade, quantidade_aprovadas=aprovadas, quantidade_negadas=negadas,
             valor_bruto_dia_centavos=bruto, valor_liquido_dia_centavos=liquido,
-            receita_mdr_dia_centavos=bruto - liquido,
-        ))
-
-    chamados_por_dia: dict[tuple, list[int]] = {}
-    for chamado in sessao.scalars(select(Chamado).where(Chamado.aberto_em < momento_de_corte)):
-        contadores = _chave_e_contadores(
-            chamados_por_dia, (chamado.aberto_em.date(), chamado.fila, chamado.prioridade), 3
-        )
-        resolvido = chamado.resolvido_em is not None and chamado.resolvido_em < momento_de_corte
-        fim = chamado.resolvido_em if resolvido else momento_de_corte
-        contadores[0] += 1
-        contadores[1] += resolvido
-        contadores[2] += fim > chamado.prazo_em
-    for (dia, fila, prioridade), (abertos, resolvidos, estourados) in sorted(chamados_por_dia.items()):
-        sessao.add(AnaliticaChamadosDiarios(
-            dia=dia, fila=fila, prioridade=prioridade, quantidade_abertos=abertos,
-            quantidade_resolvidos=resolvidos, quantidade_estourados=estourados,
+            receita_mdr_dia_centavos=bruto - liquido, maior_venda_dia_centavos=maior,
         ))
 
     # "Mais de 1% das vendas do mês em chargeback" (§7.6): o chargeback conta no mês da venda contestada.
@@ -846,7 +850,58 @@ def criar_base_analitica(sessao: Session) -> None:
             mes=mes, id_lojista=id_lojista, quantidade_vendas_cartao=vendas_cartao,
             quantidade_chargebacks=chargebacks,
         ))
-    sessao.flush()
+
+
+def _copiar_chamados(sessao: Session, momento_de_corte: datetime) -> None:
+    chamados_por_dia: dict[tuple, list[int]] = {}
+    chamados = sessao.execute(
+        select(Chamado.aberto_em, Chamado.fila, Chamado.prioridade, Chamado.resolvido_em, Chamado.prazo_em)
+        .where(Chamado.aberto_em < momento_de_corte)
+    )
+    for aberto_em, fila, prioridade, resolvido_em, prazo_em in chamados:
+        contadores = _chave_e_contadores(chamados_por_dia, (aberto_em.date(), fila, prioridade), 3)
+        resolvido = resolvido_em is not None and resolvido_em < momento_de_corte
+        fim = resolvido_em if resolvido else momento_de_corte
+        contadores[0] += 1
+        contadores[1] += resolvido
+        contadores[2] += fim > prazo_em
+    for (dia, fila, prioridade), (abertos, resolvidos, estourados) in sorted(chamados_por_dia.items()):
+        sessao.add(AnaliticaChamadosDiarios(
+            dia=dia, fila=fila, prioridade=prioridade, quantidade_abertos=abertos,
+            quantidade_resolvidos=resolvidos, quantidade_estourados=estourados,
+        ))
+
+
+def _copiar_resultado(sessao: Session, corte: date) -> None:
+    """Receita de aluguel e tarifas e as perdas do dia (KAN-14 caso 4; decisão A9 em docs/decisoes.md)."""
+    por_dia: dict[date, list[int]] = {}
+    faturas = sessao.execute(
+        select(Fatura.vencimento, Fatura.tipo, Fatura.situacao, Fatura.valor_centavos)
+        .where(Fatura.vencimento <= corte, Fatura.situacao != "cancelada")
+    )
+    for vencimento, tipo, situacao, valor in faturas:
+        contadores = _chave_e_contadores(por_dia, vencimento, 4)
+        if tipo in TIPOS_DE_FATURA_QUE_SAO_RECEITA:
+            contadores[0] += valor
+        if situacao == "vencida":
+            contadores[1] += valor
+    acordos = sessao.execute(
+        select(Acordo.criado_em, Acordo.perdao_encargos_centavos, Acordo.desconto_principal_centavos)
+        .where(Acordo.criado_em <= corte, Acordo.situacao.in_(SITUACOES_DE_ACORDO_COM_CONCESSAO))
+    )
+    for criado_em, perdao, desconto in acordos:
+        _chave_e_contadores(por_dia, criado_em, 4)[2] += perdao + desconto
+    perdidos = sessao.execute(
+        select(Chargeback.data_notificacao, Chargeback.valor_contestado_centavos)
+        .where(Chargeback.data_notificacao <= corte, Chargeback.situacao.in_(SITUACOES_DE_CHARGEBACK_PERDIDO))
+    )
+    for aviso, valor in perdidos:
+        _chave_e_contadores(por_dia, aviso, 4)[3] += valor
+    for dia, (aluguel, inadimplencia, concessao, perda) in sorted(por_dia.items()):
+        sessao.add(AnaliticaResultadoDiario(
+            dia=dia, receita_aluguel_e_tarifas_dia_centavos=aluguel, inadimplencia_dia_centavos=inadimplencia,
+            concessao_em_acordos_dia_centavos=concessao, perda_chargeback_dia_centavos=perda,
+        ))
 
 
 class _ContadorDeChamados:
@@ -1485,6 +1540,13 @@ def _verificar_base_analitica(sessao: Session) -> list[str]:
         select(Venda).where(Venda.situacao == "aprovada", Venda.data_hora < momento_de_corte)))
     if sum(linha.valor_bruto_dia_centavos for linha in linhas) != sum(v.valor_bruto_centavos for v in aprovadas):
         problemas.append("base analítica não soma as vendas aprovadas até o corte")
+    aluguel_na_base = sessao.scalar(select(func.sum(AnaliticaResultadoDiario.receita_aluguel_e_tarifas_dia_centavos)))
+    aluguel_faturado = sessao.scalar(select(func.sum(Fatura.valor_centavos)).where(
+        Fatura.vencimento <= corte, Fatura.situacao != "cancelada", Fatura.tipo.in_(TIPOS_DE_FATURA_QUE_SAO_RECEITA)))
+    if (aluguel_na_base or 0) != (aluguel_faturado or 0):
+        problemas.append("base analítica não soma o aluguel e as tarifas faturados até o corte")
+    if sessao.scalar(select(func.max(AnaliticaResultadoDiario.dia))) > corte:
+        problemas.append("base analítica com resultado depois do corte")
     return problemas
 
 

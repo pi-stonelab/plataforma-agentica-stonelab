@@ -23,6 +23,16 @@ CREATE TABLE analitica_chamados_diarios (
     CONSTRAINT ck_analitica_chamados_diarios_prioridade CHECK (prioridade IN ('baixa', 'média', 'alta', 'crítica'))
 );
 
+-- analitica_resultado_diario: O que a Stone fatura e perde por dia, até o corte, para o relatório semanal do financeiro (KAN-14 caso 4): aluguel e tarifas pelo vencimento, inadimplência (o que venceu naquele dia e segue vencido), concessões em acordos (perdão de encargos e desconto no principal, pelo dia do acordo) e chargebacks perdidos ou aceitos (pelo aviso). A receita de MDR está em analitica_vendas_diarias. Agregado e confidencial.
+CREATE TABLE analitica_resultado_diario (
+    dia DATE NOT NULL,
+    receita_aluguel_e_tarifas_dia_centavos BIGINT NOT NULL,
+    inadimplencia_dia_centavos BIGINT NOT NULL,
+    concessao_em_acordos_dia_centavos BIGINT NOT NULL,
+    perda_chargeback_dia_centavos BIGINT NOT NULL,
+    CONSTRAINT pk_analitica_resultado_diario PRIMARY KEY (dia)
+);
+
 -- analitica_vendas_diarias: Vendas por dia e modalidade, até o dia de corte. Agregado e confidencial.
 CREATE TABLE analitica_vendas_diarias (
     dia DATE NOT NULL,
@@ -32,6 +42,7 @@ CREATE TABLE analitica_vendas_diarias (
     valor_bruto_dia_centavos BIGINT NOT NULL,
     valor_liquido_dia_centavos BIGINT NOT NULL,
     receita_mdr_dia_centavos BIGINT NOT NULL,
+    maior_venda_dia_centavos BIGINT NOT NULL,
     CONSTRAINT pk_analitica_vendas_diarias PRIMARY KEY (dia, modalidade),
     CONSTRAINT ck_analitica_vendas_diarias_modalidade CHECK (modalidade IN ('debito', 'credito_a_vista', 'parcelado', 'pix'))
 );

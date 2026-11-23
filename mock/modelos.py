@@ -557,6 +557,9 @@ class AnaliticaVendasDiarias(BaseMock):
     valor_bruto_dia_centavos: Mapped[int] = mapped_column(BigInteger)
     valor_liquido_dia_centavos: Mapped[int] = mapped_column(BigInteger)
     receita_mdr_dia_centavos: Mapped[int] = mapped_column(BigInteger, comment="Bruto menos líquido: a receita de MDR.")
+    maior_venda_dia_centavos: Mapped[int] = mapped_column(
+        BigInteger, default=0, comment="Bruto da maior venda aprovada do dia (explica picos no relatório)."
+    )
 
 
 class AnaliticaChamadosDiarios(BaseMock):
@@ -594,6 +597,25 @@ class AnaliticaContestacoesMensais(BaseMock):
     quantidade_chargebacks: Mapped[int] = mapped_column(Integer)
 
 
+class AnaliticaResultadoDiario(BaseMock):
+    __tablename__ = "analitica_resultado_diario"
+    __table_args__ = (
+        {
+            "comment": "O que a Stone fatura e perde por dia, até o corte, para o relatório semanal do "
+            "financeiro (KAN-14 caso 4): aluguel e tarifas pelo vencimento, inadimplência (o que venceu "
+            "naquele dia e segue vencido), concessões em acordos (perdão de encargos e desconto no principal, "
+            "pelo dia do acordo) e chargebacks perdidos ou aceitos (pelo aviso). A receita de MDR está em "
+            "analitica_vendas_diarias. Agregado e confidencial."
+        },
+    )
+
+    dia: Mapped[date] = mapped_column(Date, primary_key=True)
+    receita_aluguel_e_tarifas_dia_centavos: Mapped[int] = mapped_column(BigInteger, default=0)
+    inadimplencia_dia_centavos: Mapped[int] = mapped_column(BigInteger, default=0)
+    concessao_em_acordos_dia_centavos: Mapped[int] = mapped_column(BigInteger, default=0)
+    perda_chargeback_dia_centavos: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
 # Sistema simulado dono de cada tabela (DOC-MOCK §4): só o dono altera; os outros leem.
 SISTEMA_DONO_DA_TABELA = {
     "lojistas": "cadastro", "contatos_lojista": "cadastro", "contas_recebimento": "cadastro",
@@ -604,10 +626,12 @@ SISTEMA_DONO_DA_TABELA = {
     "times": "diretorio", "funcionarios": "diretorio",
     "analitica_atualizacao": "analitica", "analitica_vendas_diarias": "analitica",
     "analitica_chamados_diarios": "analitica", "analitica_contestacoes_mensais": "analitica",
+    "analitica_resultado_diario": "analitica",
 }
 # De quais tabelas cada tabela da base analítica é copiada (linhagem).
 ORIGEM_DAS_TABELAS_ANALITICAS = {
     "analitica_vendas_diarias": ("vendas",),
     "analitica_chamados_diarios": ("chamados",),
     "analitica_contestacoes_mensais": ("vendas", "chargebacks"),
+    "analitica_resultado_diario": ("faturas", "acordos", "chargebacks"),
 }

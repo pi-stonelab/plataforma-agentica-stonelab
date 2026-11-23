@@ -25,6 +25,7 @@ from .modelos import (
     AnaliticaAtualizacao,
     AnaliticaChamadosDiarios,
     AnaliticaContestacoesMensais,
+    AnaliticaResultadoDiario,
     AnaliticaVendasDiarias,
     ArtigoAjuda,
     BaseMock,
@@ -857,6 +858,46 @@ def chamados_por_fila(
             for fila, abertos, resolvidos, estourados in sessao.execute(consulta)
         ]
     return {"data_corte": _iso(corte), "itens": itens}
+
+
+def resultado_por_periodo(
+    origem: Session | Engine, data_inicio: date | None = None, data_fim: date | None = None
+) -> dict:
+    """Receitas e perdas da Stone no período, até o corte, em centavos (KAN-14 caso 4).
+
+    Receitas: MDR das vendas aprovadas e aluguel e tarifas pelo vencimento. Perdas: inadimplência (o que venceu
+    no período e segue vencido), concessões em acordos e chargebacks perdidos. Mais a maior venda do período
+    (dia e valor), que explica um pico de receita.
+    """
+    falhas.verificar("analitica")
+    vendas, resultado = AnaliticaVendasDiarias, AnaliticaResultadoDiario
+    with _sessao_de(origem) as sessao:
+        corte = _corte(sessao)
+        receita_mdr = sessao.scalar(select(func.coalesce(func.sum(vendas.receita_mdr_dia_centavos), 0)).where(
+            *_periodo_ate_o_corte(vendas.dia, corte, data_inicio, data_fim)))
+        somas = sessao.execute(
+            select(*(func.coalesce(func.sum(coluna), 0) for coluna in (
+                resultado.receita_aluguel_e_tarifas_dia_centavos, resultado.inadimplencia_dia_centavos,
+                resultado.concessao_em_acordos_dia_centavos, resultado.perda_chargeback_dia_centavos,
+            ))).where(*_periodo_ate_o_corte(resultado.dia, corte, data_inicio, data_fim))
+        ).one()
+        maior = sessao.execute(
+            select(vendas.dia, vendas.maior_venda_dia_centavos)
+            .where(*_periodo_ate_o_corte(vendas.dia, corte, data_inicio, data_fim))
+            .order_by(vendas.maior_venda_dia_centavos.desc(), vendas.dia)
+            .limit(1)
+        ).first()
+    aluguel, inadimplencia, concessao, perda = (int(valor) for valor in somas)  # Decimal no Postgres
+    return {
+        "data_corte": _iso(corte),
+        "receita_mdr_dia_centavos": int(receita_mdr),
+        "receita_aluguel_e_tarifas_dia_centavos": aluguel,
+        "inadimplencia_dia_centavos": inadimplencia,
+        "concessao_em_acordos_dia_centavos": concessao,
+        "perda_chargeback_dia_centavos": perda,
+        "maior_venda": {"dia": _iso(maior.dia), "maior_venda_dia_centavos": maior.maior_venda_dia_centavos}
+        if maior else None,
+    }
 
 
 def _taxa_em_pontos_base(chargebacks: int, vendas: int) -> int | None:

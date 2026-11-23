@@ -239,7 +239,10 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "valor_bruto_dia_centavos", "valor_liquido_dia_centavos", "receita_mdr_dia_centavos",
         "quantidade_abertos", "quantidade_resolvidos", "quantidade_estourados",
         "quantidade_vendas_cartao", "quantidade_chargebacks", "taxa_chargeback_pontos_base",
-        "receita_mdr", "quantidade", "taxa_chargeback",
+        "receita_mdr", "quantidade", "taxa_chargeback", "maior_venda_dia_centavos",
+        "receita_aluguel_e_tarifas_dia_centavos", "inadimplencia_dia_centavos", "concessao_em_acordos_dia_centavos",
+        "perda_chargeback_dia_centavos", "receitas", "perdas", "resultado", "maior_venda", "aluguel_e_tarifas",
+        "inadimplencia", "concessoes_em_acordos", "chargebacks_perdidos",
         # verificação de identidade (§6.6): só diz se confere, nunca o contato
         "confere",
         # dicionário de dados (metadado): descreve o esquema, nunca o dado

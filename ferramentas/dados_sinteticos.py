@@ -444,6 +444,31 @@ def resumo_de_vendas(data_inicio, data_fim):
     return {"data_corte": resposta["data_corte"], "modalidades": modalidades, "total": total}
 
 
+def resumo_de_resultado(data_inicio, data_fim):
+    """Receitas, perdas e resultado da Stone no período, da base analítica (até ontem), com valores em texto.
+
+    {"data_corte", "receitas": {"mdr", "aluguel_e_tarifas", "total"}, "perdas": {"inadimplencia",
+    "concessoes_em_acordos", "chargebacks_perdidos", "total"}, "resultado", "maior_venda": {"dia", "valor"}}.
+    """
+    resposta = _ler(consultas.resultado_por_periodo, data_inicio, data_fim)
+    receitas = (resposta["receita_mdr_dia_centavos"], resposta["receita_aluguel_e_tarifas_dia_centavos"])
+    perdas = (
+        resposta["inadimplencia_dia_centavos"], resposta["concessao_em_acordos_dia_centavos"],
+        resposta["perda_chargeback_dia_centavos"],
+    )
+    maior = resposta["maior_venda"]
+    return {
+        "data_corte": resposta["data_corte"],
+        "receitas": {"mdr": reais(receitas[0]), "aluguel_e_tarifas": reais(receitas[1]), "total": reais(sum(receitas))},
+        "perdas": {
+            "inadimplencia": reais(perdas[0]), "concessoes_em_acordos": reais(perdas[1]),
+            "chargebacks_perdidos": reais(perdas[2]), "total": reais(sum(perdas)),
+        },
+        "resultado": reais(sum(receitas) - sum(perdas)),
+        "maior_venda": {"dia": maior["dia"], "valor": reais(maior["maior_venda_dia_centavos"])} if maior else None,
+    }
+
+
 def vendas_por_dia(data_inicio, data_fim, limite):
     """Vendas por dia da base analítica: (lista, total de dias, data de corte)."""
     resposta = _ler(consultas.vendas_por_dia, data_inicio, data_fim, limite)

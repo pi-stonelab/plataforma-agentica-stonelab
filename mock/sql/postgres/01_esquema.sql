@@ -23,6 +23,16 @@ CREATE TABLE analitica_chamados_diarios (
 );
 COMMENT ON TABLE analitica_chamados_diarios IS 'Chamados por dia de abertura, fila e prioridade, com quantos estouraram o prazo do SLA até o corte. Agregado e interno.';
 
+CREATE TABLE analitica_resultado_diario (
+    dia DATE NOT NULL,
+    receita_aluguel_e_tarifas_dia_centavos BIGINT NOT NULL,
+    inadimplencia_dia_centavos BIGINT NOT NULL,
+    concessao_em_acordos_dia_centavos BIGINT NOT NULL,
+    perda_chargeback_dia_centavos BIGINT NOT NULL,
+    CONSTRAINT pk_analitica_resultado_diario PRIMARY KEY (dia)
+);
+COMMENT ON TABLE analitica_resultado_diario IS 'O que a Stone fatura e perde por dia, até o corte, para o relatório semanal do financeiro (KAN-14 caso 4): aluguel e tarifas pelo vencimento, inadimplência (o que venceu naquele dia e segue vencido), concessões em acordos (perdão de encargos e desconto no principal, pelo dia do acordo) e chargebacks perdidos ou aceitos (pelo aviso). A receita de MDR está em analitica_vendas_diarias. Agregado e confidencial.';
+
 CREATE TABLE analitica_vendas_diarias (
     dia DATE NOT NULL,
     modalidade VARCHAR(20) NOT NULL,
@@ -31,12 +41,14 @@ CREATE TABLE analitica_vendas_diarias (
     valor_bruto_dia_centavos BIGINT NOT NULL,
     valor_liquido_dia_centavos BIGINT NOT NULL,
     receita_mdr_dia_centavos BIGINT NOT NULL,
+    maior_venda_dia_centavos BIGINT NOT NULL,
     CONSTRAINT pk_analitica_vendas_diarias PRIMARY KEY (dia, modalidade),
     CONSTRAINT ck_analitica_vendas_diarias_modalidade CHECK (modalidade IN ('debito', 'credito_a_vista', 'parcelado', 'pix'))
 );
 COMMENT ON TABLE analitica_vendas_diarias IS 'Vendas por dia e modalidade, até o dia de corte. Agregado e confidencial.';
 COMMENT ON COLUMN analitica_vendas_diarias.quantidade_negadas IS 'Negadas e canceladas.';
 COMMENT ON COLUMN analitica_vendas_diarias.receita_mdr_dia_centavos IS 'Bruto menos líquido: a receita de MDR.';
+COMMENT ON COLUMN analitica_vendas_diarias.maior_venda_dia_centavos IS 'Bruto da maior venda aprovada do dia (explica picos no relatório).';
 
 CREATE TABLE artigos_ajuda (
     codigo VARCHAR(5) NOT NULL,
