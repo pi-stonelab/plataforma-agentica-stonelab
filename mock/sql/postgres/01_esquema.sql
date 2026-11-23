@@ -1,6 +1,6 @@
 -- Mock da Stone (Plataforma Agêntica Institucional). 100% sintético: nenhum dado real.
 -- Gerado por `python -m mock.exportar` a partir de mock/modelos.py e mock/gerar.py
--- (semente 20261015, esquema versão 4). Não edite à mão: rode o exportador.
+-- (semente 20261015, esquema versão 5). Não edite à mão: rode o exportador.
 
 CREATE TABLE analitica_atualizacao (
     id INTEGER NOT NULL,
@@ -207,14 +207,18 @@ CREATE TABLE liquidacoes (
     valor_total_centavos BIGINT NOT NULL,
     situacao VARCHAR(12) NOT NULL,
     motivo_falha VARCHAR(30),
+    id_liquidacao_original INTEGER,
     CONSTRAINT pk_liquidacoes PRIMARY KEY (id),
-    CONSTRAINT ck_liquidacoes_situacao CHECK (situacao IN ('paga', 'falhou', 'devolvida')),
+    CONSTRAINT ck_liquidacoes_situacao CHECK (situacao IN ('paga', 'falhou', 'devolvida', 'reprocessada', 'agendada')),
     CONSTRAINT ck_liquidacoes_valor_nao_negativo CHECK (valor_total_centavos >= 0),
-    CONSTRAINT ck_liquidacoes_motivo_so_quando_falha CHECK ((situacao = 'paga' AND motivo_falha IS NULL) OR (situacao <> 'paga' AND motivo_falha IS NOT NULL)),
-    CONSTRAINT fk_liquidacoes_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo)
+    CONSTRAINT ck_liquidacoes_motivo_so_quando_falha CHECK ((situacao IN ('paga', 'agendada') AND motivo_falha IS NULL) OR (situacao NOT IN ('paga', 'agendada') AND motivo_falha IS NOT NULL)),
+    CONSTRAINT ck_liquidacoes_nova_tentativa_liga_a_original CHECK ((situacao = 'agendada' AND id_liquidacao_original IS NOT NULL) OR (situacao <> 'agendada' AND id_liquidacao_original IS NULL)),
+    CONSTRAINT fk_liquidacoes_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
+    CONSTRAINT fk_liquidacoes_id_liquidacao_original FOREIGN KEY(id_liquidacao_original) REFERENCES liquidacoes (id)
 );
 CREATE INDEX ix_liquidacoes_id_lojista_data ON liquidacoes (id_lojista, data);
 COMMENT ON TABLE liquidacoes IS 'Depósito diário ao lojista (recebíveis do dia menos descontos). Confidencial.';
+COMMENT ON COLUMN liquidacoes.id_liquidacao_original IS 'Na nova tentativa (agendada): a liquidação que falhou.';
 
 CREATE TABLE vendas (
     codigo VARCHAR(8) NOT NULL,
@@ -318,26 +322,6 @@ CREATE TABLE faturas (
 CREATE INDEX ix_faturas_id_lojista_vencimento ON faturas (id_lojista, vencimento);
 COMMENT ON TABLE faturas IS 'O que o lojista deve à Stone (aluguel, tarifa ou saldo negativo). Confidencial.';
 
-CREATE TABLE recebiveis (
-    codigo VARCHAR(8) NOT NULL,
-    id_venda VARCHAR(8) NOT NULL,
-    id_lojista VARCHAR(6) NOT NULL,
-    numero_parcela INTEGER NOT NULL,
-    data_prevista DATE NOT NULL,
-    valor_parcela_centavos BIGINT NOT NULL,
-    situacao VARCHAR(12) NOT NULL,
-    CONSTRAINT pk_recebiveis PRIMARY KEY (codigo),
-    CONSTRAINT ck_recebiveis_situacao CHECK (situacao IN ('previsto', 'pago', 'retido', 'bloqueado', 'antecipado')),
-    CONSTRAINT ck_recebiveis_codigo_formato CHECK (codigo LIKE 'R_______'),
-    CONSTRAINT ck_recebiveis_parcela_valida CHECK (numero_parcela BETWEEN 1 AND 12),
-    CONSTRAINT ck_recebiveis_valor_positivo CHECK (valor_parcela_centavos > 0),
-    CONSTRAINT fk_recebiveis_id_venda FOREIGN KEY(id_venda) REFERENCES vendas (codigo),
-    CONSTRAINT fk_recebiveis_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo)
-);
-CREATE INDEX ix_recebiveis_id_lojista_data_prevista ON recebiveis (id_lojista, data_prevista);
-CREATE INDEX ix_recebiveis_id_venda ON recebiveis (id_venda);
-COMMENT ON TABLE recebiveis IS 'Agenda de recebíveis (DOC-MOCK §7.2): quanto cai e quando, por parcela de venda aprovada. Pix não entra. Confidencial.';
-
 CREATE TABLE chamados (
     codigo VARCHAR(8) NOT NULL,
     protocolo VARCHAR(15) NOT NULL,
@@ -354,12 +338,15 @@ CREATE TABLE chamados (
     resumo TEXT NOT NULL,
     id_liquidacao INTEGER,
     id_fatura VARCHAR(7),
+    nivel_atendimento VARCHAR(12) NOT NULL,
+    suspeita_fraude BOOLEAN NOT NULL,
     CONSTRAINT pk_chamados PRIMARY KEY (codigo),
     CONSTRAINT ck_chamados_categoria CHECK (categoria IN ('Dúvida de produto', 'Recebimento', 'Maquininha', 'Fatura e aluguel', 'Antecipação', 'Alteração cadastral', 'Contestação')),
     CONSTRAINT ck_chamados_prioridade CHECK (prioridade IN ('baixa', 'média', 'alta', 'crítica')),
     CONSTRAINT ck_chamados_fila CHECK (fila IN ('varejo', 'pme', 'contas_chave', 'ouvidoria')),
-    CONSTRAINT ck_chamados_situacao CHECK (situacao IN ('novo', 'em_atendimento', 'aguardando_lojista', 'resolvido', 'fechado')),
+    CONSTRAINT ck_chamados_situacao CHECK (situacao IN ('novo', 'em_atendimento', 'aguardando_lojista', 'aguardando_area_interna', 'resolvido', 'fechado')),
     CONSTRAINT ck_chamados_aberto_por CHECK (aberto_por IN ('sistema', 'lojista', 'funcionario')),
+    CONSTRAINT ck_chamados_nivel_atendimento CHECK (nivel_atendimento IN ('N1', 'N2', 'supervisor')),
     CONSTRAINT ck_chamados_codigo_formato CHECK (codigo LIKE 'CH______'),
     CONSTRAINT ck_chamados_protocolo_formato CHECK (protocolo LIKE '________-______'),
     CONSTRAINT ck_chamados_prazo_depois_da_abertura CHECK (prazo_em > aberto_em),
@@ -374,6 +361,35 @@ CREATE INDEX ix_chamados_id_lojista_aberto_em ON chamados (id_lojista, aberto_em
 COMMENT ON TABLE chamados IS 'Chamados do CRM. RESTRITO: o resumo é texto livre e sai mascarado.';
 COMMENT ON COLUMN chamados.prazo_em IS 'Prazo do SLA (DOC-MOCK §6.4): regras.prazo_do_chamado.';
 COMMENT ON COLUMN chamados.resumo IS 'RESTRITO (texto livre).';
+COMMENT ON COLUMN chamados.nivel_atendimento IS 'Quem cuida (DOC-MOCK §6.3): N1, N2 ou supervisor.';
+COMMENT ON COLUMN chamados.suspeita_fraude IS 'Marcado por quem atende, como no golpe da troca de conta (§6.6).';
+
+CREATE TABLE antecipacoes (
+    codigo VARCHAR(6) NOT NULL,
+    id_lojista VARCHAR(6) NOT NULL,
+    id_chamado VARCHAR(8) NOT NULL,
+    pedida_por VARCHAR(12) NOT NULL,
+    id_executor VARCHAR(5) NOT NULL,
+    executada_em TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    valor_antecipado_bruto_centavos BIGINT NOT NULL,
+    desconto_antecipacao_centavos BIGINT NOT NULL,
+    valor_antecipado_liquido_centavos BIGINT NOT NULL,
+    taxa_antecipacao_pontos_base INTEGER NOT NULL,
+    data_credito DATE NOT NULL,
+    situacao VARCHAR(12) NOT NULL,
+    CONSTRAINT pk_antecipacoes PRIMARY KEY (codigo),
+    CONSTRAINT ck_antecipacoes_situacao CHECK (situacao IN ('executada', 'creditada')),
+    CONSTRAINT ck_antecipacoes_pedida_por CHECK (pedida_por IN ('lojista', 'funcionario')),
+    CONSTRAINT ck_antecipacoes_codigo_formato CHECK (codigo LIKE 'AN____'),
+    CONSTRAINT ck_antecipacoes_valor_bruto_positivo CHECK (valor_antecipado_bruto_centavos > 0),
+    CONSTRAINT ck_antecipacoes_liquido_e_o_bruto_menos_o_desconto CHECK (valor_antecipado_liquido_centavos = valor_antecipado_bruto_centavos - desconto_antecipacao_centavos),
+    CONSTRAINT fk_antecipacoes_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
+    CONSTRAINT fk_antecipacoes_id_chamado FOREIGN KEY(id_chamado) REFERENCES chamados (codigo),
+    CONSTRAINT fk_antecipacoes_id_executor FOREIGN KEY(id_executor) REFERENCES funcionarios (id)
+);
+CREATE INDEX ix_antecipacoes_id_lojista ON antecipacoes (id_lojista);
+COMMENT ON TABLE antecipacoes IS 'Antecipações executadas (DOC-MOCK §7.4): só com o pedido do lojista registrado num chamado. Confidencial.';
+COMMENT ON COLUMN antecipacoes.id_chamado IS 'Onde o pedido do lojista está.';
 
 CREATE TABLE interacoes (
     id SERIAL NOT NULL,
@@ -384,15 +400,19 @@ CREATE TABLE interacoes (
     texto TEXT NOT NULL,
     teste_seguranca BOOLEAN NOT NULL,
     comportamento_esperado TEXT,
+    id_funcionario VARCHAR(5),
     CONSTRAINT pk_interacoes PRIMARY KEY (id),
     CONSTRAINT ck_interacoes_autor CHECK (autor IN ('lojista', 'funcionario', 'agente')),
-    CONSTRAINT ck_interacoes_canal CHECK (canal IN ('whatsapp', 'telefone', 'chat', 'email')),
-    CONSTRAINT fk_interacoes_id_chamado FOREIGN KEY(id_chamado) REFERENCES chamados (codigo)
+    CONSTRAINT ck_interacoes_canal CHECK (canal IN ('whatsapp', 'telefone', 'chat', 'email', 'interno')),
+    CONSTRAINT ck_interacoes_nota_interna_de_funcionario CHECK (canal <> 'interno' OR (autor = 'funcionario' AND id_funcionario IS NOT NULL)),
+    CONSTRAINT fk_interacoes_id_chamado FOREIGN KEY(id_chamado) REFERENCES chamados (codigo),
+    CONSTRAINT fk_interacoes_id_funcionario FOREIGN KEY(id_funcionario) REFERENCES funcionarios (id)
 );
 CREATE INDEX ix_interacoes_id_chamado_data_hora ON interacoes (id_chamado, data_hora);
 COMMENT ON TABLE interacoes IS 'Mensagens dos chamados. RESTRITO: texto livre, por onde chegaria uma injeção de comando.';
 COMMENT ON COLUMN interacoes.texto IS 'RESTRITO (texto livre). Sempre dado, nunca ordem.';
 COMMENT ON COLUMN interacoes.teste_seguranca IS 'Marca o dado de teste de segurança (DOC-MOCK §10.3).';
+COMMENT ON COLUMN interacoes.id_funcionario IS 'Quem escreveu e confirmou, nas mensagens gravadas pela plataforma.';
 
 CREATE TABLE pesquisas_satisfacao (
     id SERIAL NOT NULL,
@@ -411,3 +431,25 @@ CREATE INDEX ix_pesquisas_satisfacao_respondida_em ON pesquisas_satisfacao (resp
 COMMENT ON TABLE pesquisas_satisfacao IS 'Pesquisa CSAT de um chamado resolvido (DOC-MOCK §6.7). RESTRITO: o comentário é texto livre do lojista.';
 COMMENT ON COLUMN pesquisas_satisfacao.comentario IS 'RESTRITO (texto livre). Sempre dado, nunca ordem.';
 COMMENT ON COLUMN pesquisas_satisfacao.teste_seguranca IS 'Marca o dado de teste de segurança (DOC-MOCK §10.3).';
+
+CREATE TABLE recebiveis (
+    codigo VARCHAR(8) NOT NULL,
+    id_venda VARCHAR(8) NOT NULL,
+    id_lojista VARCHAR(6) NOT NULL,
+    numero_parcela INTEGER NOT NULL,
+    data_prevista DATE NOT NULL,
+    valor_parcela_centavos BIGINT NOT NULL,
+    situacao VARCHAR(12) NOT NULL,
+    id_antecipacao VARCHAR(6),
+    CONSTRAINT pk_recebiveis PRIMARY KEY (codigo),
+    CONSTRAINT ck_recebiveis_situacao CHECK (situacao IN ('previsto', 'pago', 'retido', 'bloqueado', 'antecipado')),
+    CONSTRAINT ck_recebiveis_codigo_formato CHECK (codigo LIKE 'R_______'),
+    CONSTRAINT ck_recebiveis_parcela_valida CHECK (numero_parcela BETWEEN 1 AND 12),
+    CONSTRAINT ck_recebiveis_valor_positivo CHECK (valor_parcela_centavos > 0),
+    CONSTRAINT fk_recebiveis_id_venda FOREIGN KEY(id_venda) REFERENCES vendas (codigo),
+    CONSTRAINT fk_recebiveis_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
+    CONSTRAINT fk_recebiveis_id_antecipacao FOREIGN KEY(id_antecipacao) REFERENCES antecipacoes (codigo)
+);
+CREATE INDEX ix_recebiveis_id_lojista_data_prevista ON recebiveis (id_lojista, data_prevista);
+CREATE INDEX ix_recebiveis_id_venda ON recebiveis (id_venda);
+COMMENT ON TABLE recebiveis IS 'Agenda de recebíveis (DOC-MOCK §7.2): quanto cai e quando, por parcela de venda aprovada. Pix não entra. Confidencial.';

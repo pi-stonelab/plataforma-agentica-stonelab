@@ -75,6 +75,7 @@ from .regras import (
     DOCUMENTOS_POR_MOTIVO,
     FILA_OUVIDORIA,
     HOJE_DO_MOCK,
+    NIVEL_DE_ATENDIMENTO_POR_CATEGORIA,
     PLANO_POR_PORTE,
     PRAZO_DE_DEFESA_DO_CHARGEBACK_DIAS,
     PRAZO_DO_MED_DIAS,
@@ -968,6 +969,7 @@ class _ContadorDeChamados:
         self._por_dia[dia] += 1
         protocolo = f"{dia:%Y%m%d}-{self._por_dia[dia]:06d}"
         prazo = prazo_do_chamado(aberto_em, campos["prioridade"], campos["fila"])
+        campos.setdefault("nivel_atendimento", NIVEL_DE_ATENDIMENTO_POR_CATEGORIA[campos["categoria"]])
         return Chamado(codigo=f"CH{self.total:06d}", protocolo=protocolo, aberto_em=aberto_em,
                        prazo_em=prazo, **campos)
 
