@@ -55,10 +55,8 @@ def _recusa(funcao, *argumentos, **opcoes):
     return erro.value.tipo_erro, erro.value.mensagem
 
 
-def _abrir(engine, codigo="M00001", categoria="Maquininha", funcionario=ANA, nivel="N1", **opcoes):
-    return escritas.abrir_chamado(
-        engine, codigo, categoria, "Maquininha não liga desde cedo.", "whatsapp", funcionario, nivel, **opcoes
-    )
+def _abrir(engine, codigo="M00001", categoria="Maquininha", funcionario=ANA, **opcoes):
+    return escritas.abrir_chamado(engine, codigo, categoria, "Maquininha não liga desde cedo.", "whatsapp", funcionario, **opcoes)
 
 
 # --- abrir chamado (§6.3 e §6.4) ---------------------------------------------------------------
@@ -94,7 +92,7 @@ def test_categoria_do_n2_ou_valor_acima_de_mil_reais_vai_para_a_fila_do_n2_sem_r
     for chamado in (cadastral, recebimento):
         assert (chamado["nivel_atendimento"], chamado["situacao"], chamado["id_responsavel"]) == ("N2", "novo", None)
     assert _abrir(engine, categoria="Recebimento", valor_envolvido_centavos=100000)["nivel_atendimento"] == "N1"
-    assert _abrir(engine, categoria="Alteração cadastral", funcionario=BRUNO, nivel="N2")["id_responsavel"] == BRUNO
+    assert _abrir(engine, categoria="Alteração cadastral", funcionario=BRUNO)["id_responsavel"] == BRUNO
 
 
 @pytest.mark.parametrize(
@@ -112,8 +110,8 @@ def test_abrir_chamado_recusa_sem_gravar(engine, opcoes, tipo):
 
 
 def test_canal_e_resumo_invalidos_sao_recusados(engine):
-    assert _recusa(escritas.abrir_chamado, engine, "M00001", "Maquininha", "x", "pombo", ANA, "N1")[0] == "parametro_invalido"
-    assert _recusa(escritas.abrir_chamado, engine, "M00001", "Maquininha", "  ", "chat", ANA, "N1")[0] == "parametro_invalido"
+    assert _recusa(escritas.abrir_chamado, engine, "M00001", "Maquininha", "x", "pombo", ANA)[0] == "parametro_invalido"
+    assert _recusa(escritas.abrir_chamado, engine, "M00001", "Maquininha", "  ", "chat", ANA)[0] == "parametro_invalido"
 
 
 def test_funcionario_afastado_nao_grava(engine):
@@ -193,66 +191,66 @@ def test_nota_recusa_chamado_fechado_de_outro_lojista_e_tipo_desconhecido(engine
 
 
 def test_pegar_chamado_novo_poe_quem_pegou_e_resolver_marca_a_hora(engine):
-    pego = escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, "atendente_n1", nova_situacao="em_atendimento")
+    pego = escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, nova_situacao="em_atendimento")
     assert (pego["situacao"], pego["id_responsavel"]) == ("em_atendimento", ANA)
-    escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, "atendente_n1", nova_situacao="resolvido")
+    escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, nova_situacao="resolvido")
     assert _ler(engine, Chamado, gab.C1_CHAMADO).resolvido_em == AGORA
-    reaberto = escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, "atendente_n1", nova_situacao="em_atendimento")
+    reaberto = escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, nova_situacao="em_atendimento")
     assert reaberto["situacao"] == "em_atendimento" and _ler(engine, Chamado, gab.C1_CHAMADO).resolvido_em is None
 
 
 @pytest.mark.parametrize("nova", ["resolvido", "fechado", "aguardando_lojista", "novo"])
 def test_passagens_fora_do_ciclo_sao_recusadas(engine, nova):
     assert _ler(engine, Chamado, gab.C1_CHAMADO).situacao == "novo"
-    tipo, _ = _recusa(escritas.atualizar_chamado, engine, "M00001", gab.C1_CHAMADO, ANA, "atendente_n1", nova_situacao=nova)
+    tipo, _ = _recusa(escritas.atualizar_chamado, engine, "M00001", gab.C1_CHAMADO, ANA, nova_situacao=nova)
     assert tipo == "parametro_invalido" and _ler(engine, Chamado, gab.C1_CHAMADO).situacao == "novo"
 
 
 def test_n1_nao_mexe_na_situacao_de_chamado_do_n2_e_o_n2_mexe(engine):
     assert _recusa(
-        escritas.atualizar_chamado, engine, "M00006", "CH000063", ANA, "atendente_n1", nova_situacao="em_atendimento"
+        escritas.atualizar_chamado, engine, "M00006", "CH000063", ANA, nova_situacao="em_atendimento"
     )[0] == "permissao_negada"
-    feito = escritas.atualizar_chamado(engine, "M00006", "CH000063", BRUNO, "especialista_n2", nova_situacao="em_atendimento")
+    feito = escritas.atualizar_chamado(engine, "M00006", "CH000063", BRUNO, nova_situacao="em_atendimento")
     assert feito["id_responsavel"] == BRUNO
 
 
 def test_so_a_ouvidoria_muda_o_caso_da_ouvidoria_cenario_9(engine):
-    for funcionario, cargo in ((ANA, "atendente_n1"), (SUPERVISORA, "supervisor_atendimento")):
+    for funcionario in (ANA, SUPERVISORA):
         tipo, mensagem = _recusa(
-            escritas.atualizar_chamado, engine, "M00007", "CH000066", funcionario, cargo, nova_situacao="resolvido"
+            escritas.atualizar_chamado, engine, "M00007", "CH000066", funcionario, nova_situacao="resolvido"
         )
         assert tipo == "permissao_negada" and "ouvidoria" in mensagem
     assert escritas.atualizar_chamado(
-        engine, "M00007", "CH000066", OUVIDORIA, "analista_ouvidoria", nova_situacao="resolvido"
+        engine, "M00007", "CH000066", OUVIDORIA, nova_situacao="resolvido"
     )["situacao"] == "resolvido"
 
 
 def test_suspeita_de_fraude_marca_e_sobe_para_o_n2_cenario_6(engine):
     _abrir(engine, codigo="M00001", categoria="Recebimento")  # um chamado do N1, para ver a subida
-    feito = escritas.atualizar_chamado(engine, "M00001", "CH000071", ANA, "atendente_n1", suspeita_fraude=True)
+    feito = escritas.atualizar_chamado(engine, "M00001", "CH000071", ANA, suspeita_fraude=True)
     assert (feito["suspeita_fraude"], feito["nivel_atendimento"], feito["situacao"], feito["id_responsavel"]) == (
         True, "N2", "novo", None
     )
 
 
 def test_encaminhar_so_para_cima_e_nunca_chamado_resolvido(engine):
-    escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, "atendente_n1", encaminhar_para="N2")
+    escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, encaminhar_para="N2")
     assert _ler(engine, Chamado, gab.C1_CHAMADO).nivel_atendimento == "N2"
     assert _recusa(
-        escritas.atualizar_chamado, engine, "M00001", gab.C1_CHAMADO, BRUNO, "especialista_n2", encaminhar_para="N1"
+        escritas.atualizar_chamado, engine, "M00001", gab.C1_CHAMADO, BRUNO, encaminhar_para="N1"
     )[0] == "parametro_invalido"
-    escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, BRUNO, "especialista_n2", nova_situacao="em_atendimento")
-    escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, BRUNO, "especialista_n2", nova_situacao="resolvido")
+    escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, BRUNO, nova_situacao="em_atendimento")
+    escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, BRUNO, nova_situacao="resolvido")
     assert _recusa(
-        escritas.atualizar_chamado, engine, "M00001", gab.C1_CHAMADO, BRUNO, "especialista_n2", encaminhar_para="supervisor"
+        escritas.atualizar_chamado, engine, "M00001", gab.C1_CHAMADO, BRUNO, encaminhar_para="supervisor"
     )[0] == "parametro_invalido"
 
 
 def test_cargo_que_nao_atende_e_pedido_sem_mudanca_sao_recusados(engine):
     assert _recusa(
-        escritas.atualizar_chamado, engine, "M00001", gab.C1_CHAMADO, COBRANCA, "analista_cobranca", nova_situacao="em_atendimento"
+        escritas.atualizar_chamado, engine, "M00001", gab.C1_CHAMADO, COBRANCA, nova_situacao="em_atendimento"
     )[0] == "permissao_negada"
-    assert _recusa(escritas.atualizar_chamado, engine, "M00001", gab.C1_CHAMADO, ANA, "atendente_n1")[0] == (
+    assert _recusa(escritas.atualizar_chamado, engine, "M00001", gab.C1_CHAMADO, ANA)[0] == (
         "parametro_invalido"
     )
 
@@ -466,8 +464,8 @@ def _operacoes(engine):
         conexao.execute(text("UPDATE contas_recebimento SET situacao = 'ativa' WHERE id_lojista = 'M00001'"))
     yield lambda: _abrir(engine)
     yield lambda: escritas.adicionar_nota(engine, "M00001", gab.C1_CHAMADO, "Ok.", "nota_interna", ANA, escrita_pelo_agente=True)
-    yield lambda: escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, "atendente_n1", nova_situacao="em_atendimento")
-    yield lambda: escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, "atendente_n1", suspeita_fraude=True)
+    yield lambda: escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, nova_situacao="em_atendimento")
+    yield lambda: escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, suspeita_fraude=True)
     yield lambda: escritas.reprocessar_liquidacao(engine, "M00001", _id_da_liquidacao_do_cenario_1(engine), RECEBIVEIS)
     yield lambda: escritas.registrar_acordo(engine, "M00003", (), 4, None, False, 0, COBRANCA)
     yield lambda: escritas.decidir_acordo(engine, "AC0001", True, COORDENADORA)

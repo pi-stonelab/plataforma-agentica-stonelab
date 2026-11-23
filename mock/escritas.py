@@ -133,12 +133,36 @@ def _acima(nivel: str, outro: str) -> bool:
     return ORDEM_DOS_NIVEIS.index(nivel) > ORDEM_DOS_NIVEIS.index(outro)
 
 
-def _nivel_que_atende(categoria: str, valor_envolvido_centavos: int | None) -> str:
-    """§6.3 e §6.5: o nível da categoria, ou N2 quando o valor envolvido passa de R$ 1.000."""
+def _nivel_de_atendimento(funcionario: Funcionario) -> str:
+    """O nível de quem atende chamados, pelo cargo do diretório (nunca pelo que quem chama diz)."""
+    nivel = regras.NIVEL_DE_ATENDIMENTO_DO_CARGO.get(funcionario.cargo)
+    if nivel is None:
+        raise EscritaRecusada("permissao_negada", "Seu cargo não atende chamados.")
+    return nivel
+
+
+def classificar_chamado(
+    categoria: str,
+    fila: str,
+    impede_vender: bool = False,
+    valor_envolvido_centavos: int | None = None,
+    nivel_minimo: str | None = None,
+) -> dict:
+    """Prioridade (§6.3), nível (§6.3 e §6.5) e prazo (§6.4) de um chamado aberto agora, sem banco: a prévia e a
+    abertura usam a mesma conta. O nível é o da categoria, N2 quando o valor envolvido passa de R$ 1.000, e nunca
+    abaixo de `nivel_minimo`. Máquina que não deixa vender é crítica."""
+    if categoria not in CATEGORIAS_DE_CHAMADO:
+        raise EscritaRecusada("parametro_invalido", "Categoria de chamado desconhecida.")
+    prioridade = regras.PRIORIDADE_POR_CATEGORIA[categoria]
+    if impede_vender and categoria == regras.CATEGORIA_QUE_FICA_CRITICA_SE_NAO_VENDE:
+        prioridade = "crítica"
     nivel = regras.NIVEL_DE_ATENDIMENTO_POR_CATEGORIA[categoria]
     if valor_envolvido_centavos and valor_envolvido_centavos > regras.VALOR_QUE_SOBE_O_CHAMADO_PARA_O_N2_CENTAVOS:
         nivel = max(nivel, "N2", key=ORDEM_DOS_NIVEIS.index)
-    return nivel
+    if nivel_minimo:
+        nivel = max(nivel, nivel_minimo, key=ORDEM_DOS_NIVEIS.index)
+    prazo = regras.prazo_do_chamado(regras.AGORA_DO_MOCK, prioridade, fila)
+    return {"prioridade": prioridade, "nivel_atendimento": nivel, "prazo_em": prazo}
 
 
 def _descrever_chamado(chamado: Chamado) -> dict:
@@ -168,7 +192,6 @@ def abrir_chamado(
     resumo: str,
     canal: str,
     id_funcionario: str,
-    nivel_de_quem_abre: str,
     impede_vender: bool = False,
     valor_envolvido_centavos: int | None = None,
     nivel_minimo: str | None = None,
@@ -178,37 +201,30 @@ def abrir_chamado(
     Quem abre fica responsável se o nível dele dá conta do chamado; senão o chamado fica "novo", na fila do nível
     certo. `nivel_minimo` sobe o nível (o pedido de antecipação vai para o N2).
     """
-    if categoria not in CATEGORIAS_DE_CHAMADO:
-        raise EscritaRecusada("parametro_invalido", "Categoria de chamado desconhecida.")
     if canal not in CANAIS:
         raise EscritaRecusada("parametro_invalido", "Canal desconhecido.")
     if not resumo.strip():
         raise EscritaRecusada("parametro_invalido", "O resumo não pode ficar vazio.")
     with _transacao(engine, "cadastro", "crm") as sessao:
         lojista = _lojista(sessao, codigo_lojista)
-        _funcionario_ativo(sessao, id_funcionario)
-        prioridade = regras.PRIORIDADE_POR_CATEGORIA[categoria]
-        if impede_vender and categoria == regras.CATEGORIA_QUE_FICA_CRITICA_SE_NAO_VENDE:
-            prioridade = "crítica"
-        nivel = _nivel_que_atende(categoria, valor_envolvido_centavos)
-        if nivel_minimo and _acima(nivel_minimo, nivel):
-            nivel = nivel_minimo
-        fica_com_quem_abre = not _acima(nivel, nivel_de_quem_abre)
+        nivel_de_quem_abre = _nivel_de_atendimento(_funcionario_ativo(sessao, id_funcionario))
+        classe = classificar_chamado(categoria, lojista.carteira, impede_vender, valor_envolvido_centavos, nivel_minimo)
+        fica_com_quem_abre = not _acima(classe["nivel_atendimento"], nivel_de_quem_abre)
         momento = regras.AGORA_DO_MOCK
         chamado = Chamado(
             codigo=_proximo_codigo(sessao, Chamado.codigo, "CH", 6),
             protocolo=_proximo_protocolo(sessao, momento),
             id_lojista=lojista.codigo,
             categoria=categoria,
-            prioridade=prioridade,
+            prioridade=classe["prioridade"],
             fila=lojista.carteira,
             id_responsavel=id_funcionario if fica_com_quem_abre else None,
             situacao="em_atendimento" if fica_com_quem_abre else "novo",
             aberto_por="funcionario",
             aberto_em=momento,
-            prazo_em=regras.prazo_do_chamado(momento, prioridade, lojista.carteira),
+            prazo_em=classe["prazo_em"],
             resumo=resumo.strip(),
-            nivel_atendimento=nivel,
+            nivel_atendimento=classe["nivel_atendimento"],
             suspeita_fraude=False,
         )
         sessao.add(chamado)
@@ -270,7 +286,6 @@ def atualizar_chamado(
     codigo_lojista: str,
     codigo_chamado: str,
     id_funcionario: str,
-    cargo: str,
     nova_situacao: str | None = None,
     encaminhar_para: str | None = None,
     suspeita_fraude: bool = False,
@@ -286,16 +301,14 @@ def atualizar_chamado(
     """
     if nova_situacao is None and encaminhar_para is None and not suspeita_fraude:
         raise EscritaRecusada("parametro_invalido", "Diga o que muda: situação, encaminhamento ou suspeita de fraude.")
-    nivel_do_funcionario = regras.NIVEL_DE_ATENDIMENTO_DO_CARGO.get(cargo)
-    if nivel_do_funcionario is None:
-        raise EscritaRecusada("permissao_negada", "Seu cargo não atende chamados.")
     with _transacao(engine, "crm") as sessao:
-        _funcionario_ativo(sessao, id_funcionario)
+        funcionario = _funcionario_ativo(sessao, id_funcionario)
+        nivel_do_funcionario = _nivel_de_atendimento(funcionario)
         chamado = _chamado_do_lojista(sessao, codigo_lojista, codigo_chamado)
         if chamado.situacao == "fechado":
             raise EscritaRecusada("parametro_invalido", "O chamado está fechado: um novo contato abre outro chamado.")
         if nova_situacao is not None or encaminhar_para is not None:
-            _conferir_quem_mexe(chamado, cargo, nivel_do_funcionario)
+            _conferir_quem_mexe(chamado, funcionario.cargo, nivel_do_funcionario)
         if nova_situacao is not None:
             _mudar_situacao(chamado, nova_situacao, id_funcionario)
         destino = encaminhar_para
