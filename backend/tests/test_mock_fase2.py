@@ -14,7 +14,10 @@ from mock.consultas import motivos_de_recusa_da_antecipacao
 from mock.gerar import (
     ACORDOS,
     COMENTARIO_ARMADILHA,
+    CONTA_EM_VERIFICACAO,
     DIVERGENCIAS_DE_LIQUIDACAO,
+    FAIXA_DA_NOTA,
+    _opcoes_de_comentario,
     recebiveis_da_venda,
     recriar,
     verificar,
@@ -111,9 +114,15 @@ def test_as_linhas_da_fase_1_continuam_iguais(engine, tabela):
     colunas, filtro, digest, quantidade = FASE_1_CONGELADA[tabela]
     sql = f"SELECT {colunas} FROM {tabela}" + (f" WHERE {filtro}" if filtro else "") + " ORDER BY 1"
     with engine.connect() as conexao:
-        linhas = [tuple(linha) for linha in conexao.execute(text(sql))]
+        resultado = conexao.execute(text(sql))
+        nomes = list(resultado.keys())
+        linhas = [tuple(linha) for linha in resultado]
     if tabela == "liquidacoes":
         linhas = [_sem_as_divergencias_plantadas(linha) for linha in linhas]
+    if tabela == "contas_recebimento":  # a conta em verificação da quarta recusa da antecipação era "ativa"
+        dono, situacao = nomes.index("id_lojista"), nomes.index("situacao")
+        linhas = [(*linha[:situacao], "ativa", *linha[situacao + 1:]) if linha[dono] == CONTA_EM_VERIFICACAO
+                  else linha for linha in linhas]
     assert (hashlib.sha256(repr(linhas).encode()).hexdigest()[:16], len(linhas)) == (digest, quantidade)
 
 
@@ -358,6 +367,22 @@ def test_pesquisas_so_de_chamado_resolvido_e_depois_da_resolucao(sessao):
         assert chamado.resolvido_em is not None and pesquisa.respondida_em > chamado.resolvido_em
         assert 1 <= pesquisa.nota <= 5
     assert {p.nota for p in pesquisas} == {1, 2, 3, 4, 5}
+
+
+def test_comentario_de_pesquisa_combina_com_a_categoria_e_a_nota_do_chamado(sessao):
+    plantados = {gab.C11_COMENTARIO_ARMADILHA_NO_CHAMADO, *gab.C9_CHAMADOS_FECHADOS}
+    com_comentario = [p for p in sessao.scalars(select(PesquisaSatisfacao)) if p.comentario]
+    sorteados = [p for p in com_comentario if p.id_chamado not in plantados]
+    assert sorteados
+    for pesquisa in sorteados:
+        chamado = sessao.get(Chamado, pesquisa.id_chamado)
+        assert pesquisa.comentario in _opcoes_de_comentario(chamado.categoria, pesquisa.nota), pesquisa.id_chamado
+    assert len({p.comentario for p in com_comentario}) * 2 > len(com_comentario)  # variados, não um bordão
+    assert set(FAIXA_DA_NOTA) == {1, 2, 3, 4, 5}
+
+
+def test_conta_em_verificacao_recusa_a_antecipacao(sessao):
+    assert motivos_de_recusa_da_antecipacao(sessao, CONTA_EM_VERIFICACAO) == ["conta_em_verificacao"]
 
 
 def test_comentario_armadilha_marcado_e_unico(sessao):

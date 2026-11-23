@@ -378,6 +378,10 @@ DIVERGENCIAS_DE_LIQUIDACAO = (DIVERGENCIA_DE_LIQUIDACAO, DIVERGENCIA_DO_CENARIO_
 # outras, para nenhum código mudar.
 VENDA_DO_LASTRO_CENARIO_1 = datetime.combine(date(2026, 9, 14), time(11, 40))
 
+# Quarta recusa da antecipação (§7.4): a Fisio em Casa Silva trocou a conta de recebimento ontem pelo N2, e a
+# conta nova fica 24 horas em verificação. Só a situação da conta muda (a linha é da fase 1).
+CONTA_EM_VERIFICACAO = "M00019"
+
 # Contestação do CH000017 (fase 1, M00006): o chargeback da venda que o lojista questionou em julho. A defesa
 # foi enviada e o caso foi reapresentado ao banco; a decisão sai em até 120 dias do aviso.
 CHARGEBACK_REAPRESENTADO = ("CB00003", "M00006", "CH000017", "valor_divergente")
@@ -388,13 +392,60 @@ TAXA_DE_COMENTARIO_NA_PESQUISA = 0.5
 HORAS_ATE_RESPONDER_A_PESQUISA = 2
 NOTAS_DA_PESQUISA = (5, 4, 3, 2, 1)
 PESOS_DAS_NOTAS = (45, 25, 15, 8, 7)
-COMENTARIOS_POR_NOTA = {
-    5: ("Resolveram rápido, obrigado.", "Atendimento excelente."),
-    4: ("Bom atendimento, mas demorou um pouco.", "Resolveu, poderia ser mais rápido."),
-    3: ("Resolveu, mas precisei explicar duas vezes.",),
-    2: ("Demorou muito para resolver.", "Fui transferido várias vezes."),
-    1: ("Não resolveram meu problema.", "Ninguém me deu retorno."),
+# Comentários por categoria do chamado e faixa de nota ("boa": 4 e 5; "media": 3; "ruim": 1 e 2). O que não
+# é da categoria cai nos gerais. Texto livre de lojista: classificado como RESTRITO (comentario).
+FAIXA_DA_NOTA = {5: "boa", 4: "boa", 3: "media", 2: "ruim", 1: "ruim"}
+COMENTARIOS_GERAIS = {
+    "boa": ("Resolveram rápido, obrigado.", "Atendimento muito educado e direto ao ponto."),
+    "media": ("Resolveu, mas precisei explicar duas vezes.", "Demorou um pouco para me responderem."),
+    "ruim": ("Fui transferido três vezes até alguém entender o problema.", "Ninguém me deu retorno no prazo."),
 }
+COMENTARIOS_POR_CATEGORIA = {
+    "Recebimento": {
+        "boa": ("Explicaram direitinho por que o depósito caiu em outro dia.",
+                "Me mostraram a agenda e entendi quando cada parcela cai."),
+        "media": ("Entendi a diferença do depósito, mas a explicação veio só no segundo contato.",),
+        "ruim": ("Ninguém soube explicar por que o depósito veio menor.",),
+    },
+    "Maquininha": {
+        "boa": ("Trocaram a maquininha no mesmo dia, nem parei de vender.",
+                "Resolveram por telefone em poucos minutos, a maquininha voltou a funcionar."),
+        "media": ("Trocaram a maquininha, mas fiquei dois dias vendendo só por Pix.",
+                  "Resolveu, mas a atualização remota precisou de duas tentativas."),
+        "ruim": ("Fiquei três dias sem vender esperando a maquininha nova.",),
+    },
+    "Fatura e aluguel": {
+        "boa": ("Mandaram a segunda via do boleto na hora.", "Explicaram a cobrança do aluguel com calma."),
+        "media": ("Paguei o aluguel, mas ainda não entendi por que foi cobrado este mês.",),
+        "ruim": ("Ninguém explicou por que o aluguel foi cobrado se eu vendi acima do mínimo.",),
+    },
+    "Antecipação": {
+        "boa": ("A simulação da antecipação veio clara, com o valor que eu ia receber.",),
+        "media": ("Simularam a antecipação, mas a taxa só ficou clara no fim.",),
+        "ruim": ("Pedi para antecipar e ninguém me disse por que foi recusado.",),
+    },
+    "Alteração cadastral": {
+        "boa": ("Atualizaram o meu telefone rapidinho.",),
+        "media": ("Atualizaram o endereço, mas pediram os mesmos dados duas vezes.",),
+        "ruim": ("Demoraram uma semana para mudar um telefone.",),
+    },
+    "Dúvida de produto": {
+        "boa": ("Me ensinaram a ver o total vendido na semana, ajudou muito.",),
+        "media": ("Responderam, mas mandaram um link em vez de explicar.",),
+        "ruim": ("Ninguém soube responder a minha dúvida sobre a maquininha.",),
+    },
+    "Contestação": {
+        "boa": ("Me disseram quais documentos mandar e o prazo, ficou fácil.",),
+        "media": ("Ajudaram com a contestação, mas o prazo estava quase no fim.",),
+        "ruim": ("Perdi a contestação porque me avisaram dos documentos tarde.",),
+    },
+}
+
+
+def _opcoes_de_comentario(categoria: str, nota: int) -> tuple[str, ...]:
+    """Os comentários da categoria do chamado; sem nenhum para ela, os gerais da faixa."""
+    faixa = FAIXA_DA_NOTA[nota]
+    return COMENTARIOS_POR_CATEGORIA.get(categoria, {}).get(faixa) or COMENTARIOS_GERAIS[faixa]
 
 
 class ErroPessoasTeste(ValueError):
@@ -771,7 +822,7 @@ def criar_pesquisas_satisfacao(sessao: Session, rng: random.Random) -> None:
         nota = rng.choices(NOTAS_DA_PESQUISA, weights=PESOS_DAS_NOTAS)[0]
         comentario = None
         if rng.random() < TAXA_DE_COMENTARIO_NA_PESQUISA:
-            comentario = rng.choice(COMENTARIOS_POR_NOTA[nota])
+            comentario = rng.choice(_opcoes_de_comentario(chamado.categoria, nota))
         sessao.add(PesquisaSatisfacao(
             id_chamado=chamado.codigo, nota=nota, comentario=comentario,
             respondida_em=chamado.resolvido_em + timedelta(hours=HORAS_ATE_RESPONDER_A_PESQUISA),
@@ -949,6 +1000,7 @@ def plantar_cenarios(
     _plantar_divergencias_de_liquidacao(sessao)
     _plantar_lastro_do_cenario_1(sessao)
     _plantar_chargeback_reapresentado(sessao)
+    _plantar_conta_em_verificacao(sessao)
     sessao.flush()
 
 
@@ -1313,6 +1365,12 @@ def _plantar_lastro_do_cenario_1(sessao: Session) -> None:
     bruto = _bruto_que_da_o_liquido(valor, pontos_base)
     venda = _plantar_venda(sessao, "M00001", VENDA_DO_LASTRO_CENARIO_1, "credito_a_vista", bruto)
     venda.valor_liquido_centavos = valor  # _bruto_que_da_o_liquido pode passar 1 centavo: o líquido é o da liquidação
+
+
+def _plantar_conta_em_verificacao(sessao: Session) -> None:
+    """A conta nova da M00019 está nas 24 horas de verificação: a antecipação fica recusada até lá."""
+    conta = sessao.scalar(select(ContaRecebimento).where(ContaRecebimento.id_lojista == CONTA_EM_VERIFICACAO))
+    conta.situacao = "em_verificacao"
 
 
 def _plantar_chargeback_reapresentado(sessao: Session) -> None:
