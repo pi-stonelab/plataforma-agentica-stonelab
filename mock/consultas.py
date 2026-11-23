@@ -361,9 +361,6 @@ def buscar_chamado(origem: Session | Engine, codigo_lojista: str, codigo_chamado
 # Agenda de recebíveis e antecipação (core, DOC-MOCK §7.2 e §7.4)
 # ---------------------------------------------------------------------------------------------
 
-TETO_PARA_CALCULO = 1000  # recebíveis que uma simulação de antecipação lê de uma vez (nunca vão ao modelo)
-
-
 def buscar_recebiveis(
     origem: Session | Engine,
     codigo: str,
@@ -412,25 +409,23 @@ def resumo_da_agenda(origem: Session | Engine, codigo: str) -> dict:
 
 
 def recebiveis_para_antecipacao(origem: Session | Engine, codigo: str) -> list[dict]:
-    """Parcelas futuras que podem ser antecipadas (situação "previsto"): data e valor em centavos.
+    """O que dá para antecipar hoje, parcela por parcela: [{"data_prevista", "valor_centavos"}].
 
-    Retida e bloqueada ficam de fora (DOC-MOCK §7.4). Sem o teto de 50 linhas: é para calcular, não para
-    listar ao modelo (teto de segurança em TETO_PARA_CALCULO).
+    Só parcela "previsto" (retida e bloqueada ficam de fora, §7.4) e que cai DEPOIS do dia em que o dinheiro
+    da antecipação cairia (`regras.data_de_credito_da_antecipacao`): a de amanhã já chega amanhã. Sem teto de
+    linhas: o desconto é calculado recebível por recebível (§7.4), e nada disso vai ao modelo.
     """
     falhas.verificar("core")
     consulta = (
         select(Recebivel.data_prevista, Recebivel.valor_parcela_centavos)
         .where(
             Recebivel.id_lojista == codigo, Recebivel.situacao == "previsto",
-            Recebivel.data_prevista >= regras.HOJE_DO_MOCK,
+            Recebivel.data_prevista > regras.data_de_credito_da_antecipacao(),
         )
         .order_by(Recebivel.data_prevista, Recebivel.codigo)
-        .limit(TETO_PARA_CALCULO)
     )
     with _sessao_de(origem) as sessao:
-        return [
-            {"data_prevista": _iso(dia), "valor_centavos": valor} for dia, valor in sessao.execute(consulta)
-        ]
+        return [{"data_prevista": _iso(dia), "valor_centavos": valor} for dia, valor in sessao.execute(consulta)]
 
 
 def motivos_de_recusa_da_antecipacao(origem: Session | Engine, codigo: str) -> list[str] | None:

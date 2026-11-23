@@ -395,6 +395,18 @@ C4_VENDA_PARCELADA = "T0000647"
 C4_AGENDA_FUTURA_CENTAVOS = 1200000
 C4_AGENDA_FUTURA_TEXTO = "R$ 12.000,00"
 C4_TAXA_MENSAL_PONTOS_BASE = 299  # plano Essencial (EPP)
+# Antecipar hoje (§7.4): o dinheiro cai em 16/10 (1 dia útil); a parcela que já cai em 16/10 fica de fora.
+C4_DATA_DO_CREDITO = "2026-10-16"
+C4_PARCELA_QUE_JA_CAI_NO_CREDITO_CENTAVOS = 21754
+C4_ANTECIPAVEL_CENTAVOS = 1178246  # R$ 12.000,00 menos R$ 217,54
+C4_SIMULACAO = {
+    "data_credito": "2026-10-16",
+    "taxa_mensal": "2,99%",
+    "quantidade_de_parcelas": 25,
+    "valor_antecipado": "R$ 11.782,46",
+    "desconto": "R$ 1.153,48",
+    "valor_liquido": "R$ 10.628,98",
+}
 C4_LOJISTA_RECUSADO = "M00003"
 C4_MOTIVO_DA_RECUSA = "fatura_vencida_ha_mais_de_15_dias"
 

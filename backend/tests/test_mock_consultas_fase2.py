@@ -3,7 +3,7 @@
 Roda sobre o mundo gerado de verdade, em SQLite na memória. Os valores esperados estão em `gabaritos.py`.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from ferramentas import dados_sinteticos
@@ -162,9 +162,35 @@ def test_agenda_por_periodo_e_situacao(sessao):
     assert datas == sorted(datas)
 
 
-def test_parcelas_antecipaveis_somam_a_agenda_futura(fachada):
+def test_parcelas_antecipaveis_sao_a_agenda_futura_menos_a_que_ja_cai_no_credito(fachada):
     parcelas = fachada.recebiveis_para_antecipacao(gab.C4_LOJISTA)
-    assert sum(p["valor_centavos"] for p in parcelas) == gab.C4_AGENDA_FUTURA_CENTAVOS
+    assert sum(p["valor_centavos"] for p in parcelas) == gab.C4_ANTECIPAVEL_CENTAVOS
+    assert gab.C4_AGENDA_FUTURA_CENTAVOS - gab.C4_ANTECIPAVEL_CENTAVOS == gab.C4_PARCELA_QUE_JA_CAI_NO_CREDITO_CENTAVOS
+    assert all(p["data_prevista"] > gab.C4_DATA_DO_CREDITO for p in parcelas)
+    assert regras.data_de_credito_da_antecipacao().isoformat() == gab.C4_DATA_DO_CREDITO
+
+
+def test_desconto_da_antecipacao_pela_formula_do_doc_mock():
+    assert regras.desconto_da_antecipacao_centavos(100000, 30, 299) == 2990  # R$ 1.000 por 30 dias a 2,99%
+    assert regras.desconto_da_antecipacao_centavos(100000, 15, 299) == 1495
+    assert regras.desconto_da_antecipacao_centavos(100000, 0, 299) == 0
+
+
+def test_simulacao_do_cenario_4_confere_com_a_conta_feita_a_mao(fachada):
+    simulacao = fachada.simulacao_de_antecipacao(gab.C4_LOJISTA)
+    assert simulacao == gab.C4_SIMULACAO
+    credito = date.fromisoformat(gab.C4_DATA_DO_CREDITO)
+    parcelas = fachada.recebiveis_para_antecipacao(gab.C4_LOJISTA)
+    taxa = gab.C4_TAXA_MENSAL_PONTOS_BASE
+    a_mao = sum(round(p["valor_centavos"] * taxa / 10000 * (date.fromisoformat(p["data_prevista"]) - credito).days / 30)
+                for p in parcelas)
+    assert fachada.reais(a_mao) == gab.C4_SIMULACAO["desconto"]
+    assert fachada.simulacao_de_antecipacao("M99999") is None
+
+
+def test_percentual_em_texto(fachada):
+    assert (fachada.percentual(299), fachada.percentual(2000), fachada.percentual(5)) == ("2,99%", "20,00%", "0,05%")
+    assert fachada.percentual(None) is None
 
 
 def test_antecipacao_recusada_para_quem_tem_fatura_vencida_ha_mais_de_15_dias(fachada):
@@ -182,8 +208,12 @@ def test_retida_nao_entra_na_antecipacao(sessao):
     retidas = consultas.buscar_recebiveis(sessao, gab.C2_LOJISTA, situacao="retido")["itens"]
     assert retidas and all(p["id_venda"] == gab.C2_VENDA for p in retidas)
     antecipaveis = consultas.recebiveis_para_antecipacao(sessao, gab.C2_LOJISTA)
-    assert sum(p["valor_centavos"] for p in antecipaveis) == consultas.resumo_da_agenda(
-        sessao, gab.C2_LOJISTA)["previsto"]["valor_centavos"]
+    credito = regras.data_de_credito_da_antecipacao()
+    previstas = consultas.buscar_recebiveis(sessao, gab.C2_LOJISTA, data_inicio=credito + timedelta(days=1),
+                                            situacao="previsto", limite=50)
+    assert sum(p["valor_centavos"] for p in antecipaveis) == sum(
+        p["valor_parcela_centavos"] for p in previstas["itens"])
+    assert previstas["total"] == len(antecipaveis)
 
 
 # --- acordos (onboarding 8) -----------------------------------------------------------------------

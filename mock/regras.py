@@ -342,6 +342,21 @@ def encargos_de_atraso_centavos(valor_centavos: int, dias_de_atraso: int) -> tup
 TAXA_ANTECIPACAO_PONTOS_BASE = {"essencial": 299, "volume": 249, "negociado": 229}
 DIAS_UTEIS_PARA_CAIR_A_ANTECIPACAO = 1
 DIAS_DE_FATURA_VENCIDA_QUE_BLOQUEIAM_ANTECIPACAO = 15
+
+
+def data_de_credito_da_antecipacao() -> date:
+    """Quando cai o dinheiro de uma antecipação pedida hoje: 1 dia útil (§7.4)."""
+    return somar_dias_uteis(datetime.combine(HOJE_DO_MOCK, time()), DIAS_UTEIS_PARA_CAIR_A_ANTECIPACAO).date()
+
+
+def desconto_da_antecipacao_centavos(valor_centavos: int, dias_antecipados: int, taxa_pontos_base: int) -> int:
+    """§7.4: valor da parcela × taxa mensal × dias antecipados ÷ 30, arredondado ao centavo. Ex.: R$ 1.000,00
+    antecipados 30 dias a 2,99% ao mês dão R$ 29,90."""
+    if dias_antecipados <= 0:
+        return 0
+    return _arredondar_divisao(valor_centavos * taxa_pontos_base * dias_antecipados, 10000 * 30)
+
+
 # Os quatro motivos de recusa do §7.4, na ordem em que a ferramenta explica.
 MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = (
     "recebivel_retido_ou_bloqueado",

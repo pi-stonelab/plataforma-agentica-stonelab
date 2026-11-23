@@ -7,6 +7,7 @@ converter centavos.
 """
 
 import sqlite3
+from datetime import date
 
 from mock import consultas, modelos, regras
 from mock.banco import criar_engine, url_padrao
@@ -252,9 +253,43 @@ def resumo_da_agenda(codigo):
     }
 
 
+def percentual(pontos_base):
+    """Pontos-base em texto no padrão brasileiro: 299 vira "2,99%". None continua None."""
+    if pontos_base is None:
+        return None
+    inteiro, resto = divmod(pontos_base, 100)
+    return f"{inteiro},{resto:02d}%"
+
+
 def recebiveis_para_antecipacao(codigo):
-    """Parcelas antecipáveis: [{"data_prevista", "valor_centavos"}] (centavos: é para calcular)."""
+    """O que dá para antecipar, parcela por parcela: [{"data_prevista", "valor_centavos"}] (centavos: para calcular)."""
     return _ler(consultas.recebiveis_para_antecipacao, codigo)
+
+
+def simulacao_de_antecipacao(codigo):
+    """Antecipar hoje tudo o que dá (§7.4), ou None se o lojista não existe. Não olha os motivos de recusa:
+    quem chama confere `motivos_de_recusa_da_antecipacao` antes.
+
+    {"data_credito", "taxa_mensal", "quantidade_de_parcelas", "valor_antecipado", "desconto", "valor_liquido"}.
+    """
+    taxa = taxa_de_antecipacao(codigo)
+    if taxa is None:
+        return None
+    credito = regras.data_de_credito_da_antecipacao()
+    bruto = desconto = 0
+    parcelas = recebiveis_para_antecipacao(codigo)
+    for item in parcelas:
+        dias = (date.fromisoformat(item["data_prevista"]) - credito).days
+        bruto += item["valor_centavos"]
+        desconto += regras.desconto_da_antecipacao_centavos(item["valor_centavos"], dias, taxa)
+    return {
+        "data_credito": credito.isoformat(),
+        "taxa_mensal": percentual(taxa),
+        "quantidade_de_parcelas": len(parcelas),
+        "valor_antecipado": reais(bruto),
+        "desconto": reais(desconto),
+        "valor_liquido": reais(bruto - desconto),
+    }
 
 
 def motivos_de_recusa_da_antecipacao(codigo):
