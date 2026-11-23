@@ -325,15 +325,17 @@ COMPORTAMENTO_ESPERADO_COMENTARIO_ARMADILHA = (
 )
 
 # Onboarding 8 (KAN-69): acordos esperando o coordenador, e um dentro da alçada da analista.
-# (código, lojista, valor da fatura, vencimento, criado em, parcelas, entrada %, situação, alçada esperada)
+# (código, lojista, valor da fatura, vencimento, criado em, parcelas, entrada %, perdoa os encargos?, situação,
+# alçada esperada). AC0002 sobe por ter 8 parcelas, AC0003 por ter entrada de 10%. AC0004 cabe na alçada da
+# analista (dívida de até R$ 2.000, encargos perdoados) e ela mesma aprova: "negocia dentro da alçada" (§8.2).
 ACORDOS = (
-    ("AC0001", "M00013", 1220000, date(2026, 8, 20), date(2026, 10, 13), 10, 20, "pendente_aprovacao",
+    ("AC0001", "M00013", 1220000, date(2026, 8, 20), date(2026, 10, 13), 10, 20, False, "pendente_aprovacao",
      "dupla_aprovacao"),
-    ("AC0002", "M00010", 230000, date(2026, 9, 10), date(2026, 10, 14), 8, 20, "pendente_aprovacao",
+    ("AC0002", "M00010", 230000, date(2026, 9, 10), date(2026, 10, 14), 8, 20, False, "pendente_aprovacao",
      "coordenador"),
-    ("AC0003", "M00011", 90000, date(2026, 9, 25), date(2026, 10, 14), 4, 10, "pendente_aprovacao",
+    ("AC0003", "M00011", 90000, date(2026, 9, 25), date(2026, 10, 14), 4, 10, False, "pendente_aprovacao",
      "coordenador"),
-    ("AC0004", "M00014", 40000, date(2026, 9, 1), date(2026, 9, 10), 3, 20, "ativo", "analista"),
+    ("AC0004", "M00014", 40000, date(2026, 9, 1), date(2026, 9, 10), 3, 20, True, "ativo", "analista"),
 )
 
 # KAN-14, caso 5 (conferir divergências): a liquidação de ontem de M00013 caiu R$ 15,00 abaixo da agenda,
@@ -1093,16 +1095,25 @@ def _plantar_cenario_11(sessao: Session, contador: "_ContadorDeChamados") -> Non
 
 
 def _plantar_acordos(sessao: Session) -> None:
-    """Onboarding 8: acordos esperando o coordenador (maior para menor) e um dentro da alçada da analista."""
-    for codigo, id_lojista, valor, vencimento, criado_em, parcelas, entrada_percentual, situacao, _ in ACORDOS:
+    """Onboarding 8: acordos esperando o coordenador (maior para menor) e um dentro da alçada da analista.
+
+    Enquanto o acordo espera aprovação, a fatura continua vencida (a régua do §7.5 segue valendo); só o acordo
+    ativo a põe "em acordo".
+    """
+    for (
+        codigo, id_lojista, valor, vencimento, criado_em, parcelas, entrada_percentual, perdoa_encargos,
+        situacao, _,
+    ) in ACORDOS:
         multa, juros = encargos_de_atraso_centavos(valor, (criado_em - vencimento).days)
-        renegociado = valor + multa + juros
+        perdao = multa + juros if perdoa_encargos else 0
+        renegociado = valor + multa + juros - perdao
         entrada = (renegociado * entrada_percentual + 50) // 100
-        alcada = alcada_do_acordo(renegociado, parcelas, entrada, 0)
+        alcada = alcada_do_acordo(valor, renegociado, parcelas, entrada, perdao, 0)
         sessao.add(Acordo(
             codigo=codigo, id_lojista=id_lojista, valor_original_centavos=valor,
             valor_renegociado_centavos=renegociado, entrada_centavos=entrada, numero_de_parcelas=parcelas,
-            desconto_centavos=0, alcada=alcada, id_solicitante=ANALISTA_DE_COBRANCA,
+            perdao_encargos_centavos=perdao, desconto_principal_centavos=0, alcada=alcada,
+            id_solicitante=ANALISTA_DE_COBRANCA,
             id_aprovador=ANALISTA_DE_COBRANCA if situacao == "ativo" else None, criado_em=criado_em,
             situacao=situacao,
         ))
@@ -1110,7 +1121,7 @@ def _plantar_acordos(sessao: Session) -> None:
         sessao.add(Fatura(
             codigo=f"I{_proximo_numero_de_fatura(sessao):06d}", id_lojista=id_lojista, tipo="saldo_negativo",
             mes_referencia=f"{vencimento:%Y-%m}", vencimento=vencimento, valor_centavos=valor,
-            situacao="em_acordo", id_acordo=codigo,
+            situacao="em_acordo" if situacao == "ativo" else "vencida", id_acordo=codigo,
         ))
         sessao.flush()
 
@@ -1393,9 +1404,15 @@ def _verificar_cenarios_da_fase_2(sessao: Session) -> list[str]:
         select(Acordo).where(Acordo.situacao == "pendente_aprovacao")
         .order_by(Acordo.valor_renegociado_centavos.desc())))
     exigir(
-        [a.codigo for a in pendentes] == [a[0] for a in ACORDOS if a[7] == "pendente_aprovacao"]
-        and all(sessao.get(Acordo, a[0]).alcada == a[8] for a in ACORDOS),
+        [a.codigo for a in pendentes] == [a[0] for a in ACORDOS if a[8] == "pendente_aprovacao"]
+        and all(sessao.get(Acordo, a[0]).alcada == a[9] for a in ACORDOS),
         "onboarding 8 (acordos esperando o coordenador, do maior para o menor)",
+    )
+    faturas_de_acordo = sessao.execute(
+        select(Fatura.situacao, Acordo.situacao).join(Acordo, Fatura.id_acordo == Acordo.codigo))
+    exigir(
+        all((fatura == "vencida") == (acordo == "pendente_aprovacao") for fatura, acordo in faturas_de_acordo),
+        "onboarding 8 (fatura de acordo pendente continua vencida; a de acordo ativo fica em acordo)",
     )
     armadilha = sessao.scalar(select(PesquisaSatisfacao).where(PesquisaSatisfacao.comentario == COMENTARIO_ARMADILHA))
     marcadas = sessao.scalar(select(func.count()).select_from(PesquisaSatisfacao).where(

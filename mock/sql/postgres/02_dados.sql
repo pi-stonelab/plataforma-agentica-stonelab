@@ -1,6 +1,6 @@
 -- Mock da Stone (Plataforma Agêntica Institucional). 100% sintético: nenhum dado real.
 -- Gerado por `python -m mock.exportar` a partir de mock/modelos.py e mock/gerar.py
--- (semente 20261015, esquema versão 3). Não edite à mão: rode o exportador.
+-- (semente 20261015, esquema versão 4). Não edite à mão: rode o exportador.
 
 BEGIN;
 
@@ -546,10 +546,10 @@ INSERT INTO lojistas (codigo, nome_fantasia, segmento, porte, cidade, uf, cartei
 INSERT INTO lojistas (codigo, nome_fantasia, segmento, porte, cidade, uf, carteira, situacao, data_entrada, id_responsavel) VALUES ('M00020', 'Chaveiro Rápido Centro', 'serviços', 'MEI', 'Rio de Janeiro', 'RJ', 'varejo', 'ativo', '2025-03-10', NULL);
 
 -- acordos
-INSERT INTO acordos (codigo, id_lojista, valor_original_centavos, valor_renegociado_centavos, entrada_centavos, numero_de_parcelas, desconto_centavos, alcada, id_solicitante, id_aprovador, criado_em, situacao) VALUES ('AC0001', 'M00013', 1220000, 1266360, 253272, 10, 0, 'dupla_aprovacao', 'F0008', NULL, '2026-10-13', 'pendente_aprovacao');
-INSERT INTO acordos (codigo, id_lojista, valor_original_centavos, valor_renegociado_centavos, entrada_centavos, numero_de_parcelas, desconto_centavos, alcada, id_solicitante, id_aprovador, criado_em, situacao) VALUES ('AC0002', 'M00010', 230000, 237207, 47441, 8, 0, 'coordenador', 'F0008', NULL, '2026-10-14', 'pendente_aprovacao');
-INSERT INTO acordos (codigo, id_lojista, valor_original_centavos, valor_renegociado_centavos, entrada_centavos, numero_de_parcelas, desconto_centavos, alcada, id_solicitante, id_aprovador, criado_em, situacao) VALUES ('AC0003', 'M00011', 90000, 92370, 9237, 4, 0, 'coordenador', 'F0008', NULL, '2026-10-14', 'pendente_aprovacao');
-INSERT INTO acordos (codigo, id_lojista, valor_original_centavos, valor_renegociado_centavos, entrada_centavos, numero_de_parcelas, desconto_centavos, alcada, id_solicitante, id_aprovador, criado_em, situacao) VALUES ('AC0004', 'M00014', 40000, 40920, 8184, 3, 0, 'analista', 'F0008', 'F0008', '2026-09-10', 'ativo');
+INSERT INTO acordos (codigo, id_lojista, valor_original_centavos, valor_renegociado_centavos, entrada_centavos, numero_de_parcelas, perdao_encargos_centavos, desconto_principal_centavos, alcada, id_solicitante, id_aprovador, criado_em, situacao) VALUES ('AC0001', 'M00013', 1220000, 1266360, 253272, 10, 0, 0, 'dupla_aprovacao', 'F0008', NULL, '2026-10-13', 'pendente_aprovacao');
+INSERT INTO acordos (codigo, id_lojista, valor_original_centavos, valor_renegociado_centavos, entrada_centavos, numero_de_parcelas, perdao_encargos_centavos, desconto_principal_centavos, alcada, id_solicitante, id_aprovador, criado_em, situacao) VALUES ('AC0002', 'M00010', 230000, 237207, 47441, 8, 0, 0, 'coordenador', 'F0008', NULL, '2026-10-14', 'pendente_aprovacao');
+INSERT INTO acordos (codigo, id_lojista, valor_original_centavos, valor_renegociado_centavos, entrada_centavos, numero_de_parcelas, perdao_encargos_centavos, desconto_principal_centavos, alcada, id_solicitante, id_aprovador, criado_em, situacao) VALUES ('AC0003', 'M00011', 90000, 92370, 9237, 4, 0, 0, 'coordenador', 'F0008', NULL, '2026-10-14', 'pendente_aprovacao');
+INSERT INTO acordos (codigo, id_lojista, valor_original_centavos, valor_renegociado_centavos, entrada_centavos, numero_de_parcelas, perdao_encargos_centavos, desconto_principal_centavos, alcada, id_solicitante, id_aprovador, criado_em, situacao) VALUES ('AC0004', 'M00014', 40000, 40000, 8000, 3, 920, 0, 'analista', 'F0008', 'F0008', '2026-09-10', 'ativo');
 
 -- analitica_contestacoes_mensais
 INSERT INTO analitica_contestacoes_mensais (mes, id_lojista, quantidade_vendas_cartao, quantidade_chargebacks) VALUES ('2026-04', 'M00001', 3, 0);
@@ -1985,9 +1985,9 @@ INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor
 INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor_centavos, situacao, id_acordo) VALUES ('I000119', 'M00020', 'aluguel', '2026-09', '2026-09-10', 3990, 'paga', NULL);
 INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor_centavos, situacao, id_acordo) VALUES ('I000120', 'M00020', 'aluguel', '2026-10', '2026-10-10', 3990, 'paga', NULL);
 INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor_centavos, situacao, id_acordo) VALUES ('I000121', 'M00003', 'saldo_negativo', '2026-08', '2026-09-05', 32000, 'vencida', NULL);
-INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor_centavos, situacao, id_acordo) VALUES ('I000122', 'M00013', 'saldo_negativo', '2026-08', '2026-08-20', 1220000, 'em_acordo', 'AC0001');
-INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor_centavos, situacao, id_acordo) VALUES ('I000123', 'M00010', 'saldo_negativo', '2026-09', '2026-09-10', 230000, 'em_acordo', 'AC0002');
-INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor_centavos, situacao, id_acordo) VALUES ('I000124', 'M00011', 'saldo_negativo', '2026-09', '2026-09-25', 90000, 'em_acordo', 'AC0003');
+INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor_centavos, situacao, id_acordo) VALUES ('I000122', 'M00013', 'saldo_negativo', '2026-08', '2026-08-20', 1220000, 'vencida', 'AC0001');
+INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor_centavos, situacao, id_acordo) VALUES ('I000123', 'M00010', 'saldo_negativo', '2026-09', '2026-09-10', 230000, 'vencida', 'AC0002');
+INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor_centavos, situacao, id_acordo) VALUES ('I000124', 'M00011', 'saldo_negativo', '2026-09', '2026-09-25', 90000, 'vencida', 'AC0003');
 INSERT INTO faturas (codigo, id_lojista, tipo, mes_referencia, vencimento, valor_centavos, situacao, id_acordo) VALUES ('I000125', 'M00014', 'saldo_negativo', '2026-09', '2026-09-01', 40000, 'em_acordo', 'AC0004');
 
 -- recebiveis

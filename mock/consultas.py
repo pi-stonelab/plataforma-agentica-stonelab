@@ -478,7 +478,8 @@ def buscar_acordos(
     falhas.verificar("cobranca")
     consulta = select(
         Acordo.codigo, Acordo.id_lojista, Acordo.valor_original_centavos, Acordo.valor_renegociado_centavos,
-        Acordo.entrada_centavos, Acordo.numero_de_parcelas, Acordo.desconto_centavos, Acordo.alcada,
+        Acordo.entrada_centavos, Acordo.numero_de_parcelas, Acordo.perdao_encargos_centavos,
+        Acordo.desconto_principal_centavos, Acordo.alcada,
         Acordo.id_solicitante, Acordo.id_aprovador, Acordo.criado_em, Acordo.situacao,
     )
     if codigo is not None:

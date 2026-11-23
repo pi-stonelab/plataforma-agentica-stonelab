@@ -10,6 +10,7 @@ from datetime import date, datetime, time
 import pytest
 from mock import regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 from mock.banco import criar_engine
+from mock.consultas import motivos_de_recusa_da_antecipacao
 from mock.gerar import ACORDOS, COMENTARIO_ARMADILHA, recebiveis_da_venda, recriar, verificar
 from mock.modelos import (
     Acordo,
@@ -133,22 +134,31 @@ def test_encargos_do_cenario_3_saem_das_regras():
 
 
 @pytest.mark.parametrize(
-    ("valor", "parcelas", "entrada", "desconto", "alcada"),
+    ("original", "renegociado", "parcelas", "entrada", "perdao", "desconto", "alcada"),
     [
-        (100000, 4, 20000, 0, "analista"),
-        (100000, 6, 20000, 0, "analista"),
-        (100000, 7, 20000, 0, "coordenador"),
-        (100000, 4, 19999, 0, "coordenador"),
-        (100000, 4, 20000, 1, "coordenador"),
-        (100000, 12, 0, 10000, "coordenador"),
-        (100000, 13, 20000, 0, "proibido"),
-        (100000, 4, 20000, 10001, "proibido"),
-        (1000001, 4, 300000, 0, "dupla_aprovacao"),
-        (1000000, 4, 200000, 0, "analista"),
+        # parcelas e entrada (§7.9): analista até 6 com entrada de 20%; coordenador até 12; acima, proibido
+        (100000, 100000, 4, 20000, 0, 0, "analista"),
+        (100000, 100000, 6, 20000, 0, 0, "analista"),
+        (100000, 100000, 7, 20000, 0, 0, "coordenador"),
+        (100000, 100000, 4, 19999, 0, 0, "coordenador"),
+        (100000, 100000, 12, 0, 0, 0, "coordenador"),
+        (100000, 100000, 13, 20000, 0, 0, "proibido"),
+        # perdão de multa e juros: a analista perdoa em dívida de até R$ 2.000
+        (200000, 200000, 4, 40000, 5000, 0, "analista"),
+        (200001, 200001, 4, 40001, 5000, 0, "coordenador"),
+        # desconto no principal: só o coordenador, até 10% do PRINCIPAL (não do renegociado)
+        (100000, 99999, 4, 20000, 0, 1, "coordenador"),
+        (100000, 90000, 4, 18000, 0, 10000, "coordenador"),
+        (100000, 89999, 4, 18000, 0, 10001, "proibido"),
+        (110000, 104500, 4, 22000, 0, 10500, "coordenador"),  # 10,5% do renegociado, 9,5% do principal
+        (100000, 110000, 4, 22000, 0, 10500, "proibido"),  # 10,5% do principal, mesmo com encargos somados
+        # acima de R$ 10.000 renegociados: duas aprovações
+        (1000001, 1000001, 4, 300000, 0, 0, "dupla_aprovacao"),
+        (1000000, 1000000, 4, 200000, 0, 0, "analista"),
     ],
 )
-def test_alcada_do_acordo(valor, parcelas, entrada, desconto, alcada):
-    assert regras.alcada_do_acordo(valor, parcelas, entrada, desconto) == alcada
+def test_alcada_do_acordo(original, renegociado, parcelas, entrada, perdao, desconto, alcada):
+    assert regras.alcada_do_acordo(original, renegociado, parcelas, entrada, perdao, desconto) == alcada
 
 
 def test_corte_da_base_analitica():
@@ -278,18 +288,25 @@ def test_onboarding_8_acordos_esperando_o_coordenador(sessao):
     assert (na_alcada.alcada, na_alcada.situacao, na_alcada.id_aprovador) == (alcada, situacao, gab.COBRANCA)
     for acordo in sessao.scalars(select(Acordo)):
         faturas = list(sessao.scalars(select(Fatura).where(Fatura.id_acordo == acordo.codigo)))
-        assert faturas and all(f.situacao == "em_acordo" and f.id_lojista == acordo.id_lojista for f in faturas)
+        situacao_da_fatura = "em_acordo" if acordo.situacao == "ativo" else "vencida"
+        assert faturas and all(
+            f.situacao == situacao_da_fatura and f.id_lojista == acordo.id_lojista for f in faturas)
         assert sum(f.valor_centavos for f in faturas) == acordo.valor_original_centavos
         assert regras.alcada_do_acordo(
-            acordo.valor_renegociado_centavos, acordo.numero_de_parcelas, acordo.entrada_centavos,
-            acordo.desconto_centavos) == acordo.alcada
+            acordo.valor_original_centavos, acordo.valor_renegociado_centavos, acordo.numero_de_parcelas,
+            acordo.entrada_centavos, acordo.perdao_encargos_centavos, acordo.desconto_principal_centavos,
+        ) == acordo.alcada
 
 
-def test_acordos_nao_criam_fatura_vencida_nem_tocam_o_cenario_3(sessao):
+def test_acordo_pendente_deixa_a_fatura_vencida_e_nao_toca_o_cenario_3(sessao):
+    # A régua (§7.5) continua valendo até o acordo ser aprovado: a dívida aparece como vencida e bloqueia
+    # a antecipação (§7.4). Só o acordo ativo põe a fatura "em acordo".
     lojistas = {a[1] for a in ACORDOS}
     assert gab.C3_LOJISTA not in lojistas
     vencidas = set(sessao.scalars(select(Fatura.id_lojista).where(Fatura.situacao == "vencida")))
-    assert vencidas == {gab.C3_LOJISTA}
+    pendentes = {a[1] for a in ACORDOS if a[8] == "pendente_aprovacao"}
+    assert vencidas == {gab.C3_LOJISTA} | pendentes
+    assert motivos_de_recusa_da_antecipacao(sessao, "M00013") == ["fatura_vencida_ha_mais_de_15_dias"]
 
 
 def test_kan14_caso_5_liquidacao_abaixo_da_agenda(sessao):
@@ -392,15 +409,22 @@ def _inserir(engine, linha):
 INVALIDAS = [
     ("acordo pendente com aprovador", lambda: Acordo(
         codigo="AC9999", id_lojista="M00001", valor_original_centavos=100, valor_renegociado_centavos=100,
-        entrada_centavos=20, numero_de_parcelas=2, desconto_centavos=0, alcada="analista",
+        entrada_centavos=20, numero_de_parcelas=2, alcada="analista",
         id_solicitante="F0008", id_aprovador="F0011", criado_em=date(2026, 10, 1), situacao="pendente_aprovacao")),
     ("dupla aprovação pela mesma pessoa", lambda: Acordo(
         codigo="AC9998", id_lojista="M00001", valor_original_centavos=2000000, valor_renegociado_centavos=2000000,
-        entrada_centavos=400000, numero_de_parcelas=4, desconto_centavos=0, alcada="dupla_aprovacao",
+        entrada_centavos=400000, numero_de_parcelas=4, alcada="dupla_aprovacao",
         id_solicitante="F0008", id_aprovador="F0008", criado_em=date(2026, 10, 1), situacao="ativo")),
     ("fatura em acordo sem acordo", lambda: Fatura(
         codigo="I999999", id_lojista="M00001", tipo="aluguel", mes_referencia="2026-10",
         vencimento=date(2026, 10, 10), valor_centavos=3990, situacao="em_acordo")),
+    ("fatura paga ainda ligada a acordo", lambda: Fatura(
+        codigo="I999997", id_lojista="M00013", tipo="aluguel", mes_referencia="2026-10",
+        vencimento=date(2026, 10, 10), valor_centavos=3990, situacao="paga", id_acordo="AC0001")),
+    ("perdão de encargos negativo", lambda: Acordo(
+        codigo="AC9997", id_lojista="M00001", valor_original_centavos=100, valor_renegociado_centavos=100,
+        entrada_centavos=20, numero_de_parcelas=2, perdao_encargos_centavos=-1, alcada="analista",
+        id_solicitante="F0008", id_aprovador="F0008", criado_em=date(2026, 10, 1), situacao="ativo")),
     ("chamado resolvido sem data", lambda: Chamado(
         codigo="CH999999", protocolo="20261001-999999", id_lojista="M00001", categoria="Recebimento",
         prioridade="crítica", fila="ouvidoria", id_responsavel=None, situacao="resolvido", aberto_por="lojista",

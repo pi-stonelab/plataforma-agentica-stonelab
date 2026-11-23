@@ -226,8 +226,9 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "data_abertura", "valor_bloqueado_centavos", "prazo_contestacao", "tem_comprovante_entrega",
         # acordos de cobrança (§7.9)
         "valor_original_centavos", "valor_renegociado_centavos", "entrada_centavos",
-        "numero_de_parcelas", "desconto_centavos", "alcada", "id_solicitante", "id_aprovador",
-        "criado_em", "faturas", "valor_original", "valor_renegociado", "entrada", "desconto",
+        "numero_de_parcelas", "perdao_encargos_centavos", "desconto_principal_centavos", "alcada",
+        "id_solicitante", "id_aprovador", "criado_em", "faturas", "valor_original", "valor_renegociado", "entrada",
+        "perdao_encargos", "desconto_principal",
         # satisfação (§6.7): a nota e as contagens; o comentário é restrito
         "nota", "respondida_em", "respostas", "media_centesimos", "notas", "chamados_resolvidos",
         # base de conhecimento (texto público escrito pela equipe)
@@ -346,7 +347,8 @@ MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = (
     "fatura_vencida_ha_mais_de_15_dias",
 )
 
-# Alçadas do §7.9. As mesmas de ferramentas/financeiro/calcular_parcelas (que ainda tem as suas).
+# Alçadas do §7.9. ferramentas/financeiro/calcular_parcelas ainda tem as suas (sem o perdão de encargos e sem a
+# dupla aprovação): pendência do bloco C.
 ENTRADA_MINIMA_ANALISTA_PERCENTUAL = 20
 PARCELAS_MAXIMAS_ANALISTA = 6
 PARCELAS_MAXIMAS_COORDENADOR = 12
@@ -357,20 +359,35 @@ ALCADAS = ("analista", "coordenador", "dupla_aprovacao", "proibido")
 
 
 def alcada_do_acordo(
-    valor_centavos: int, numero_de_parcelas: int, entrada_centavos: int, desconto_centavos: int
+    valor_original_centavos: int,
+    valor_renegociado_centavos: int,
+    numero_de_parcelas: int,
+    entrada_centavos: int,
+    perdao_encargos_centavos: int = 0,
+    desconto_principal_centavos: int = 0,
 ) -> str:
-    """Quem aprova o acordo: "analista", "coordenador", "dupla_aprovacao" ou "proibido"."""
+    """Quem aprova o acordo (DOC-MOCK §7.9): "analista", "coordenador", "dupla_aprovacao" ou "proibido".
+
+    - Desconto no principal (o valor original das faturas): só o coordenador, até 10%; acima disso, proibido.
+    - Perdão de multa e juros: o analista perdoa em dívida de até R$ 2.000; acima disso, o coordenador.
+    - Parcelas: o analista até 6, com entrada de pelo menos 20% do renegociado; o coordenador até 12.
+    - Acima de R$ 10.000 renegociados, duas aprovações (e quem pede nunca aprova).
+    """
     if (
         numero_de_parcelas > PARCELAS_MAXIMAS_COORDENADOR
-        or desconto_centavos * 100 > valor_centavos * DESCONTO_MAXIMO_COORDENADOR_PERCENTUAL
+        or desconto_principal_centavos * 100 > valor_original_centavos * DESCONTO_MAXIMO_COORDENADOR_PERCENTUAL
     ):
         return "proibido"
-    if valor_centavos > LIMITE_DA_DUPLA_APROVACAO_CENTAVOS:
+    if valor_renegociado_centavos > LIMITE_DA_DUPLA_APROVACAO_CENTAVOS:
         return "dupla_aprovacao"
+    perdao_acima_da_analista = (
+        perdao_encargos_centavos > 0 and valor_original_centavos > PERDAO_DE_ENCARGOS_DO_ANALISTA_ATE_CENTAVOS
+    )
     if (
-        desconto_centavos > 0
+        desconto_principal_centavos > 0
+        or perdao_acima_da_analista
         or numero_de_parcelas > PARCELAS_MAXIMAS_ANALISTA
-        or entrada_centavos * 100 < valor_centavos * ENTRADA_MINIMA_ANALISTA_PERCENTUAL
+        or entrada_centavos * 100 < valor_renegociado_centavos * ENTRADA_MINIMA_ANALISTA_PERCENTUAL
     ):
         return "coordenador"
     return "analista"

@@ -52,7 +52,7 @@ CONVENCAO_DE_NOMES = {
 
 # Sobe quando o esquema muda. O SQLite local guarda a versão (PRAGMA user_version) e é refeito
 # sozinho quando ela é diferente (`gerar.garantir_mundo_local`).
-VERSAO_DO_ESQUEMA = 3
+VERSAO_DO_ESQUEMA = 4
 
 
 class BaseMock(DeclarativeBase):
@@ -272,8 +272,9 @@ class Fatura(BaseMock):
         _regra("valor_positivo", "valor_centavos > 0"),
         _regra(
             "acordo_conforme_situacao",
+            # Acordo pendente de aprovação ainda não vale: a fatura segue vencida (régua do §7.5), já ligada a ele.
             "(situacao = 'em_acordo' AND id_acordo IS NOT NULL)"
-            " OR (situacao <> 'em_acordo' AND id_acordo IS NULL)",
+            " OR (situacao <> 'em_acordo' AND (id_acordo IS NULL OR situacao = 'vencida'))",
         ),
         Index(None, "id_lojista", "vencimento"),
         {"comment": "O que o lojista deve à Stone (aluguel, tarifa ou saldo negativo). Confidencial."},
@@ -386,7 +387,7 @@ class Acordo(BaseMock):
         _regra("codigo_formato", "codigo LIKE 'AC____'"),
         _regra("parcelas_validas", "numero_de_parcelas BETWEEN 1 AND 12"),
         _regra("entrada_ate_o_valor", "entrada_centavos BETWEEN 0 AND valor_renegociado_centavos"),
-        _regra("desconto_nao_negativo", "desconto_centavos >= 0"),
+        _regra("descontos_nao_negativos", "desconto_principal_centavos >= 0 AND perdao_encargos_centavos >= 0"),
         _regra(
             "aprovador_conforme_situacao",
             "(situacao IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NULL)"
@@ -408,12 +409,15 @@ class Acordo(BaseMock):
     id_lojista: Mapped[str] = mapped_column(ForeignKey("lojistas.codigo"))
     valor_original_centavos: Mapped[int] = mapped_column(BigInteger, comment="Soma das faturas incluídas.")
     valor_renegociado_centavos: Mapped[int] = mapped_column(
-        BigInteger, comment="Faturas mais multa e juros até a criação, menos o desconto."
+        BigInteger, comment="Faturas mais multa e juros até a criação, menos o perdão e o desconto."
     )
     entrada_centavos: Mapped[int] = mapped_column(BigInteger)
     numero_de_parcelas: Mapped[int] = mapped_column(Integer)
-    desconto_centavos: Mapped[int] = mapped_column(
-        BigInteger, default=0, comment="Desconto no principal: só o coordenador, até 10% (DOC-MOCK §7.9)."
+    perdao_encargos_centavos: Mapped[int] = mapped_column(
+        BigInteger, default=0, comment="Multa e juros perdoados: o analista perdoa em dívida de até R$ 2.000 (§7.9)."
+    )
+    desconto_principal_centavos: Mapped[int] = mapped_column(
+        BigInteger, default=0, comment="Desconto no principal: só o coordenador, até 10% do principal (§7.9)."
     )
     alcada: Mapped[str] = mapped_column(String(20))
     id_solicitante: Mapped[str] = mapped_column(ForeignKey("funcionarios.id"))

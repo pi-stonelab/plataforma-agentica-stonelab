@@ -1,6 +1,6 @@
 -- Mock da Stone (Plataforma Agêntica Institucional). 100% sintético: nenhum dado real.
 -- Gerado por `python -m mock.exportar` a partir de mock/modelos.py e mock/gerar.py
--- (semente 20261015, esquema versão 3). Não edite à mão: rode o exportador.
+-- (semente 20261015, esquema versão 4). Não edite à mão: rode o exportador.
 
 CREATE TABLE analitica_atualizacao (
     id INTEGER NOT NULL,
@@ -114,7 +114,8 @@ CREATE TABLE acordos (
     valor_renegociado_centavos BIGINT NOT NULL,
     entrada_centavos BIGINT NOT NULL,
     numero_de_parcelas INTEGER NOT NULL,
-    desconto_centavos BIGINT NOT NULL,
+    perdao_encargos_centavos BIGINT NOT NULL,
+    desconto_principal_centavos BIGINT NOT NULL,
     alcada VARCHAR(20) NOT NULL,
     id_solicitante VARCHAR(5) NOT NULL,
     id_aprovador VARCHAR(5),
@@ -126,7 +127,7 @@ CREATE TABLE acordos (
     CONSTRAINT ck_acordos_codigo_formato CHECK (codigo LIKE 'AC____'),
     CONSTRAINT ck_acordos_parcelas_validas CHECK (numero_de_parcelas BETWEEN 1 AND 12),
     CONSTRAINT ck_acordos_entrada_ate_o_valor CHECK (entrada_centavos BETWEEN 0 AND valor_renegociado_centavos),
-    CONSTRAINT ck_acordos_desconto_nao_negativo CHECK (desconto_centavos >= 0),
+    CONSTRAINT ck_acordos_descontos_nao_negativos CHECK (desconto_principal_centavos >= 0 AND perdao_encargos_centavos >= 0),
     CONSTRAINT ck_acordos_aprovador_conforme_situacao CHECK ((situacao IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NULL) OR (situacao NOT IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NOT NULL)),
     CONSTRAINT ck_acordos_dupla_aprovacao_por_outra_pessoa CHECK (alcada <> 'dupla_aprovacao' OR id_aprovador IS NULL OR id_aprovador <> id_solicitante),
     CONSTRAINT fk_acordos_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
@@ -137,8 +138,9 @@ CREATE INDEX ix_acordos_id_lojista ON acordos (id_lojista);
 CREATE INDEX ix_acordos_situacao ON acordos (situacao);
 COMMENT ON TABLE acordos IS 'Acordos de renegociação da Cobrança (DOC-MOCK §7.9). A alçada diz quem aprova. Confidencial.';
 COMMENT ON COLUMN acordos.valor_original_centavos IS 'Soma das faturas incluídas.';
-COMMENT ON COLUMN acordos.valor_renegociado_centavos IS 'Faturas mais multa e juros até a criação, menos o desconto.';
-COMMENT ON COLUMN acordos.desconto_centavos IS 'Desconto no principal: só o coordenador, até 10% (DOC-MOCK §7.9).';
+COMMENT ON COLUMN acordos.valor_renegociado_centavos IS 'Faturas mais multa e juros até a criação, menos o perdão e o desconto.';
+COMMENT ON COLUMN acordos.perdao_encargos_centavos IS 'Multa e juros perdoados: o analista perdoa em dívida de até R$ 2.000 (§7.9).';
+COMMENT ON COLUMN acordos.desconto_principal_centavos IS 'Desconto no principal: só o coordenador, até 10% do principal (§7.9).';
 
 CREATE TABLE analitica_contestacoes_mensais (
     mes VARCHAR(7) NOT NULL,
@@ -294,7 +296,7 @@ CREATE TABLE faturas (
     CONSTRAINT ck_faturas_codigo_formato CHECK (codigo LIKE 'I______'),
     CONSTRAINT ck_faturas_mes_referencia_formato CHECK (mes_referencia LIKE '____-__'),
     CONSTRAINT ck_faturas_valor_positivo CHECK (valor_centavos > 0),
-    CONSTRAINT ck_faturas_acordo_conforme_situacao CHECK ((situacao = 'em_acordo' AND id_acordo IS NOT NULL) OR (situacao <> 'em_acordo' AND id_acordo IS NULL)),
+    CONSTRAINT ck_faturas_acordo_conforme_situacao CHECK ((situacao = 'em_acordo' AND id_acordo IS NOT NULL) OR (situacao <> 'em_acordo' AND (id_acordo IS NULL OR situacao = 'vencida'))),
     CONSTRAINT fk_faturas_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
     CONSTRAINT fk_faturas_id_acordo FOREIGN KEY(id_acordo) REFERENCES acordos (codigo)
 );
