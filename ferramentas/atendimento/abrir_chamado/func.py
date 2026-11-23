@@ -57,7 +57,7 @@ class AbrirChamado(FerramentaComConfirmacao):
         valor_envolvido = escritas_sinteticas.centavos(argumentos.get("valor_envolvido"), "valor_envolvido")
         lojista.exigir_acesso(usuario, codigo)
         classe = escritas_sinteticas.classificar_chamado(
-            categoria, dados_sinteticos.carteira_do_lojista(codigo), impede_vender, valor_envolvido
+            categoria, dados_sinteticos.carteira_do_lojista(codigo)["carteira"], impede_vender, valor_envolvido
         )
         conteudo = {
             "codigo": codigo,

@@ -65,7 +65,7 @@ class RegistrarPedidoAntecipacao(FerramentaComConfirmacao):
         if not simulacao or not simulacao["quantidade_de_parcelas"]:
             raise ErroFerramenta("parametro_invalido", "Não há parcelas para antecipar.")
         classe = escritas_sinteticas.classificar_chamado(
-            CATEGORIA, dados_sinteticos.carteira_do_lojista(codigo), False, None, NIVEL_QUE_EXECUTA
+            CATEGORIA, dados_sinteticos.carteira_do_lojista(codigo)["carteira"], False, None, NIVEL_QUE_EXECUTA
         )
         conteudo = {"codigo": codigo, "resumo": resumo, "canal": canal}
         previa = {
