@@ -138,7 +138,7 @@ CREATE INDEX ix_acordos_situacao ON acordos (situacao);
 COMMENT ON TABLE acordos IS 'Acordos de renegociação da Cobrança (DOC-MOCK §7.9). A alçada diz quem aprova. Confidencial.';
 COMMENT ON COLUMN acordos.valor_original_centavos IS 'Soma das faturas incluídas.';
 COMMENT ON COLUMN acordos.valor_renegociado_centavos IS 'Faturas mais multa e juros até a criação, menos o desconto.';
-COMMENT ON COLUMN acordos.desconto_centavos IS 'Desconto no principal: só o coordenador, até 10%% (DOC-MOCK §7.9).';
+COMMENT ON COLUMN acordos.desconto_centavos IS 'Desconto no principal: só o coordenador, até 10% (DOC-MOCK §7.9).';
 
 CREATE TABLE analitica_contestacoes_mensais (
     mes VARCHAR(7) NOT NULL,
@@ -149,7 +149,7 @@ CREATE TABLE analitica_contestacoes_mensais (
     CONSTRAINT ck_analitica_contestacoes_mensais_mes_formato CHECK (mes LIKE '____-__'),
     CONSTRAINT fk_analitica_contestacoes_mensais_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo)
 );
-COMMENT ON TABLE analitica_contestacoes_mensais IS 'Vendas no cartão e chargebacks (no mês da venda contestada) por mês e lojista, até o corte (DOC-MOCK §7.6: mais de 1%% liga o monitoramento de risco). Agregado e confidencial.';
+COMMENT ON TABLE analitica_contestacoes_mensais IS 'Vendas no cartão e chargebacks (no mês da venda contestada) por mês e lojista, até o corte (DOC-MOCK §7.6: mais de 1% liga o monitoramento de risco). Agregado e confidencial.';
 
 CREATE TABLE contas_recebimento (
     id SERIAL NOT NULL,
