@@ -68,7 +68,9 @@ def _ler(consulta, *argumentos, **opcoes):
 
 
 def reais(centavos):
-    """Centavos inteiros em texto no padrão brasileiro: 184230 vira "R$ 1.842,30"."""
+    """Centavos inteiros em texto no padrão brasileiro: 184230 vira "R$ 1.842,30" e -1500 vira "-R$ 15,00"."""
+    if centavos < 0:
+        return "-" + reais(-centavos)
     inteiro, resto = divmod(centavos, 100)
     return f"R$ {inteiro:,}".replace(",", ".") + f",{resto:02d}"
 

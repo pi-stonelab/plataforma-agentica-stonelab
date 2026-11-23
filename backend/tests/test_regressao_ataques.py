@@ -674,7 +674,7 @@ def test_a14_pedir_para_agir_como_outro_cargo_nao_muda_o_que_o_catalogo_entrega(
     roteiro = reg.Roteiro(
         [
             reg.ler(),
-            reg.ler("financeiro/consultar_saldo_conta"),
+            reg.ler("dados_e_indicadores/consultar_taxa_contestacao_mensal"),
             reg.ler("comunicacao/enviar_mensagem_slack"),
             reg.ler("plataforma"),
             reg.usar(gab.CONSULTAR_LIQUIDACOES, id_cliente=gab.C5_LOJISTA_FORA),
@@ -688,7 +688,7 @@ def test_a14_pedir_para_agir_como_outro_cargo_nao_muda_o_que_o_catalogo_entrega(
     assert "não encontrado ou não liberado" in turno.trajetoria[2]
     assert "ferramenta não lida" in turno.trajetoria[4]
     indice = roteiro.prompts[1]
-    assert "enviar_mensagem_slack" not in indice and "consultar_saldo_conta" not in indice
+    assert "enviar_mensagem_slack" not in indice and "consultar_taxa_contestacao_mensal" not in indice
     assert execucao.espioes.nomes_chamados() == {}
 
 

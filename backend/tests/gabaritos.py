@@ -63,6 +63,11 @@ CONSULTAR_CHAMADO = "consultar_chamado"
 VERIFICAR_IDENTIDADE = "verificar_identidade_contato"
 BUSCAR_CLIENTES = "buscar_clientes"
 RESUMIR_SATISFACAO = "resumir_satisfacao"
+CONSULTAR_AGENDA = "consultar_agenda_recebiveis"
+SIMULAR_ANTECIPACAO = "simular_antecipacao"
+CONFERIR_LIQUIDACOES = "conferir_liquidacoes"
+LISTAR_CONTESTACOES = "listar_contestacoes_cliente"
+LISTAR_ACORDOS = "listar_acordos"
 
 # Caminho que o modelo escreve em LER (área/ferramenta). A área de cada uma é a pasta no catálogo.
 CAMINHO = {
@@ -296,6 +301,9 @@ _ATENDIMENTO = {
     ENVIAR_EMAIL,
     CONSULTAR_CHAMADO,
     VERIFICAR_IDENTIDADE,
+    CONSULTAR_AGENDA,
+    SIMULAR_ANTECIPACAO,
+    CONFERIR_LIQUIDACOES,
 }
 # Comuns a todo cargo com área: cadastro, cálculos, consultas públicas, a base de conhecimento e a busca por nome.
 _COMUNS = {
@@ -306,16 +314,19 @@ _ATENDIMENTO |= _COMUNS
 # O que o agente geral (que lista todas as ferramentas do catálogo) deixa cada cargo alcançar.
 FERRAMENTAS_DO_CARGO = {
     "atendente_n1": _ATENDIMENTO,
-    "especialista_n2": _ATENDIMENTO,
-    "supervisor_atendimento": _ATENDIMENTO | {RESUMIR_SATISFACAO},
+    "especialista_n2": _ATENDIMENTO | {LISTAR_CONTESTACOES},
+    "supervisor_atendimento": _ATENDIMENTO | {RESUMIR_SATISFACAO, LISTAR_CONTESTACOES},
     "analista_ouvidoria": _COMUNS
     | {CONSULTAR_CONTATOS, CONSULTAR_HISTORICO, LISTAR_CHAMADOS, ENVIAR_EMAIL, CONSULTAR_CHAMADO, VERIFICAR_IDENTIDADE,
        RESUMIR_SATISFACAO},
-    "analista_cobranca": _COMUNS | {CONSULTAR_CONTATOS, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE},
-    "analista_disputas": _COMUNS | {CONSULTAR_TRANSACOES},
-    "analista_recebiveis": _COMUNS | {CONSULTAR_LIQUIDACOES},
+    "analista_cobranca": _COMUNS
+    | {CONSULTAR_CONTATOS, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE, CONSULTAR_AGENDA, SIMULAR_ANTECIPACAO,
+       LISTAR_ACORDOS},
+    "analista_disputas": _COMUNS | {CONSULTAR_TRANSACOES, LISTAR_CONTESTACOES},
+    "analista_recebiveis": _COMUNS | {CONSULTAR_LIQUIDACOES, CONSULTAR_AGENDA, SIMULAR_ANTECIPACAO, CONFERIR_LIQUIDACOES},
     "coordenador_financeiro": _COMUNS
-    | {CONSULTAR_CONTATOS, CONSULTAR_LIQUIDACOES, CONSULTAR_TRANSACOES, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE},
+    | {CONSULTAR_CONTATOS, CONSULTAR_LIQUIDACOES, CONSULTAR_TRANSACOES, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE,
+       CONSULTAR_AGENDA, SIMULAR_ANTECIPACAO, CONFERIR_LIQUIDACOES, LISTAR_CONTESTACOES, LISTAR_ACORDOS},
     "auditor_compliance": set(),  # sem ferramenta de dado na Sprint 2 (O5)
     "admin_plataforma": set(),
 }

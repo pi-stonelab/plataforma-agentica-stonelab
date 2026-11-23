@@ -47,7 +47,7 @@ class VerificarIdentidadeContato(Ferramenta):
         if telefone and len(re.sub(r"\D", "", telefone)) not in DIGITOS_DO_TELEFONE:
             raise ErroFerramenta("parametro_invalido", "O telefone deve ter DDD, como (21) 90000-0606.")
         if email and not PADRAO_EMAIL.fullmatch(email):
-            raise ErroFerramenta("parametro_invalido", "O e-mail deve ser como nome@empresa.com.br.")
+            raise ErroFerramenta("parametro_invalido", "O e-mail informado não é um endereço válido.")
         codigo = argumentos["id_cliente"]
         lojista.exigir_acesso(usuario, codigo)
         resultado = dados_sinteticos.contato_confere(codigo, telefone, email)
