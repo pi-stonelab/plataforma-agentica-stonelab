@@ -7,17 +7,26 @@ tamanho, JSON quebrado, 429, 500 e tempo esgotado são respostas reais na rede l
 import json
 import logging
 import os
+import socket
 import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 from ferramentas import catalogo, integracoes
-from ferramentas.integracoes import http
-from ferramentas.integracoes.__main__ import principal
+from ferramentas.base import EfeitoIncerto, ErroFerramenta
+from ferramentas.integracoes import cliente_http as http
+from ferramentas.integracoes.__main__ import CABECALHO, principal
 from ferramentas.integracoes.conector import (
+    CREDENCIAIS,
     FALHAS_PARA_PAUSAR,
+    SAUDES,
+    SEGUNDOS_DE_FALHA_RECENTE,
     SEGUNDOS_DE_PAUSA,
     Conector,
     ConfiguracaoInvalida,
+    DestinoNaoPermitido,
     Disjuntor,
     IntegracaoDesligada,
     IntegracaoPausada,
@@ -189,7 +198,7 @@ def test_saude_reflete_desligado_falha_simulada_pausa_e_ok():
     desligar_todas()
     apis = integracoes.conector("apis_publicas")
     assert apis.saude({"APIS_PUBLICAS_MODO": "desligado"}) == "desligada"
-    assert apis.saude({"VIACEP_URL": "http://fora.example"}) == "indisponivel"  # mal configurada
+    assert apis.saude({"VIACEP_URL": "http://fora.example"}) == "configuracao_invalida"
     with pytest.raises(ConnectionError):
         apis.chamar("teste", falhar, servico="ptax")
     assert apis.saude() == "indisponivel"
@@ -350,7 +359,7 @@ def test_toda_integracao_das_fichas_tem_conector_e_todo_conector_tem_ferramenta(
 def test_estado_tem_os_campos_combinados_internas_primeiro():
     estado = integracoes.estado_integracoes()
     assert [set(item) for item in estado] == [
-        {"nome", "rotulo", "tipo", "modo", "configurado", "saude", "ferramentas"}
+        {"nome", "rotulo", "tipo", "credencial", "modo", "configurado", "saude", "servicos", "ferramentas"}
     ] * len(estado)
     tipos = [item["tipo"] for item in estado]
     assert tipos == sorted(tipos, key=lambda t: t != "interno")
@@ -359,6 +368,11 @@ def test_estado_tem_os_campos_combinados_internas_primeiro():
     assert por_nome["email"]["ferramentas"] == ["enviar_email"]
     assert por_nome["crm"]["modo"] == "simulado" and por_nome["crm"]["tipo"] == "interno"
     assert por_nome["jira"]["saude"] == "desligada"
+    assert por_nome["apis_publicas"]["servicos"] == [
+        {"nome": "viacep", "saude": "sem_chamadas"},
+        {"nome": "ptax", "saude": "sem_chamadas"},
+    ]
+    assert all(item["saude"] in SAUDES and item["credencial"] in CREDENCIAIS for item in estado)
     json.dumps(estado)  # só texto, número e lista
 
 
@@ -379,7 +393,7 @@ def test_email_sem_host_esta_desligado_e_com_host_esta_configurado():
     email = integracoes.conector("email")
     assert (email.modo({}), email.configurado({}), email.saude({})) == ("desligado", False, "desligada")
     ambiente = {"EMAIL_SMTP_HOST": "smtp.example.test", "EMAIL_REMETENTE": "plataforma@stonelab.example"}
-    assert (email.modo(ambiente), email.configurado(ambiente), email.saude(ambiente)) == ("real", True, "ok")
+    assert (email.modo(ambiente), email.configurado(ambiente), email.saude(ambiente)) == ("real", True, "sem_chamadas")
     ligar("email")
     assert email.saude(ambiente) == "indisponivel"
 
@@ -390,8 +404,13 @@ def test_email_sem_host_esta_desligado_e_com_host_esta_configurado():
 def test_comando_estado_lista_todas_as_integracoes():
     linhas = []
     principal(["estado"], escrever=linhas.append)
-    assert len(linhas) == len(CONECTORES)
-    assert any(linha.startswith("apis_publicas") and " ok " in linha for linha in linhas)
+    assert linhas[0] == CABECALHO
+    for nome in CONECTORES:
+        assert any(linha.startswith(nome + " ") for linha in linhas), nome
+    apis = next(linha for linha in linhas if linha.startswith("apis_publicas"))
+    assert apis.endswith("sem chamadas ainda")
+    assert any("- viacep" in linha for linha in linhas) and any("- ptax" in linha for linha in linhas)
+    assert any("Ainda não implementada" in linha for linha in linhas)  # jira, slack...
 
 
 def test_comando_testar_exige_modo_terminal_e_chama_o_servico():
@@ -409,10 +428,200 @@ def test_comando_testar_explica_a_falha_sem_detalhe():
     ambiente = {"MODO_TERMINAL": "1", "VIACEP_URL": url, "BCB_PTAX_URL": url}
     with pytest.raises(SystemExit) as erro:
         principal(["testar", "apis_publicas"], ambiente=ambiente)
-    assert str(erro.value) == "APIs públicas (CEP e câmbio) não respondeu (ConnectionError)."
+    assert str(erro.value) == (
+        "Não consegui falar com APIs públicas (CEP e câmbio). Confira a internet ou use APIS_PUBLICAS_MODO=simulado."
+    )
     with pytest.raises(SystemExit) as erro:
         principal(["testar", "email"], ambiente={"MODO_TERMINAL": "1"})
     assert "EMAIL_SMTP_HOST" in str(erro.value)
     with pytest.raises(SystemExit) as erro:
         principal(["testar", "jira"], ambiente={"MODO_TERMINAL": "1"})
     assert str(erro.value).startswith("Jira:")
+
+
+def test_comando_testar_diz_como_corrigir_a_configuracao():
+    ambiente = {"MODO_TERMINAL": "1", "VIACEP_URL": "http://fora.example"}
+    with pytest.raises(SystemExit) as erro:
+        principal(["testar", "apis_publicas"], ambiente=ambiente)
+    assert str(erro.value).endswith("VIACEP_URL inválida: use https:// e só o endereço base, sem ? nem #. Vazia usa a oficial.")
+    with pytest.raises(SystemExit) as erro:
+        principal(["testar", "apis_publicas"], ambiente={"MODO_TERMINAL": "1", "APIS_PUBLICAS_MODO": "simulada"})
+    assert "APIS_PUBLICAS_MODO com um valor que não existe. Use real, simulado ou desligado." in str(erro.value)
+    assert "fora.example" not in str(erro.value)
+
+
+def test_modo_invalido_avisa_uma_vez_so(caplog):
+    conector = integracoes.conector("apis_publicas")
+    with caplog.at_level(logging.WARNING):
+        for _ in range(5):
+            assert conector.modo({"APIS_PUBLICAS_MODO": "simulada"}) == "desligado"
+    assert sum("modo de integracao invalido" in r.getMessage() for r in caplog.records) <= 1
+
+
+# --- saúde por serviço e falha recente ---------------------------------------------------------------
+
+
+class _DoisServicos(Conector):
+    nome = "teste"
+    rotulo = "Teste"
+    servicos = ("a", "b")
+
+
+def test_saude_por_servico_e_a_pior_vale_para_o_conector():
+    conector = _DoisServicos(Relogio())
+    assert conector.saude_por_servico({}) == {"a": "sem_chamadas", "b": "sem_chamadas"}
+    conector.chamar("teste", lambda: None, servico="a")
+    with pytest.raises(ConnectionError):
+        conector.chamar("teste", falhar, servico="b")
+    assert conector.saude_por_servico({}) == {"a": "ok", "b": "indisponivel"}
+    assert conector.saude({}) == "indisponivel"
+    assert list(SAUDES) == sorted(SAUDES, key=SAUDES.index)  # da pior para a melhor
+
+
+def test_falha_antiga_sem_chamada_depois_nao_acusa_mais():
+    relogio = Relogio()
+    conector = Conector(relogio)
+    with pytest.raises(ConnectionError):
+        conector.chamar("teste", falhar)
+    assert conector.saude({}) == "indisponivel"
+    relogio.agora += SEGUNDOS_DE_FALHA_RECENTE
+    assert conector.saude({}) == "ok"  # o alerta não fica ligado horas por uma falha só
+
+
+# --- destino permitido e URL montada (base do bloco E) -------------------------------------------------
+
+
+def test_destino_so_dentro_da_lista_permitida():
+    conector = Conector()
+    assert conector.exigir_destino(" #financeiro ", ["#financeiro", "#atendimento"]) == "#financeiro"
+    for pedido in ("#outro", "", None, 42, "#financeiro;#outro"):
+        with pytest.raises(DestinoNaoPermitido):
+            conector.exigir_destino(pedido, ["#financeiro", " "])
+    with pytest.raises(DestinoNaoPermitido):
+        conector.exigir_destino("#financeiro", [])
+
+
+@pytest.mark.parametrize("segmento", ["../admin", "a/b", "x?token=1", "x#frag", "%2e%2e", "ç"])
+def test_montar_url_codifica_cada_pedaco_e_nao_sai_da_base(segmento):
+    url = http.montar_url("https://servico.example/api/v1", "issue", segmento)
+    assert url.startswith("https://servico.example/api/v1/issue/")
+    resto = url.removeprefix("https://servico.example/api/v1/issue/")
+    assert "/" not in resto and "?" not in resto and "#" not in resto
+
+
+@pytest.mark.parametrize("segmento", ["", ".", ".."])
+def test_montar_url_recusa_segmento_que_sobe_ou_some(segmento):
+    with pytest.raises(ValueError):
+        http.montar_url("https://servico.example/api", segmento)
+
+
+def test_todo_conector_declara_credencial_e_suas_variaveis_estao_no_env_example():
+    exemplo = (Path(__file__).resolve().parents[2] / ".env.example").read_text(encoding="utf-8")
+    for nome, conector in CONECTORES.items():
+        assert conector.credencial in CREDENCIAIS, nome
+        for variavel in conector.variaveis:
+            assert f"{variavel}=" in exemplo, (nome, variavel)
+
+
+def test_aviso_de_integracao_desligada_nao_fala_do_env():
+    for nome, conector in CONECTORES.items():
+        aviso = conector.aviso_desligada()
+        assert aviso.endswith("Avise o usuário e não tente de novo."), nome
+        assert ".env" not in aviso and "_" not in aviso.split(".")[0], nome
+
+
+# --- cliente HTTP: log, escrita incerta, 4xx e prazo total --------------------------------------------
+
+
+def test_httpx_nao_escreve_a_url_no_log(servidor, caplog):
+    with caplog.at_level(logging.DEBUG):
+        http.pedir("GET", servidor.url + f"/bot{SEGREDO}/ok", parametros={"chat_id": SEGREDO})
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING
+    assert SEGREDO not in caplog.text
+
+
+def _respostas_de_escrita(metodo, caminho):
+    status = {"/recusado": 400, "/sem-credencial": 401, "/proibido": 403, "/caiu": 500, "/gateway": 502}
+    return status.get(caminho, 201), JSON, b'{"ok": true}'
+
+
+def test_escrita_que_chegou_e_ficou_sem_resposta_pode_ter_saido():
+    with ServidorHttp(_respostas_de_escrita, atraso=1.0) as lento:
+        with pytest.raises(EfeitoIncerto):
+            http.pedir("POST", lento.url + "/mensagem", corpo={"texto": "oi"}, tempo_limite=0.3)
+        assert lento.pedidos == [("POST", "/mensagem")]  # o servidor recebeu
+    with ServidorHttp(_respostas_de_escrita, atraso=1.0) as lento, pytest.raises(TimeoutError):
+        http.pedir("GET", lento.url + "/mensagem", tempo_limite=0.3)  # leitura: só tempo esgotado
+
+
+def test_escrita_que_nem_conectou_e_nada_saiu():
+    with ServidorHttp(_respostas_de_escrita) as rodando:
+        url = rodando.url
+    with pytest.raises(ConnectionError) as erro:
+        http.pedir("POST", url + "/mensagem", corpo={}, tempo_limite=1)
+    assert not isinstance(erro.value, EfeitoIncerto)
+
+
+@pytest.mark.parametrize(("caminho", "escrita", "leitura"), [
+    ("/caiu", EfeitoIncerto, ConnectionError),
+    ("/gateway", EfeitoIncerto, ConnectionError),
+    ("/sem-credencial", http.CredencialRecusada, http.CredencialRecusada),
+    ("/proibido", http.CredencialRecusada, http.CredencialRecusada),
+])
+def test_status_de_erro_na_escrita_e_na_leitura(caminho, escrita, leitura):
+    with ServidorHttp(_respostas_de_escrita) as rodando:
+        with pytest.raises(escrita):
+            http.pedir("POST", rodando.url + caminho, corpo={})
+        with pytest.raises(leitura):
+            http.pedir("GET", rodando.url + caminho)
+
+
+def test_pedido_recusado_4xx_e_parametro_invalido_e_nao_pausa_a_integracao():
+    conector = Conector(Relogio())
+    with ServidorHttp(_respostas_de_escrita) as rodando:
+        for _ in range(FALHAS_PARA_PAUSAR + 1):
+            with pytest.raises(ErroFerramenta) as erro:
+                conector.chamar("teste", lambda: http.pedir("GET", rodando.url + "/recusado"))
+            assert erro.value.tipo_erro == "parametro_invalido"
+        assert conector.chamar("teste", lambda: http.pedir("GET", rodando.url + "/ok")).status == 201
+    assert conector.saude({}) == "ok"
+
+
+class _Gotejando(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", "12")
+        self.end_headers()
+        for byte in b'{"ok": true}':
+            self.wfile.write(bytes([byte]))
+            self.wfile.flush()
+            time.sleep(0.15)
+
+    def log_message(self, *args):
+        return
+
+
+def test_prazo_total_vale_para_o_pedido_inteiro_nao_por_leitura():
+    servidor = ThreadingHTTPServer(("127.0.0.1", 0), _Gotejando)
+    servidor.daemon_threads = True
+    linha = threading.Thread(target=servidor.serve_forever, daemon=True)
+    linha.start()
+    try:
+        inicio = time.monotonic()
+        with pytest.raises(TimeoutError):
+            http.pedir("GET", f"http://127.0.0.1:{servidor.server_address[1]}/", tempo_limite=0.5)
+        assert time.monotonic() - inicio < 1.2  # sem o prazo total, levaria uns 1,8 s
+    finally:
+        servidor.shutdown()
+        servidor.server_close()
+
+
+# --- a suíte não sai do computador --------------------------------------------------------------------
+
+
+def test_a_suite_recusa_conexao_fora_do_loopback_e_ignora_proxy():
+    assert not any(v.lower() in ("http_proxy", "https_proxy", "all_proxy") for v in os.environ)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conexao, pytest.raises(ConnectionRefusedError):
+        conexao.connect(("203.0.113.10", 443))  # endereço de documentação (TEST-NET-3), nunca roteado

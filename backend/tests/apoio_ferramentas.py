@@ -2,7 +2,7 @@
 
 import os
 
-from ferramentas import catalogo, confirmacoes, dados_sinteticos, governanca
+from ferramentas import catalogo, confirmacoes, dados_sinteticos, governanca, integracoes
 from mock.banco import criar_engine
 from mock.consultas import buscar_funcionario
 from mock.falhas import desligar_todas
@@ -90,6 +90,7 @@ def limpar_estado():
     pedidos_em_memoria.clear()
     confirmacoes.limpar()
     limpar_enviadas()
+    integracoes.reiniciar()  # disjuntores e saúde: a falha de um teste não pausa a integração no seguinte
 
 
 def usuario_do_diretorio(engine, id_funcionario):

@@ -8,6 +8,11 @@ os.environ["MOCK_DATABASE_URL"] = ""
 
 import ipaddress
 import socket
+from datetime import datetime, time
+
+# Proxy do sistema fica de fora: com HTTPS_PROXY no loopback, um pedido para fora passaria pela trava abaixo.
+for _variavel in [v for v in os.environ if v.lower() in ("http_proxy", "https_proxy", "all_proxy")]:
+    del os.environ[_variavel]
 
 from . import apoio_http, apoio_smtp
 
@@ -15,6 +20,14 @@ from . import apoio_http, apoio_smtp
 os.environ.update(apoio_smtp.ambiente_da_suite())
 # As APIs públicas (ViaCEP e PTAX) vão para um servidor HTTP de teste local, no formato das APIs reais.
 os.environ.update(apoio_http.ambiente_da_suite())
+
+from ferramentas.dados_sinteticos import HOJE_DO_MOCK
+from ferramentas.integracoes.apis_publicas.conector import CONECTOR as _APIS_PUBLICAS
+from ferramentas.integracoes.apis_publicas.conector import FUSO_DA_COTACAO
+
+# No modo real, a cotação usa o dia de verdade. Na suíte, esse relógio fica parado no HOJE_DO_MOCK: o servidor
+# de teste só tem boletins até esse dia, e o resultado não pode depender do dia em que alguém roda os testes.
+_APIS_PUBLICAS.agora_real = lambda: datetime.combine(HOJE_DO_MOCK, time(12), FUSO_DA_COTACAO)
 
 _CONECTAR = socket.socket.connect
 _CONECTAR_EX = socket.socket.connect_ex

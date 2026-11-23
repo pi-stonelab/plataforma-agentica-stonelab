@@ -33,8 +33,8 @@ class ConectorInterno(Conector):
 
 
 CRM = registrar(ConectorInterno("crm", "CRM de atendimento", ("cadastro", "crm")))
-SQL = registrar(ConectorInterno("sql", "Core de pagamentos, cadastro e cobrança", ("cadastro", "core", "cobranca")))
-# [A FAZER (Pedro, ferramentas, bloco A): base analítica e dicionário de dados do mock; trocar os sistemas
-# destas duas linhas pelos sistemas novos de `mock.falhas` quando existirem]
-BIGQUERY = registrar(ConectorInterno("bigquery", "Base analítica", ()))
-DATAHUB = registrar(ConectorInterno("datahub", "Dicionário de dados", ()))
+SQL = registrar(
+    ConectorInterno("sql", "Core de pagamentos, cadastro, cobrança e disputas", ("cadastro", "core", "cobranca", "disputas"))
+)
+BIGQUERY = registrar(ConectorInterno("bigquery", "Base analítica", ("analitica",)))
+DATAHUB = registrar(ConectorInterno("datahub", "Dicionário de dados", ()))  # lê só a descrição do esquema

@@ -5,7 +5,6 @@
 ## Ferramentas que usam
 
 - `comunicacao/buscar_emails` (leitura)
-- `comunicacao/enviar_email` (escrita)
 - `documentos_e_agenda/listar_eventos_agenda` (leitura)
 - `documentos_e_agenda/criar_evento_agenda` (escrita)
 - `documentos_e_agenda/ler_planilha` (leitura)
