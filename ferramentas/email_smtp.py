@@ -85,6 +85,11 @@ class ConfiguracaoSmtp:
     destino_teste: str = ""
 
 
+# Só letras: com dígito, um id como MSG-A12345678901 passaria pela máscara de texto livre como se fosse CPF.
+LETRAS_DO_ID = "BCDFGHJKLMNPQRSTVWXZ"
+TAMANHO_DO_ID = 12
+
+
 def endereco_valido(texto):
     return isinstance(texto, str) and ENDERECO_RE.fullmatch(texto) is not None
 
@@ -170,7 +175,7 @@ def exigir_configuracao(ambiente=os.environ):
 
 
 def enviar(para, assunto, corpo, config, funcionario=None):
-    """Envia um e-mail de texto puro e devolve o id dele (como `MSG-3F9A2C71B0D4`).
+    """Envia um e-mail de texto puro e devolve o id dele (como `MSG-KBTQXWRMFZHD`).
 
     `para` é o endereço do cadastro. Com `config.destino_teste`, a mensagem vai para ele, com o aviso
     de teste. `funcionario` ({"nome", "email"}, de quem confirmou) vira o nome exibido e o Reply-To; sem ele,
@@ -183,7 +188,7 @@ def enviar(para, assunto, corpo, config, funcionario=None):
         raise ErroFerramenta("parametro_invalido", MENSAGEM_ASSUNTO_INVALIDO)
     if not corpo_valido(corpo):
         raise ErroFerramenta("parametro_invalido", MENSAGEM_CORPO_INVALIDO)
-    id_mensagem = f"MSG-{secrets.token_hex(6).upper()}"
+    id_mensagem = "MSG-" + "".join(secrets.choice(LETRAS_DO_ID) for _ in range(TAMANHO_DO_ID))
     mensagem = _montar_mensagem(config, para, assunto, corpo, id_mensagem, funcionario or {})
     servidor = _abrir(config)
     try:

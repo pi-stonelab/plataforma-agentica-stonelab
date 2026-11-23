@@ -446,3 +446,13 @@ def test_porta_ou_login_estranho_no_env_nao_vira_erro_interno(ana, monkeypatch, 
     with pytest.raises(SystemExit) as erro:
         email_smtp.principal(["--testar", DESTINO_TESTE], ambiente(1025, MODO_TERMINAL="1", **valores))
     assert str(erro.value).endswith("inválida no .env.")
+
+
+def test_id_da_mensagem_nunca_tem_digito_para_a_mascara_nao_confundir_com_cpf():
+    from ferramentas.mascara import mascarar_valor
+
+    with ServidorSmtp() as servidor:
+        ids = [email_smtp.enviar(PARA, "A", "B", config(servidor.porta)) for _ in range(30)]
+    for id_mensagem in ids:
+        assert not any(caractere.isdigit() for caractere in id_mensagem)
+        assert mascarar_valor("texto_livre", f"Enviado ({id_mensagem})") == f"Enviado ({id_mensagem})"

@@ -138,7 +138,7 @@ def test_quem_pediu_confirma_uma_vez_e_o_conteudo_some_da_fila(ana):
     confirmacao_id = preparar(ana)["dados"]["confirmacao_id"]
     pedido = confirmacoes.PEDIDOS[confirmacao_id]
     resposta = confirmacoes.confirmar(confirmacao_id, ana)
-    assert resposta["status"] == "ok" and re.fullmatch(r"MSG-[0-9A-F]{12}", resposta["dados"]["id_mensagem"])
+    assert resposta["status"] == "ok" and re.fullmatch(r"MSG-[B-Z]{12}", resposta["dados"]["id_mensagem"])
     (enviada,) = enviadas()
     assert enviada["para"] == email_real("M00001", "financeiro")
     assert enviada["de"].endswith(f" via Stone <{REMETENTE_DA_SUITE}>")
