@@ -8,7 +8,9 @@
 - Resposta acima de `LIMITE_DE_BYTES`, JSON inválido, 5xx e 429 viram `ConnectionError`; tempo esgotado vira
   `TimeoutError`; 401 e 403 viram `CredencialRecusada`. As mensagens são genéricas: nada de URL ou conteúdo.
 - Pedido que muda algo (POST, PUT, PATCH, DELETE) e cai depois de enviado (sem resposta, conexão cortada,
-  500, 502 ou 504) vira `base.EfeitoIncerto`: a ação pode ter acontecido, e quem chamou não repete sozinho.
+  500, 502 ou 504) vira `base.EfeitoIncerto`: a ação pode ter acontecido, e quem chamou não repete sozinho. O
+  mesmo vale quando o servidor respondeu, mas não dá para ler o resultado (2xx com corpo quebrado ou grande
+  demais) ou mandou redirecionar: ele recebeu o pedido, e não sabemos o que fez.
 - 2xx devolve o JSON lido; 404 volta a quem chamou (costuma ser "não encontrado"); os outros 4xx são pedido
   errado: `ErroFerramenta("parametro_invalido")`, que não conta como falha da integração no disjuntor.
 - Os loggers do httpx e do httpcore ficam em WARNING: no nível INFO eles escrevem a URL inteira, com token
@@ -128,12 +130,18 @@ def _json(corpo, obrigatorio):
 
 
 def _seguir(cliente, pedido, limite_de_bytes, prazo):
-    """Manda o pedido e segue redirecionamentos da mesma origem. Devolve (status, corpo em bytes)."""
+    """Manda o pedido e segue redirecionamentos da mesma origem. Devolve (status, corpo em bytes).
+
+    Escrita não segue redirecionamento: o servidor já recebeu o pedido, e repetir poderia duplicar a ação.
+    """
+    so_le = pedido.method in METODOS_QUE_SO_LEEM
     for _ in range(REDIRECIONAMENTOS + 1):
         resposta = cliente.send(pedido, stream=True)
         try:
             if not resposta.is_redirect:
                 return resposta.status_code, _ler_corpo(resposta, limite_de_bytes, prazo)
+            if not so_le:
+                raise EfeitoIncerto()
             destino = resposta.next_request
         finally:
             resposta.close()
@@ -155,10 +163,11 @@ def pedir(
     parametros=None,
     corpo=None,
     cabecalhos=None,
-    tempo_limite=TEMPO_LIMITE,
+    tempo_limite=None,
     limite_de_bytes=LIMITE_DE_BYTES,
 ):
-    """Faz o pedido e devolve `RespostaHttp`. Ver as regras no topo do arquivo."""
+    """Faz o pedido e devolve `RespostaHttp`. Ver as regras no topo do arquivo. Sem `tempo_limite`: `TEMPO_LIMITE`."""
+    tempo_limite = TEMPO_LIMITE if tempo_limite is None else tempo_limite
     if not _url_permitida(url):
         raise ConnectionError(MENSAGEM)
     so_le = metodo.upper() in METODOS_QUE_SO_LEEM
@@ -186,6 +195,10 @@ def pedir(
         if not so_le:
             raise EfeitoIncerto() from None
         raise TimeoutError(MENSAGEM) from None
+    except RespostaInvalida:  # corpo grande demais: numa escrita, o servidor já recebeu o pedido
+        if not so_le:
+            raise EfeitoIncerto() from None
+        raise
     return _interpretar(status, conteudo, so_le)
 
 
@@ -200,4 +213,10 @@ def _interpretar(status, conteudo, so_le):
         raise ConnectionError(MENSAGEM)
     if 400 <= status < 500 and status != 404:
         raise ErroFerramenta("parametro_invalido", MENSAGEM_PEDIDO_RECUSADO)
-    return RespostaHttp(status, _json(conteudo, obrigatorio=status < 300))
+    try:
+        dados = _json(conteudo, obrigatorio=status < 300)
+    except RespostaInvalida:
+        if not so_le:  # 2xx numa escrita: a ação aconteceu, só não dá para ler o resultado
+            raise EfeitoIncerto() from None
+        raise
+    return RespostaHttp(status, dados)

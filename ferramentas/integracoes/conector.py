@@ -26,6 +26,7 @@ Saúde (`saude`), sem fazer chamada nenhuma:
 
 import logging
 import os
+import re
 import threading
 import time
 
@@ -40,6 +41,7 @@ FALHAS_PARA_PAUSAR = 3
 SEGUNDOS_DE_PAUSA = 60
 SEGUNDOS_DE_FALHA_RECENTE = 300  # depois disso, uma falha antiga sem chamada nova não acusa mais
 FALHAS_DE_REDE = (ConnectionError, TimeoutError, OSError)
+PADRAO_APELIDO = re.compile(r"[a-z0-9_-]{1,40}")  # apelido de destino no .env: o que o modelo e a pessoa usam
 
 
 class ConfiguracaoInvalida(ConnectionError):
@@ -60,6 +62,34 @@ class IntegracaoDesligada(ConnectionError):
 
 class DestinoNaoPermitido(ValueError):
     """O destino pedido (canal, chat, projeto) não está na lista permitida do .env."""
+
+
+def ler_lista(ambiente, variavel, padrao_do_item):
+    """Itens separados por vírgula de `variavel` (ex.: `JIRA_PROJETOS=KAN,PLAT`), na ordem; vazia: lista vazia.
+
+    Item fora de `padrao_do_item` (ou repetido): `ConfiguracaoInvalida(variavel)`, sem mostrar o valor.
+    """
+    itens = [item.strip() for item in ambiente.get(variavel, "").split(",") if item.strip()]
+    if len(set(itens)) != len(itens) or not all(padrao_do_item.fullmatch(item) for item in itens):
+        raise ConfiguracaoInvalida(variavel)
+    return itens
+
+
+def ler_destinos(ambiente, variavel, padrao_do_id):
+    """`apelido:id,apelido:id` de `variavel` (ex.: `SLACK_CANAIS=financeiro:C0123ABCD`) como {apelido: id}.
+
+    O modelo e a pessoa só conhecem o apelido; o id do canal ou do chat fica no .env. Item torto, apelido
+    repetido ou id fora de `padrao_do_id`: `ConfiguracaoInvalida(variavel)`.
+    """
+    destinos = {}
+    for item in ler_lista(ambiente, variavel, re.compile(r"[^:\s]+:[^:\s]+")):
+        apelido, identificador = item.split(":")
+        if not PADRAO_APELIDO.fullmatch(apelido) or not padrao_do_id.fullmatch(identificador):
+            raise ConfiguracaoInvalida(variavel)
+        if apelido in destinos:
+            raise ConfiguracaoInvalida(variavel)
+        destinos[apelido] = identificador
+    return destinos
 
 
 class Disjuntor:
@@ -137,6 +167,9 @@ class Conector:
     tipo = "externo"
     variavel_modo = ""  # ex.: APIS_PUBLICAS_MODO; vazio quando o conector decide o modo pela configuração
     modo_padrao = "real"
+    # Sem o modo escrito no .env: `real` se esta variável (a credencial ou a URL principal) está preenchida,
+    # senão `modo_padrao`. Assim preencher o token liga a integração, e nada sai sem configuração.
+    variavel_que_liga = ""
     variaveis = ()  # nomes das variáveis do .env que o conector lê (nunca os valores)
     servicos = ("",)  # cada serviço tem o próprio disjuntor: uma API fora do ar não pausa a outra
     # `plataforma`: uma credencial do .env para todos. `pessoa`: cada funcionário liga a própria conta (OAuth).
@@ -155,10 +188,15 @@ class Conector:
     def _valor_do_modo(self, ambiente):
         return ambiente.get(self.variavel_modo, "").strip().lower() if self.variavel_modo else ""
 
+    def _modo_sem_escolha(self, ambiente):
+        if self.variavel_que_liga and ambiente.get(self.variavel_que_liga, "").strip():
+            return "real"
+        return self.modo_padrao
+
     def modo(self, ambiente=os.environ):
         if not self.variavel_modo:
             return self.modo_padrao
-        valor = self._valor_do_modo(ambiente) or self.modo_padrao
+        valor = self._valor_do_modo(ambiente) or self._modo_sem_escolha(ambiente)
         if valor not in MODOS:
             if not self._modo_invalido_avisado:  # um aviso só, não um por chamada
                 self._modo_invalido_avisado = True

@@ -1,4 +1,7 @@
-from ferramentas.base import Ferramenta
+"""Lê um chamado interno no Jira (projeto liberado no .env): resumo, situação, descrição e últimos comentários."""
+
+from ferramentas.base import ErroFerramenta, Ferramenta
+from ferramentas.integracoes.jira.conector import CONECTOR as JIRA
 
 
 class ConsultarChamadoJira(Ferramenta):
@@ -11,12 +14,16 @@ class ConsultarChamadoJira(Ferramenta):
     categorias_dados = ("chamado_interno",)
     sensibilidade = "interna"
     conteudo_terceiros = True
-    status = "planejada"
-    parametros = {}  # [preencher: parâmetros, ver agents.md]
+    status = "ativa"
+    descricao_para_pessoa = "Mostra um chamado interno do Jira: situação, descrição e os últimos comentários."
+    parametros = {"chave": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": 20}}
 
     def rodar(self, argumentos, usuario):
-        # [preencher: jira, projeto e permissões do Jira que a plataforma usa]
-        return super().rodar(argumentos, usuario)
+        chave = JIRA.chave_para_ferramenta(argumentos["chave"])
+        chamado = JIRA.chamado(chave)
+        if chamado is None:
+            raise ErroFerramenta("nao_encontrado", "Chamado não encontrado no Jira.")
+        return chamado
 
 
 FERRAMENTA = ConsultarChamadoJira()

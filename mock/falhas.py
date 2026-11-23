@@ -16,8 +16,12 @@ from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
-# `apis_publicas` (CEP e câmbio) não é sistema da Stone: entra aqui só para a QA derrubar na demo.
-SISTEMAS = ("cadastro", "core", "cobranca", "crm", "diretorio", "email", "disputas", "analitica", "apis_publicas")
+# As integrações externas (`apis_publicas`, `jira`, `slack`, `telegram` e `email_leitura`) não são sistemas da
+# Stone: entram aqui só para a QA derrubar cada uma na demo (o conector responde "fora do ar" sem chamar nada).
+SISTEMAS = (
+    "cadastro", "core", "cobranca", "crm", "diretorio", "email", "disputas", "analitica",
+    "apis_publicas", "jira", "slack", "telegram", "email_leitura",
+)
 FORA_DO_AR = "fora_do_ar"
 DESATUALIZADO = "desatualizado"
 TIPOS = (FORA_DO_AR, DESATUALIZADO)

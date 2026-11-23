@@ -110,7 +110,8 @@ def test_descricao_sem_marcador_e_a_planejada_mostra_a_frase_sugerida(mundo):
 def test_status_efetivo_planejada_ativa_e_ativa_com_integracao_desligada(mundo, monkeypatch):
     ana = pessoa(mundo, "atendente_n1")
     por_nome = {f["nome"]: f for f in catalogo.listar_fichas(ana)}
-    assert por_nome["abrir_chamado_jira"]["status"] == "planejada"
+    assert por_nome["criar_evento_agenda"]["status"] == "planejada"
+    assert por_nome["abrir_chamado_jira"]["status"] == "inativa"  # ativa, mas a suíte deixa o Jira desligado
     assert por_nome["consultar_cliente"]["status"] == "ativa"
     assert por_nome[ENVIAR]["status"] == "ativa"  # a suíte liga o SMTP local
     assert por_nome[ENVIAR]["integracoes"] == ["email"]

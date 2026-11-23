@@ -449,6 +449,38 @@ Escolhas sem fonte no DOC-MOCK, tomadas para a fase 2 (plano `plano-ferramentas-
   artigos de ajuda são texto da equipe a partir das regras do DOC-MOCK, públicos, com os números de `regras.py`.
 - No código: `gerar.criar_pesquisas_satisfacao`, `mock/base_conhecimento.py`.
 
+## Decisões do bloco E1: Jira, Slack, Telegram e leitura de e-mail (23/11, E1 a E5)
+
+Tomadas pelo orquestrador; sem fonte, para o Pedro e o Brenno validarem.
+
+### E1. Quem usa as integrações internas
+- Decisão: categorias novas `chamado_interno` (Jira) e `comunicacao_interna` (Slack e Telegram), liberadas para
+  todo cargo com área (`regras.CATEGORIAS_DE_TRABALHO_INTERNO`). Admin, auditor e gestor de acessos não usam
+  ferramentas de dado e continuam de fora.
+- Motivo: abrir chamado para outro time e avisar colegas é trabalho de qualquer funcionário; o risco está no
+  destino e no conteúdo, que já ficam presos à lista do `.env` e à máscara.
+
+### E2. Destino só por lista do `.env`
+- Decisão: projeto e tipo do Jira (`JIRA_PROJETOS`, `JIRA_TIPOS`), canais do Slack (`SLACK_CANAIS`) e chats do
+  Telegram (`TELEGRAM_CHATS`) vêm do `.env`. O modelo e a pessoa só usam a chave do projeto ou o apelido; o ID do
+  canal ou do chat nunca chega ao modelo. Inclusive para ler: chave de projeto fora da lista é recusada.
+- Motivo: o modelo não pode mandar dado para fora (LGPD, E58 da KAN-69) nem ler projeto que não é da plataforma.
+
+### E3. Assinatura nas mensagens
+- Decisão: Slack e Telegram saem assinados com o primeiro nome de quem confirmou ("— Ana, pela Plataforma
+  Agêntica"), e a assinatura já aparece na prévia. O Jira não leva assinatura no texto: o chamado é aberto pela
+  conta de serviço e o registro da plataforma guarda quem confirmou.
+- Motivo: o bot é da plataforma; quem lê o canal precisa saber quem pediu.
+
+### E4. Credencial e modo
+- Decisão: as quatro integrações usam a credencial da plataforma (conta de serviço ou bot). Preencher o token liga
+  a integração; sem ele, fica desligada e as ferramentas somem do índice do modelo. `<SISTEMA>_MODO=simulado` liga
+  uma versão em memória para demo e testes, sempre identificada em `fonte`.
+
+### E5. Escrita sem redirecionamento
+- Decisão: o cliente HTTP não segue redirecionamento em escrita, e um 2xx de escrita com corpo ilegível vira "pode
+  ter saído" (`EfeitoIncerto`): o servidor já recebeu o pedido, e repetir poderia duplicar a ação.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que
