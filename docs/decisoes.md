@@ -352,6 +352,57 @@ está marcada "confirmar com o Pedro".
 - Motivo: o N1 não pode descobrir por tentativa quais códigos existem (crítica I3, ataque A-15).
 - No código: `lojista.exigir_acesso` e `governanca.lojista_no_escopo`.
 
+## Decisões do bloco A: mock fase 2 e base analítica (22/11, A1 a A8)
+
+Escolhas sem fonte no DOC-MOCK, tomadas para a fase 2 (plano `plano-ferramentas-final.md`, decisão 3 do Pedro).
+
+### A1. Quem vê as categorias novas
+- Decisão: `disputa` para o analista de disputas, o especialista N2, o supervisor de atendimento e o coordenador
+  financeiro; `satisfacao` para o supervisor de atendimento e o analista de ouvidoria; `indicador_agregado` e
+  `metadado` para todo cargo com área; `base_conhecimento` comum a todos.
+- Motivo: DOC-MOCK §8.2 (disputas vê chargebacks e Pix; o supervisor vê os indicadores do time; a ouvidoria vê todo
+  o histórico) e §6.3 (contestação é "N2 junto com Disputas"). A lista exata é SEM FONTE.
+- No código: `mock/regras.py` (`CARGOS`, `CATEGORIAS_DE_QUEM_TEM_AREA`, `CATEGORIAS_COMUNS`).
+
+### A2. Códigos sem prefixo no DOC-MOCK
+- Decisão: `PX00001` (caso de Pix), `AC0001` (acordo) e `KB001` (artigo). `R0000001` e `CB00001` seguem o DOC-MOCK §4.
+- No código: os CHECK de formato em `mock/modelos.py`.
+
+### A3. O "agora" do mock
+- Decisão: `AGORA_DO_MOCK` = 15/10/2026 às 21h, depois de toda venda sorteada. Serve ao cenário 11 ("venda de 10
+  minutos atrás") e ao prazo do SLA de chamado aberto. Sem fuso: o mock é todo horário de Brasília.
+- No código: `mock/regras.py`.
+
+### A4. Prazo do SLA
+- Decisão: dia útil de segunda a sexta, sem feriado (a mesma escolha da liquidação); o prazo conta da abertura e não
+  para em "aguardando lojista"; a ouvidoria tem 10 dias úteis (sem a prorrogação de 15 dias).
+- Motivo: o DOC-MOCK §6.4 diz que o relógio para, mas o mock não guarda o histórico de situações do chamado.
+- No código: `regras.prazo_do_chamado`, `chamados.prazo_em`.
+
+### A5. Antecipação do plano Negociado
+- Decisão: 2,29% ao mês (o Volume menos 20 pontos-base, a mesma escolha do MDR). O DOC-MOCK §2.2 só diz "sempre abaixo
+  do Volume". A antecipação só é simulada; não há tabela de antecipações executadas.
+- No código: `regras.TAXA_ANTECIPACAO_PONTOS_BASE`.
+
+### A6. Alçadas no mock
+- Decisão: `regras.alcada_do_acordo` aplica o §7.9 (dupla aprovação acima de R$ 10.000; coordenador para desconto no
+  principal, mais de 6 parcelas ou entrada abaixo de 20%; acima de 12 parcelas ou de 10% de desconto, proibido).
+  `calcular_parcelas` ainda tem as suas constantes, com os mesmos valores (pergunta aberta 7).
+- No código: `mock/regras.py`, `acordos.alcada`.
+
+### A7. Base analítica agregada
+- Decisão: a base analítica guarda agregados (vendas por dia e modalidade, chamados por dia, fila e prioridade,
+  contestações por mês e lojista), não a cópia linha a linha. Vai até ontem; a falha "dado desatualizado" tira mais
+  3 dias. Assim ela atende indicadores e relatórios sem carregar dado de pessoa.
+- Motivo: DOC-MOCK §4 ("serve para indicadores e relatórios, nunca para atender um lojista agora"). O formato é SEM
+  FONTE.
+- No código: tabelas `analitica_*`, `consultas.totais_de_vendas`, `chamados_por_fila`, `contestacoes_por_mes`.
+
+### A8. Satisfação e base de conhecimento
+- Decisão: 60% dos chamados resolvidos respondem a pesquisa, metade com comentário (restrito, texto livre). Os 14
+  artigos de ajuda são texto da equipe a partir das regras do DOC-MOCK, públicos, com os números de `regras.py`.
+- No código: `gerar.criar_pesquisas_satisfacao`, `mock/base_conhecimento.py`.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que
@@ -406,8 +457,8 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
 5. `id_cliente` ou `codigo_lojista`? Decidido em H6: continua `id_cliente` para o modelo.
 6. Formato da máscara do nome do sócio. Hoje: inicial de cada parte e `***` (`J*** S***`). O DOC-MOCK §8.3 não define
    (SEM FONTE).
-7. Alçadas em `mock/regras.py`. Hoje ficam na ferramenta, com a pendência anotada no próprio arquivo. Mover deixa as
-   regras todas num lugar só.
+7. Alçadas em `mock/regras.py`. Já existem lá (A6), mas `calcular_parcelas` ainda tem as suas, com os mesmos valores.
+   Trocar a ferramenta para as do mock deixa as regras num lugar só.
 8. Escopo por chamados atribuídos. O DOC-MOCK §3.2 fala em carteira, fila e chamados atribuídos; o código só usa as
    carteiras do time (L11 da pesquisa).
 9. Reativar um agente pausado. `Plataforma.deprecar` existe; não existe método que reative. Nenhuma fonte diz se pode.
