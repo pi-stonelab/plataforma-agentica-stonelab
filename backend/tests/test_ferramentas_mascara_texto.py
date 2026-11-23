@@ -264,3 +264,47 @@ def test_um_megabyte_de_tags_abertas_nao_trava():
     inicio = time.perf_counter()
     livre(texto)
     assert time.perf_counter() - inicio < 5
+
+
+# --- telefone com DDD e CNPJ antes da regra por quantidade de dígitos (revisão de usuário do bloco B) ----
+
+TELEFONES = [
+    ("(21) 99999-8888", "(21) *****-8888"),
+    ("(21)99999-8888", "(21) *****-8888"),
+    ("(21) 3333-4444", "(21) ****-4444"),
+    ("+55 21 99999-8888", "+55 (21) *****-8888"),
+    ("+55 (21) 99999-8888", "+55 (21) *****-8888"),
+    ("+5521999998888", "+55(21) *****-8888"),
+    ("Me liga no (11) 98765-4321, por favor.", "Me liga no (11) *****-4321, por favor."),
+]
+
+
+@pytest.mark.parametrize(("entrada", "esperado"), TELEFONES)
+def test_telefone_com_ddd_sai_mascarado_como_telefone(entrada, esperado):
+    saida = livre(entrada)
+    assert saida == esperado
+    assert livre(saida) == saida  # idempotente
+    assert "99999" not in saida and "98765" not in saida and "3333" not in saida
+
+
+def test_cnpj_sai_com_a_mascara_de_cnpj_e_nao_de_cartao():
+    assert livre("CNPJ 12.345.678/0001-90.") == "CNPJ **.***.***/**01-90."
+    assert livre(livre("12.345.678/0001-90")) == "**.***.***/**01-90"
+
+
+def test_telefone_e_cpf_e_cartao_no_mesmo_texto_saem_cada_um_com_a_sua_mascara():
+    texto = "Tel (21) 99999-8888, CPF 111.444.777-00, cartão 4111 1111 1111 1111."
+    assert livre(texto) == f"Tel (21) *****-8888, CPF {CPF}, cartão {CARTAO}."
+
+
+def test_formato_que_nao_e_telefone_inequivoco_continua_na_regra_de_cpf():
+    # Sem parênteses nem +55, 11 dígitos são tratados como CPF (do lado seguro), como antes.
+    assert livre("21 99999-8888") == "***.999.988-**"
+    assert livre("21999991234") == "***.999.912-**"
+
+
+def test_cpf_escrito_como_telefone_mostra_no_maximo_seis_digitos():
+    """Risco residual documentado em mascara.py: o formato é do autor; nada além de 6 dígitos aparece."""
+    saida = livre("(52) 99822-4700")
+    assert saida == "(52) *****-4700"
+    assert sum(c.isdigit() for c in saida) == 6
