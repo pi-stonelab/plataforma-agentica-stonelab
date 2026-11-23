@@ -208,7 +208,7 @@ FORMATO_DE_IDENTIFICADORES = {"protocolo": r"\d{8}-\d{6}"}
 # `campos_liberados` da ficha dessa ferramenta (ferramentas/base.py), para as outras continuarem negando.
 CAMPOS_NAO_RESTRITOS = frozenset(
     {
-        "codigo", "nome_fantasia", "segmento", "porte", "cidade", "uf", "carteira", "situacao",
+        "codigo", "nome_fantasia", "segmento", "porte", "plano", "cidade", "uf", "carteira", "situacao",
         "data_entrada", "id_responsavel", "id", "papel", "banco", "data_hora", "modalidade",
         "parcelas", "bandeira", "valor_bruto_centavos", "valor_liquido_centavos", "data",
         "valor_total_centavos", "motivo_falha", "tipo", "mes_referencia", "vencimento",
@@ -224,13 +224,14 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "motivo", "data_notificacao", "prazo_defesa", "valor_contestado_centavos",
         "documentos_enviados", "documentos_exigidos", "dias_para_o_prazo", "id_analista",
         "data_abertura", "valor_bloqueado_centavos", "prazo_contestacao", "tem_comprovante_entrega",
+        "valor_retido_centavos", "valor_retido", "motivo_alegado",
         # acordos de cobrança (§7.9)
         "valor_original_centavos", "valor_renegociado_centavos", "entrada_centavos",
         "numero_de_parcelas", "perdao_encargos_centavos", "desconto_principal_centavos", "alcada",
         "id_solicitante", "id_aprovador", "criado_em", "faturas", "valor_original", "valor_renegociado", "entrada",
         "perdao_encargos", "desconto_principal",
         # satisfação (§6.7): a nota e as contagens; o comentário é restrito
-        "nota", "respondida_em", "respostas", "media_centesimos", "notas", "chamados_resolvidos",
+        "nota", "respondida_em", "respostas", "media_centesimos", "media", "notas", "chamados_resolvidos",
         # base de conhecimento (texto público escrito pela equipe)
         "titulo_artigo", "texto_artigo", "atualizado_em",
         # base analítica (agregados, DOC-MOCK §4)
@@ -238,7 +239,7 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "valor_bruto_dia_centavos", "valor_liquido_dia_centavos", "receita_mdr_dia_centavos",
         "quantidade_abertos", "quantidade_resolvidos", "quantidade_estourados",
         "quantidade_vendas_cartao", "quantidade_chargebacks", "taxa_chargeback_pontos_base",
-        "receita_mdr", "quantidade",
+        "receita_mdr", "quantidade", "taxa_chargeback",
         # verificação de identidade (§6.6): só diz se confere, nunca o contato
         "confere",
         # dicionário de dados (metadado): descreve o esquema, nunca o dado
@@ -357,13 +358,14 @@ def desconto_da_antecipacao_centavos(valor_centavos: int, dias_antecipados: int,
     return _arredondar_divisao(valor_centavos * taxa_pontos_base * dias_antecipados, 10000 * 30)
 
 
-# Os quatro motivos de recusa do §7.4, na ordem em que a ferramenta explica.
-MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = (
-    "recebivel_retido_ou_bloqueado",
-    "lojista_bloqueado",
-    "conta_em_verificacao",
-    "fatura_vencida_ha_mais_de_15_dias",
-)
+# Os quatro motivos de recusa do §7.4, na ordem em que a ferramenta explica, com o texto para a pessoa.
+ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = {
+    "recebivel_retido_ou_bloqueado": "a parcela está retida ou bloqueada",
+    "lojista_bloqueado": "o lojista está bloqueado",
+    "conta_em_verificacao": "a conta de recebimento está em verificação",
+    "fatura_vencida_ha_mais_de_15_dias": "há fatura vencida há mais de 15 dias",
+}
+MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = tuple(ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO)
 
 # Alçadas do §7.9. ferramentas/financeiro/calcular_parcelas ainda tem as suas (sem o perdão de encargos e sem a
 # dupla aprovação): pendência do bloco C.
@@ -447,6 +449,17 @@ DOCUMENTOS_POR_MOTIVO = {
     "cancelamento_nao_processado": ("politica_de_cancelamento", "comprovante_de_estorno"),
 }
 MOTIVOS_DE_CHARGEBACK = tuple(DOCUMENTOS_POR_MOTIVO)
+ROTULOS_DOS_MOTIVOS_DE_CHARGEBACK = {
+    "compra_nao_reconhecida": "compra não reconhecida pelo dono do cartão",
+    "mercadoria_nao_recebida": "mercadoria não recebida",
+    "produto_diferente": "produto diferente do anunciado",
+    "cobranca_duplicada": "cobrança duplicada",
+    "valor_divergente": "valor cobrado diferente do combinado",
+    "cancelamento_nao_processado": "cancelamento não processado",
+}
+# Só nestas situações o prazo ainda corre para o lojista (defesa do chargeback, contestação do MED).
+SITUACOES_COM_PRAZO_DO_CHARGEBACK = ("aguardando_defesa",)
+SITUACOES_COM_PRAZO_DO_CASO_PIX = ("bloqueado",)
 
 # ---------------------------------------------------------------------------------------------
 # Satisfação e base analítica (DOC-MOCK §4, §6.7 e §10.1)

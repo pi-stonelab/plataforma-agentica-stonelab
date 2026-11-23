@@ -14,6 +14,7 @@ from mock.falhas import SistemaIndisponivel, desligar_todas, ligar
 from mock.gerar import CHAMADOS_CRITICOS_CENARIO_11, COMENTARIO_ARMADILHA, recriar
 from mock.modelos import BaseMock
 from mock.regras import CAMPOS_NAO_RESTRITOS, CLASSIFICACAO_CAMPOS
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from tests import gabaritos as gab
@@ -194,7 +195,9 @@ def test_percentual_em_texto(fachada):
 
 
 def test_antecipacao_recusada_para_quem_tem_fatura_vencida_ha_mais_de_15_dias(fachada):
-    assert fachada.motivos_de_recusa_da_antecipacao(gab.C4_LOJISTA_RECUSADO) == [gab.C4_MOTIVO_DA_RECUSA]
+    assert fachada.motivos_de_recusa_da_antecipacao(gab.C4_LOJISTA_RECUSADO) == [gab.C4_MOTIVO_DA_RECUSA_TEXTO]
+    assert consultas.motivos_de_recusa_da_antecipacao(fachada._engine(), gab.C4_LOJISTA_RECUSADO) == [
+        gab.C4_MOTIVO_DA_RECUSA]
     assert fachada.motivos_de_recusa_da_antecipacao(gab.C4_LOJISTA) == []
     assert fachada.motivos_de_recusa_da_antecipacao("M99999") is None
 
@@ -244,9 +247,10 @@ def test_chargeback_do_cenario_2_vence_amanha_com_os_documentos_do_motivo(fachad
     chargebacks, total = fachada.buscar_chargebacks(gab.C2_LOJISTA, None)
     assert total == 1
     (caso,) = chargebacks
-    assert (caso["codigo"], caso["id_venda"], caso["motivo"]) == (gab.C2_CHARGEBACK, gab.C2_VENDA, gab.C2_MOTIVO)
+    assert (caso["codigo"], caso["id_venda"], caso["motivo"]) == (gab.C2_CHARGEBACK, gab.C2_VENDA, gab.C2_MOTIVO_TEXTO)
     assert (caso["data_notificacao"], caso["prazo_defesa"]) == (gab.C2_AVISO, gab.C2_PRAZO_DA_DEFESA)
     assert caso["dias_para_o_prazo"] == gab.C2_DIAS_PARA_O_PRAZO and caso["valor"] == gab.C2_VALOR_TEXTO
+    assert caso["valor_retido"] == gab.C2_VALOR_RETIDO_TEXTO
     assert tuple(caso["documentos_exigidos"]) == gab.C2_DOCUMENTOS_EXIGIDOS
     assert caso["documentos_enviados"] == []
 
@@ -289,6 +293,39 @@ def test_comentarios_de_nota_baixa_trazem_o_da_ouvidoria_e_a_armadilha_como_dado
     assert set(gab.C9_CHAMADOS_FECHADOS) <= chamados
     armadilha = [c for c in comentarios if c["id_chamado"] == gab.C11_COMENTARIO_ARMADILHA_NO_CHAMADO]
     assert armadilha and armadilha[0]["comentario"] == COMENTARIO_ARMADILHA
+
+
+def test_chargeback_encerrado_nao_tem_prazo_correndo(fachada):
+    ganhos = [c for c in fachada.buscar_chargebacks("M00010", None)[0] if c["situacao"] == "ganho"]
+    assert ganhos and all(c["dias_para_o_prazo"] is None and c["valor_retido"] == "R$ 0,00" for c in ganhos)
+
+
+def test_comentarios_so_com_comentario_e_no_escopo_da_carteira(fachada, sessao):
+    todos, total = fachada.buscar_comentarios_satisfacao(None, None, None, None, 50)
+    assert total == len(todos) and all(c["comentario"] for c in todos)
+    da_pme, _ = fachada.buscar_comentarios_satisfacao(None, None, None, None, 50, "pme")
+    lojistas_da_pme = {codigo for codigo, in sessao.execute(text("SELECT codigo FROM lojistas WHERE carteira = 'pme'"))}
+    chamados_da_pme = {codigo for codigo, in sessao.execute(text(
+        "SELECT codigo FROM chamados WHERE id_lojista IN (SELECT codigo FROM lojistas WHERE carteira = 'pme')"))}
+    assert lojistas_da_pme and {c["id_chamado"] for c in da_pme} <= chamados_da_pme
+    assert len(da_pme) < len(todos)
+
+
+def test_media_da_satisfacao_em_texto(fachada):
+    resumo = fachada.resumo_satisfacao(None, None, None)
+    assert set(resumo) == {"respostas", "notas", "media"}
+    inteiro, centesimos = resumo["media"].split(",")
+    soma = sum(nota * quantidade for nota, quantidade in resumo["notas"].items())
+    assert abs(int(inteiro) * 100 + int(centesimos) - 100 * soma / resumo["respostas"]) <= 0.5
+    assert fachada.resumo_satisfacao(date(2020, 1, 1), date(2020, 1, 2), None)["media"] is None
+
+
+def test_contestacoes_agregadas_e_do_lojista_saem_separadas(fachada):
+    mes, _ = gab.C2_TAXA_DE_CHARGEBACK_DO_MES_DA_VENDA
+    do_lojista = fachada.contestacoes_do_lojista_por_mes(gab.C2_LOJISTA, mes, mes)["itens"]
+    assert [(i["mes"], i["taxa_chargeback"]) for i in do_lojista] == [(mes, "20,00%")]
+    agregado = fachada.contestacoes_por_mes(mes, mes)["itens"]
+    assert len(agregado) == 1 and agregado[0]["quantidade_vendas_cartao"] > do_lojista[0]["quantidade_vendas_cartao"]
 
 
 def test_pesquisas_por_fila(sessao):

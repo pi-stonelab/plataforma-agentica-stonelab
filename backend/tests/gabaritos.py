@@ -383,6 +383,8 @@ C2_VENDA = "T0000646"
 C2_VALOR_CENTAVOS = 45990
 C2_VALOR_TEXTO = "R$ 459,90"
 C2_MOTIVO = "mercadoria_nao_recebida"
+C2_MOTIVO_TEXTO = "mercadoria não recebida"
+C2_VALOR_RETIDO_TEXTO = "R$ 443,85"  # o líquido da venda (bruto R$ 459,90 menos a taxa) fica retido na agenda
 C2_AVISO = "2026-10-09"
 C2_PRAZO_DA_DEFESA = "2026-10-16"
 C2_DIAS_PARA_O_PRAZO = 1
@@ -409,6 +411,7 @@ C4_SIMULACAO = {
 }
 C4_LOJISTA_RECUSADO = "M00003"
 C4_MOTIVO_DA_RECUSA = "fatura_vencida_ha_mais_de_15_dias"
+C4_MOTIVO_DA_RECUSA_TEXTO = "há fatura vencida há mais de 15 dias"
 
 # ---------- cenário 6: golpe da troca de conta (M00006) ----------
 C6_LOJISTA = "M00006"

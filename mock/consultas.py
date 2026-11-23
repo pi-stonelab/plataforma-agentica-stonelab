@@ -87,6 +87,7 @@ def buscar_lojista(origem: Session | Engine, codigo: str) -> dict | None:
             "nome_fantasia": lojista.nome_fantasia,
             "segmento": lojista.segmento,
             "porte": lojista.porte,
+            "plano": regras.PLANO_POR_PORTE[lojista.porte],
             "cidade": lojista.cidade,
             "uf": lojista.uf,
             "carteira": lojista.carteira,
@@ -507,7 +508,9 @@ def buscar_acordos(
 def buscar_chargebacks(origem: Session | Engine, codigo: str, limite: int | None = None) -> dict:
     """Chargebacks do lojista, do aviso mais recente para o mais antigo.
 
-    `documentos_enviados` vira lista; `dias_para_o_prazo` conta a partir de hoje (negativo se já passou).
+    `documentos_enviados` vira lista; `dias_para_o_prazo` conta a partir de hoje e só existe enquanto o prazo
+    da defesa corre (`regras.SITUACOES_COM_PRAZO_DO_CHARGEBACK`); `valor_retido_centavos` é o que está retido
+    na agenda por causa da venda contestada (o líquido, já sem a taxa, §7.6).
     """
     falhas.verificar("disputas")
     consulta = (
@@ -520,15 +523,26 @@ def buscar_chargebacks(origem: Session | Engine, codigo: str, limite: int | None
         .order_by(Chargeback.data_notificacao.desc(), Chargeback.codigo)
     )
 
-    def formatar(linha) -> dict:
-        item = dict(linha._mapping)
-        item["documentos_enviados"] = [d for d in item["documentos_enviados"].split(",") if d]
-        item["dias_para_o_prazo"] = (item["prazo_defesa"] - regras.HOJE_DO_MOCK).days
-        item["data_notificacao"] = _iso(item["data_notificacao"])
-        item["prazo_defesa"] = _iso(item["prazo_defesa"])
-        return item
+    retido_por_venda = (
+        select(Recebivel.id_venda, func.sum(Recebivel.valor_parcela_centavos))
+        .where(Recebivel.id_lojista == codigo, Recebivel.situacao == "retido",
+               Recebivel.data_prevista >= regras.HOJE_DO_MOCK)
+        .group_by(Recebivel.id_venda)
+    )
 
     with _sessao_de(origem) as sessao:
+        retido = {venda: int(soma) for venda, soma in sessao.execute(retido_por_venda)}
+
+        def formatar(linha) -> dict:
+            item = dict(linha._mapping)
+            prazo_corre = item["situacao"] in regras.SITUACOES_COM_PRAZO_DO_CHARGEBACK
+            item["documentos_enviados"] = [d for d in item["documentos_enviados"].split(",") if d]
+            item["dias_para_o_prazo"] = (item["prazo_defesa"] - regras.HOJE_DO_MOCK).days if prazo_corre else None
+            item["valor_retido_centavos"] = retido.get(item["id_venda"], 0)
+            item["data_notificacao"] = _iso(item["data_notificacao"])
+            item["prazo_defesa"] = _iso(item["prazo_defesa"])
+            return item
+
         return _lista(sessao, consulta, limite, formatar)
 
 
@@ -538,8 +552,8 @@ def buscar_casos_pix(origem: Session | Engine, codigo: str, limite: int | None =
     consulta = (
         select(
             CasoPix.codigo, CasoPix.id_venda, CasoPix.data_abertura, CasoPix.prazo_contestacao,
-            CasoPix.valor_bloqueado_centavos, CasoPix.tem_comprovante_entrega, CasoPix.id_analista,
-            CasoPix.situacao,
+            CasoPix.valor_bloqueado_centavos, CasoPix.motivo_alegado, CasoPix.tem_comprovante_entrega,
+            CasoPix.id_analista, CasoPix.situacao,
         )
         .where(CasoPix.id_lojista == codigo)
         .order_by(CasoPix.data_abertura.desc(), CasoPix.codigo)
@@ -547,7 +561,8 @@ def buscar_casos_pix(origem: Session | Engine, codigo: str, limite: int | None =
 
     def formatar(linha) -> dict:
         item = dict(linha._mapping)
-        item["dias_para_o_prazo"] = (item["prazo_contestacao"] - regras.HOJE_DO_MOCK).days
+        prazo_corre = item["situacao"] in regras.SITUACOES_COM_PRAZO_DO_CASO_PIX
+        item["dias_para_o_prazo"] = (item["prazo_contestacao"] - regras.HOJE_DO_MOCK).days if prazo_corre else None
         item["data_abertura"] = _iso(item["data_abertura"])
         item["prazo_contestacao"] = _iso(item["prazo_contestacao"])
         return item
@@ -561,7 +576,15 @@ def buscar_casos_pix(origem: Session | Engine, codigo: str, limite: int | None =
 # ---------------------------------------------------------------------------------------------
 
 
-def _periodo_das_pesquisas(consulta, data_inicio: date | None, data_fim: date | None, fila: str | None):
+def _periodo_das_pesquisas(
+    consulta, data_inicio: date | None, data_fim: date | None, fila: str | None,
+    codigo: str | None = None, carteira: str | None = None,
+):
+    """Filtros comuns das pesquisas. Lojista e carteira recortam o escopo de quem só vê o próprio time."""
+    if codigo is not None:
+        consulta = consulta.where(Chamado.id_lojista == codigo)
+    if carteira is not None:
+        consulta = consulta.join(Lojista, Chamado.id_lojista == Lojista.codigo).where(Lojista.carteira == carteira)
     if data_inicio is not None:
         consulta = consulta.where(PesquisaSatisfacao.respondida_em >= datetime.combine(data_inicio, time.min))
     if data_fim is not None:
@@ -579,8 +602,13 @@ def buscar_pesquisas(
     fila: str | None = None,
     nota_maxima: int | None = None,
     limite: int | None = None,
+    *,
+    codigo: str | None = None,
+    carteira: str | None = None,
+    somente_com_comentario: bool = False,
 ) -> dict:
-    """Respostas CSAT no período (de todos os lojistas), da mais recente para a mais antiga.
+    """Respostas CSAT no período, da mais recente para a mais antiga (de todos os lojistas, de um só ou de uma
+    carteira).
 
     O comentário é texto livre do lojista (RESTRITO, conteúdo de terceiros): sai em claro para a máscara.
     """
@@ -589,9 +617,11 @@ def buscar_pesquisas(
         PesquisaSatisfacao.id_chamado, Chamado.fila, PesquisaSatisfacao.nota, PesquisaSatisfacao.comentario,
         PesquisaSatisfacao.respondida_em,
     ).join(Chamado, PesquisaSatisfacao.id_chamado == Chamado.codigo)
-    consulta = _periodo_das_pesquisas(consulta, data_inicio, data_fim, fila)
+    consulta = _periodo_das_pesquisas(consulta, data_inicio, data_fim, fila, codigo, carteira)
     if nota_maxima is not None:
         consulta = consulta.where(PesquisaSatisfacao.nota <= nota_maxima)
+    if somente_com_comentario:
+        consulta = consulta.where(PesquisaSatisfacao.comentario.is_not(None), PesquisaSatisfacao.comentario != "")
     consulta = consulta.order_by(PesquisaSatisfacao.respondida_em.desc(), PesquisaSatisfacao.id)
 
     def formatar(linha) -> dict:
@@ -608,6 +638,9 @@ def resumo_satisfacao(
     data_inicio: date | None = None,
     data_fim: date | None = None,
     fila: str | None = None,
+    *,
+    codigo: str | None = None,
+    carteira: str | None = None,
 ) -> dict:
     """Notas CSAT no período: respostas, quantas de cada nota e a média em centésimos (4,25 vira 425)."""
     falhas.verificar("crm")
@@ -616,7 +649,7 @@ def resumo_satisfacao(
         .join(Chamado, PesquisaSatisfacao.id_chamado == Chamado.codigo)
         .group_by(PesquisaSatisfacao.nota)
     )
-    consulta = _periodo_das_pesquisas(consulta, data_inicio, data_fim, fila)
+    consulta = _periodo_das_pesquisas(consulta, data_inicio, data_fim, fila, codigo, carteira)
     notas = {nota: 0 for nota in range(1, 6)}
     with _sessao_de(origem) as sessao:
         for nota, quantidade in sessao.execute(consulta):
