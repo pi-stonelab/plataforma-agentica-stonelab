@@ -17,11 +17,13 @@ from collections import namedtuple
 
 from mock import regras
 
-from ferramentas import dados_sinteticos, governanca
+from ferramentas import dados_sinteticos, governanca, mascara
 from ferramentas.base import ErroFerramenta
 
 PADRAO_CODIGO = re.compile(r"M[0-9]{5}")
+PADRAO_CHAMADO = re.compile(r"CH[0-9]{6}")
 LIMITE_PADRAO = 20
+TETO_CARACTERES_DA_MENSAGEM = 500  # E36: mensagem enorme não pode estourar o que o modelo recebe
 
 
 def exigir_acesso(usuario, codigo):
@@ -90,3 +92,24 @@ def preparar(usuario, argumentos, *, com_periodo=False, limite_padrao=LIMITE_PAD
     if com_periodo:
         data_inicio, data_fim = periodo_permitido(usuario, data_inicio, data_fim)  # O4
     return PedidoDoLojista(codigo, data_inicio, data_fim, limite)
+
+
+def exigir_formato_do_chamado(id_chamado):
+    if not PADRAO_CHAMADO.fullmatch(id_chamado):
+        raise ErroFerramenta("parametro_invalido", "O id_chamado deve ser como CH000062.")
+
+
+def cortar_mensagem(texto):
+    """Mascara CPF e cartão e só então corta, para o corte não deixar um número pela metade: (texto, cortado)."""
+    texto = mascara.mascarar_valor("texto_livre", texto)
+    return texto[:TETO_CARACTERES_DA_MENSAGEM], len(texto) > TETO_CARACTERES_DA_MENSAGEM
+
+
+def carteiras_do_escopo(usuario):
+    """Carteiras que o usuário enxerga numa busca sem lojista: None se vê todas; senão a tupla das do time."""
+    escopo = governanca.escopo_do_usuario(usuario)
+    if escopo == regras.ESCOPO_TODAS:
+        return None
+    if escopo == regras.ESCOPO_CARTEIRAS_DO_TIME:
+        return tuple(usuario.carteiras)
+    return ()

@@ -517,3 +517,38 @@ def contestacoes_do_lojista_por_mes(codigo, mes_inicio, mes_fim):
 def dicionario_de_dados():
     """Tabelas e colunas do mock com o sistema dono e a sensibilidade (não lê dado nenhum)."""
     return consultas.dicionario_de_dados()
+
+
+# ---------------------------------------------------------------------------------------------
+# Leituras do bloco C. Listas fechadas que as func.py validam e leituras que só elas usam.
+# ---------------------------------------------------------------------------------------------
+
+FILAS = regras.FILAS
+PRIORIDADES = modelos.PRIORIDADES
+SITUACOES_RECEBIVEL = modelos.SITUACOES_RECEBIVEL
+SITUACOES_ACORDO = modelos.SITUACOES_ACORDO
+DESCRICAO_DOS_SISTEMAS = consultas.DESCRICAO_DOS_SISTEMAS
+LIMITE_DE_CHARGEBACK_DO_MONITORAMENTO = regras.CHARGEBACK_QUE_LIGA_O_MONITORAMENTO_PONTOS_BASE  # pontos-base
+PERDAO_DE_ENCARGOS_DO_ANALISTA_ATE_CENTAVOS = regras.PERDAO_DE_ENCARGOS_DO_ANALISTA_ATE_CENTAVOS
+PARCELAS_MAXIMAS_ANALISTA = regras.PARCELAS_MAXIMAS_ANALISTA
+PARCELAS_MAXIMAS_COORDENADOR = regras.PARCELAS_MAXIMAS_COORDENADOR
+ENTRADA_MINIMA_ANALISTA_PERCENTUAL = regras.ENTRADA_MINIMA_ANALISTA_PERCENTUAL
+DESCONTO_MAXIMO_COORDENADOR_PERCENTUAL = regras.DESCONTO_MAXIMO_COORDENADOR_PERCENTUAL
+LIMITE_DA_DUPLA_APROVACAO_CENTAVOS = regras.LIMITE_DA_DUPLA_APROVACAO_CENTAVOS
+
+
+def buscar_lojistas_por_nome(termo, carteiras, limite):
+    """Lojistas com o termo no nome fantasia, só nas `carteiras` (None = todas): (lista, total)."""
+    resposta = _ler(consultas.buscar_lojistas_por_nome, termo, carteiras, limite)
+    return resposta["itens"], resposta["total"]
+
+
+def agenda_e_liquidacoes_por_dia(codigo, data_inicio, data_fim):
+    """Por dia até ontem: agenda do dia e quanto a liquidação pagou, em centavos (para a conferência calcular)."""
+    return _ler(consultas.agenda_e_liquidacoes_por_dia, codigo, data_inicio, data_fim)
+
+
+def ultimas_interacoes(codigo, id_chamado, limite):
+    """As mensagens mais recentes do chamado, em ordem cronológica: (lista, total do chamado)."""
+    resposta = _ler(consultas.ultimas_interacoes, codigo, id_chamado, limite)
+    return resposta["itens"], resposta["total"]

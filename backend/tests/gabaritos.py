@@ -57,6 +57,12 @@ CONSULTAR_CONTATOS = "consultar_contatos_lojista"
 CONSULTAR_CEP = "consultar_endereco_cep"
 CONSULTAR_COTACAO = "consultar_cotacao_moeda"
 SOLICITAR_AUSENTE = "solicitar_ferramenta_ausente"
+# Bloco C: leitura e cálculo sobre a fase 2 do mock.
+CONSULTAR_BASE_CONHECIMENTO = "consultar_base_conhecimento"
+CONSULTAR_CHAMADO = "consultar_chamado"
+VERIFICAR_IDENTIDADE = "verificar_identidade_contato"
+BUSCAR_CLIENTES = "buscar_clientes"
+RESUMIR_SATISFACAO = "resumir_satisfacao"
 
 # Caminho que o modelo escreve em LER (área/ferramenta). A área de cada uma é a pasta no catálogo.
 CAMINHO = {
@@ -134,7 +140,7 @@ C1_SEQUENCIA = (
     (LISTAR_CHAMADOS, {"id_cliente": C1_LOJISTA}),
 )
 C1_ETAPAS = 8  # 1 índice + 3 fichas + 3 usos + 1 FINAL
-C1_NAO_USA = (CONSULTAR_CONTATOS, "consultar_saldo_conta") + NAO_USAM_NOS_CENARIOS
+C1_NAO_USA = (CONSULTAR_CONTATOS,) + NAO_USAM_NOS_CENARIOS
 # A resposta final precisa trazer (regex, sem diferenciar maiúsculas) e não pode trazer.
 C1_DEVE_CONTER = (
     r"R\$ 1\.842,30",
@@ -288,20 +294,28 @@ _ATENDIMENTO = {
     CONSULTAR_COTACAO,
     SOLICITAR_AUSENTE,
     ENVIAR_EMAIL,
+    CONSULTAR_CHAMADO,
+    VERIFICAR_IDENTIDADE,
 }
-_COMUNS = {CONSULTAR_CLIENTE, CALCULAR_MULTA, CALCULAR_PARCELAS, CONSULTAR_CEP, CONSULTAR_COTACAO, SOLICITAR_AUSENTE}
+# Comuns a todo cargo com área: cadastro, cálculos, consultas públicas, a base de conhecimento e a busca por nome.
+_COMUNS = {
+    CONSULTAR_CLIENTE, CALCULAR_MULTA, CALCULAR_PARCELAS, CONSULTAR_CEP, CONSULTAR_COTACAO, SOLICITAR_AUSENTE,
+    CONSULTAR_BASE_CONHECIMENTO, BUSCAR_CLIENTES,
+}
+_ATENDIMENTO |= _COMUNS
 # O que o agente geral (que lista todas as ferramentas do catálogo) deixa cada cargo alcançar.
 FERRAMENTAS_DO_CARGO = {
     "atendente_n1": _ATENDIMENTO,
     "especialista_n2": _ATENDIMENTO,
-    "supervisor_atendimento": _ATENDIMENTO,
+    "supervisor_atendimento": _ATENDIMENTO | {RESUMIR_SATISFACAO},
     "analista_ouvidoria": _COMUNS
-    | {CONSULTAR_CONTATOS, CONSULTAR_HISTORICO, LISTAR_CHAMADOS, ENVIAR_EMAIL},
-    "analista_cobranca": _COMUNS | {CONSULTAR_CONTATOS, LISTAR_FATURAS, ENVIAR_EMAIL},
+    | {CONSULTAR_CONTATOS, CONSULTAR_HISTORICO, LISTAR_CHAMADOS, ENVIAR_EMAIL, CONSULTAR_CHAMADO, VERIFICAR_IDENTIDADE,
+       RESUMIR_SATISFACAO},
+    "analista_cobranca": _COMUNS | {CONSULTAR_CONTATOS, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE},
     "analista_disputas": _COMUNS | {CONSULTAR_TRANSACOES},
     "analista_recebiveis": _COMUNS | {CONSULTAR_LIQUIDACOES},
     "coordenador_financeiro": _COMUNS
-    | {CONSULTAR_CONTATOS, CONSULTAR_LIQUIDACOES, CONSULTAR_TRANSACOES, LISTAR_FATURAS, ENVIAR_EMAIL},
+    | {CONSULTAR_CONTATOS, CONSULTAR_LIQUIDACOES, CONSULTAR_TRANSACOES, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE},
     "auditor_compliance": set(),  # sem ferramenta de dado na Sprint 2 (O5)
     "admin_plataforma": set(),
 }

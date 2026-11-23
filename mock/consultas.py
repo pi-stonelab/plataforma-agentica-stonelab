@@ -964,3 +964,120 @@ def dicionario_de_dados() -> list[dict]:
             "colunas": colunas,
         })
     return tabelas
+
+
+# ---------------------------------------------------------------------------------------------
+# Leituras do bloco C (ferramentas de leitura e cálculo)
+# ---------------------------------------------------------------------------------------------
+
+# DOC-MOCK §4: cada dado tem um único sistema dono; só o dono altera, os outros apenas leem.
+DESCRICAO_DOS_SISTEMAS = {
+    "cadastro": "Cadastro de lojistas",
+    "core": "Core de pagamentos",
+    "cobranca": "Cobrança",
+    "disputas": "Disputas",
+    "crm": "CRM de atendimento",
+    "diretorio": "Diretório de funcionários",
+    "analitica": "Base analítica",
+}
+
+
+def buscar_lojistas_por_nome(
+    origem: Session | Engine,
+    termo: str,
+    carteiras: tuple[str, ...] | None = None,
+    limite: int | None = None,
+) -> dict:
+    """Lojistas cujo nome fantasia contém o termo, sem diferenciar maiúscula nem acento, só nas `carteiras`
+    (None = todas). Ordem alfabética.
+
+    A comparação sem acento é feita em Python (o SQLite não tira acento e o Postgres pediria a extensão
+    unaccent): lê só código, nome, cidade, UF, situação e carteira do escopo. Serve até alguns milhares de
+    lojistas por carteira; acima disso, trocar por uma coluna de nome normalizado com índice.
+    """
+    falhas.verificar("cadastro")
+    procurado = _sem_acento_minusculo(termo).strip()
+    consulta = select(
+        Lojista.codigo, Lojista.nome_fantasia, Lojista.cidade, Lojista.uf, Lojista.situacao, Lojista.carteira
+    ).order_by(Lojista.nome_fantasia, Lojista.codigo)
+    if carteiras is not None:
+        consulta = consulta.where(Lojista.carteira.in_(carteiras))
+    with _sessao_de(origem) as sessao:
+        achados = [
+            dict(linha._mapping)
+            for linha in sessao.execute(consulta)
+            if procurado and procurado in _sem_acento_minusculo(linha.nome_fantasia)
+        ]
+    teto = _limite_efetivo(limite)
+    return {"itens": achados[:teto], "total": len(achados), "limite": teto}
+
+
+def agenda_e_liquidacoes_por_dia(
+    origem: Session | Engine, codigo: str, data_inicio: date, data_fim: date
+) -> list[dict]:
+    """Por dia já passado (até ontem), o que a agenda mandava pagar e o que a liquidação pagou, em centavos.
+
+    Agenda do dia: as parcelas com `data_prevista` no dia, menos as antecipadas (já pagas antes). Pago: a soma
+    das liquidações `paga` do dia. `falhou`/`devolvida` dizem se alguma liquidação do dia não chegou, com o
+    motivo. Só entram dias com agenda ou com liquidação. Da data mais recente para a mais antiga.
+    """
+    falhas.verificar("core")
+    fim = min(data_fim, regras.HOJE_DO_MOCK - timedelta(days=1))
+    dias: dict[date, dict] = {}
+
+    def dia(chave: date) -> dict:
+        return dias.setdefault(chave, {
+            "dia": chave, "agenda_centavos": 0, "pago_centavos": 0, "falhou": False, "devolvida": False,
+            "motivo_falha": None,
+        })
+
+    with _sessao_de(origem) as sessao:
+        agenda = sessao.execute(
+            select(Recebivel.data_prevista, func.sum(Recebivel.valor_parcela_centavos))
+            .where(
+                Recebivel.id_lojista == codigo,
+                Recebivel.situacao != "antecipado",
+                Recebivel.data_prevista >= data_inicio,
+                Recebivel.data_prevista <= fim,
+            )
+            .group_by(Recebivel.data_prevista)
+        )
+        for data_prevista, soma in agenda:
+            dia(data_prevista)["agenda_centavos"] = int(soma)
+        liquidacoes = sessao.execute(
+            select(Liquidacao.data, Liquidacao.valor_total_centavos, Liquidacao.situacao, Liquidacao.motivo_falha)
+            .where(Liquidacao.id_lojista == codigo, Liquidacao.data >= data_inicio, Liquidacao.data <= fim)
+            .order_by(Liquidacao.id)
+        )
+        for data, valor, situacao, motivo_falha in liquidacoes:
+            item = dia(data)
+            if situacao == "paga":
+                item["pago_centavos"] += valor
+            else:
+                item["falhou" if situacao == "falhou" else "devolvida"] = True
+                item["motivo_falha"] = item["motivo_falha"] or motivo_falha
+    return [item | {"dia": _iso(item["dia"])} for _, item in sorted(dias.items(), reverse=True)]
+
+
+def ultimas_interacoes(
+    origem: Session | Engine, codigo_lojista: str, codigo_chamado: str, limite: int | None = None
+) -> dict:
+    """As `limite` interações mais recentes de um chamado DO LOJISTA, devolvidas em ordem cronológica.
+
+    Mesmo join de `buscar_interacoes` (o chamado tem de ser do lojista informado); muda só qual ponta da
+    conversa entra quando há mais mensagens do que o limite.
+    """
+    falhas.verificar("crm")
+    consulta = (
+        select(Interacao.id, Interacao.autor, Interacao.canal, Interacao.data_hora, Interacao.texto)
+        .join(Chamado, Interacao.id_chamado == Chamado.codigo)
+        .where(Chamado.codigo == codigo_chamado, Chamado.id_lojista == codigo_lojista)
+        .order_by(Interacao.data_hora.desc(), Interacao.id.desc())
+    )
+
+    def formatar(linha) -> dict:
+        return dict(linha._mapping) | {"data_hora": _iso(linha.data_hora)}
+
+    with _sessao_de(origem) as sessao:
+        resposta = _lista(sessao, consulta, limite, formatar)
+    return resposta | {"itens": resposta["itens"][::-1]}
