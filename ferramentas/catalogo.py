@@ -15,6 +15,15 @@ PADRAO_MARCADOR = re.compile(r"\s*\[(?:A FAZER \(|DECIDIR \(|aqui conectamos|pre
 PADRAO_TITULO_VAZIO = re.compile(r"^## .*\n\s*(?=^## |\Z)", re.MULTILINE)
 # Ficha ainda planejada começa com "[preencher: o que faz... Sugestão: <frase>]": a interface mostra a sugestão.
 PADRAO_SUGESTAO = re.compile(r"Sugest[ãa]o:\s*([^\]]+)\]")
+# O motivo técnico de `governanca.motivo_bloqueio` em linguagem de quem usa a tela (o técnico fica no registro).
+MOTIVOS_PARA_A_PESSOA = {
+    "Usuário inválido.": "Seu perfil não usa ferramentas de dados.",
+    "Nível insuficiente.": "Seu cargo não tem o nível que esta ferramenta pede.",
+    "Área não permitida.": "Esta ferramenta é de outra área.",
+    "Categoria de dado não permitida para o cargo.": "Seu cargo não acessa esse tipo de dado.",
+}
+MOTIVO_GENERICO = "Não liberada para o seu perfil."
+MOTIVO_PLANEJADA = "Ainda não disponível."
 FERRAMENTAS = {}
 
 
@@ -42,6 +51,15 @@ def _buscar(nome):
     return carregar().get(nome) if isinstance(nome, str) else None
 
 
+def _integracao_desligada(ferramenta):
+    """O conector da primeira integração da ficha que está desligada ou mal configurada no .env, ou None."""
+    for nome in ferramenta.integracoes:
+        conector = integracoes.conector(nome)
+        if not conector.configurado():
+            return conector
+    return None
+
+
 def _camada_bloqueio(nome, usuario, ferramentas_do_agente):
     ferramenta = _buscar(nome)
     if ferramenta is None:
@@ -53,10 +71,13 @@ def _camada_bloqueio(nome, usuario, ferramentas_do_agente):
         return "agente"
     if governanca.motivo_bloqueio(ferramenta, usuario) is not None:
         return "usuario"
-    return None if ferramenta.esta_ativa() else "inativa"
+    if not ferramenta.esta_ativa():
+        return "inativa"
+    return "desligada" if _integracao_desligada(ferramenta) is not None else None
 
 
 def ferramentas_liberadas(usuario, ferramentas_do_agente):
+    """O que o modelo pode usar agora: liberado para a pessoa, no agente, ativo e com a integração ligada."""
     # [aqui conectamos com agentes: lista de ferramentas da configuração do agente, KAN-55]
     camadas = {n: _camada_bloqueio(n, usuario, ferramentas_do_agente) for n in carregar()}
     return sorted(nome for nome, camada in camadas.items() if camada is None)
@@ -92,35 +113,52 @@ def _descricao(pasta):
 
 
 def _status_para_interface(ferramenta):
-    """`planejada` e `inativa` como na ficha; ativa com uma integração desligada no .env aparece `inativa`."""
+    """`planejada` e `inativa` como na ficha; ativa com uma integração desligada ou mal configurada: `inativa`."""
     if ferramenta.status == "planejada":
         return "planejada"
-    if not ferramenta.esta_ativa():
-        return "inativa"
-    if any(integracoes.conector(nome).modo() == "desligado" for nome in ferramenta.integracoes):
+    if not ferramenta.esta_ativa() or _integracao_desligada(ferramenta) is not None:
         return "inativa"
     return "ativa"
+
+
+def _motivo_para_a_pessoa(ferramenta, status, motivo_tecnico):
+    """Por que a pessoa não pode usar a ferramenta agora, em linguagem simples; None se pode."""
+    if motivo_tecnico is not None:
+        return MOTIVOS_PARA_A_PESSOA.get(motivo_tecnico, MOTIVO_GENERICO)
+    if status == "planejada":
+        return MOTIVO_PLANEJADA
+    if status == "inativa":
+        desligada = _integracao_desligada(ferramenta)
+        if desligada is not None:
+            return f"{desligada.rotulo}: integração desligada pela administração da plataforma."
+        return "Desativada pela administração da plataforma."
+    return None
 
 
 def listar_fichas(usuario):
     """O catálogo inteiro no formato `Ferramenta` do contrato do front (frontend/CONTRATO_API.md §4.10).
 
-    Cada ficha vem marcada para `usuario` (o `governanca.Usuario` do login): `liberada` e `motivo` são os de
-    `governanca.motivo_bloqueio`. Só texto e listas, nunca o objeto da ferramenta (MED-3).
+    Cada ficha vem marcada para `usuario` (o `governanca.Usuario` do login): `liberada` é True só se a pessoa
+    pode usar a ferramenta agora (permissão, status e integração ligada); `motivo` explica o porquê em
+    linguagem simples (o motivo técnico de `governanca.motivo_bloqueio` fica no registro). `descricao` é a
+    `descricao_para_pessoa` da ficha, se houver; senão a primeira frase do `agents.md`. A D10 (não listar as
+    ferramentas para a pessoa) foi revogada pelo Pedro em 22/11. Só texto e listas, nunca o objeto (MED-3).
     [A FAZER (Marcelo e Isabel, back-end, KAN-60): a rota GET /ferramentas devolve esta lista; o perfil
     GestorDeAcessos, que não usa ferramentas, recebe 403 antes de chegar aqui]
     """
     fichas = []
     for nome, ferramenta in sorted(carregar().items()):
-        motivo = governanca.motivo_bloqueio(ferramenta, usuario)
+        status = _status_para_interface(ferramenta)
+        motivo = _motivo_para_a_pessoa(ferramenta, status, governanca.motivo_bloqueio(ferramenta, usuario))
+        descricao = getattr(ferramenta, "descricao_para_pessoa", "") or _descricao(RAIZ / ferramenta.area / nome)
         fichas.append(
             {
                 "nome": nome,
                 "area": ferramenta.area,
-                "descricao": _descricao(RAIZ / ferramenta.area / nome),
+                "descricao": descricao,
                 "acesso": ferramenta.acesso,
                 "sensibilidade": ferramenta.sensibilidade,
-                "status": _status_para_interface(ferramenta),
+                "status": status,
                 "integracoes": list(ferramenta.integracoes),
                 "liberada": motivo is None,
                 "motivo": motivo,
@@ -174,12 +212,18 @@ def registrar_bloqueio(nome, usuario, contexto, camada):
     """Deixa o registro (sem argumentos nem dados) de uma tentativa que não chegou a rodar (MED-2).
 
     `camada` diz quem barrou: "agente" (o agente não leu ou não tem a ferramenta), "usuario",
-    "inativa" ou "desconhecida". A pessoa nunca vê a camada: a resposta é a mesma para todas. Se o
-    destino do registro falhar, a negação continua valendo (a resposta já é uma recusa) e
-    `governanca.registrar` já deixou o erro no log.
+    "inativa", "desconhecida" ou "desligada". Nas quatro primeiras a resposta é a mesma ("não encontrada"):
+    a pessoa nunca vê a camada. "desligada" só chega aqui depois de passar pelo agente e pela permissão da
+    pessoa, então pode dizer a verdade: a integração está desligada, avise o usuário e não tente de novo.
+    Se o destino do registro falhar, a negação continua valendo e `governanca.registrar` já deixou o erro no log.
     """
-    resultado = resposta("erro", None, "Ferramenta não encontrada.", "ferramenta_inexistente")
-    registro = montar_registro(_buscar(nome), usuario, contexto, resultado, camada, monotonic())
+    ferramenta = _buscar(nome)
+    desligada = _integracao_desligada(ferramenta) if camada == "desligada" else None
+    if desligada is not None:
+        resultado = resposta("erro", None, desligada.aviso_desligada(), "ferramenta_inativa")
+    else:
+        resultado = resposta("erro", None, "Ferramenta não encontrada.", "ferramenta_inexistente")
+    registro = montar_registro(ferramenta, usuario, contexto, resultado, camada, monotonic())
     with suppress(governanca.RegistroIndisponivel):
         governanca.registrar(registro)
     return resultado

@@ -80,8 +80,11 @@ def preparar_e_confirmar(usuario, argumentos=PEDIDO):
 def test_sem_host_o_envio_fica_desligado_e_nem_a_previa_e_montada(ana, monkeypatch):
     assert email_smtp.configuracao({}) is None
     monkeypatch.setenv("EMAIL_SMTP_HOST", "")
+    assert ENVIAR not in catalogo.ferramentas_liberadas(ana, AGENTE)  # o modelo nem vê a ferramenta
     resposta = catalogo.executar(ENVIAR, PEDIDO, ana, AGENTE)
-    assert (resposta["tipo_erro"], resposta["mensagem"]) == ("integracao_indisponivel", email_smtp.MENSAGEM_DESLIGADO)
+    aviso = "O envio de e-mail não está ligado nesta plataforma. Avise o usuário e não tente de novo."
+    assert (resposta["tipo_erro"], resposta["mensagem"]) == ("ferramenta_inativa", aviso)
+    assert "EMAIL_SMTP_HOST" not in resposta["mensagem"]  # o texto sobre o .env fica só no terminal
     assert confirmacoes.pendentes(ana) == []
 
 
@@ -437,7 +440,9 @@ def test_previa_recusa_o_corpo_que_o_envio_nao_conseguiria_codificar(ana):
 def test_porta_ou_login_estranho_no_env_nao_vira_erro_interno(ana, monkeypatch, valores):
     ligar_smtp(monkeypatch, 1025, **valores)
     resposta = catalogo.executar(ENVIAR, PEDIDO, ana, AGENTE)
-    assert resposta["tipo_erro"] == "integracao_indisponivel" and confirmacoes.pendentes(ana) == []
+    # Mal configurada conta como desligada: o modelo ouve o aviso, sem "Erro interno" e sem falar do .env.
+    assert resposta["tipo_erro"] == "ferramenta_inativa" and confirmacoes.pendentes(ana) == []
+    assert ".env" not in resposta["mensagem"]
     with pytest.raises(SystemExit) as erro:
         email_smtp.principal(["--testar", DESTINO_TESTE], ambiente(1025, MODO_TERMINAL="1", **valores))
     assert str(erro.value).endswith("inválida no .env.")

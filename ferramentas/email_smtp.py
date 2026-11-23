@@ -103,7 +103,11 @@ def corpo_valido(corpo):
     return _sem_categoria(corpo, CATEGORIAS_FORA_DO_CORPO)
 
 
-MENSAGEM_DESLIGADO = "Envio de e-mail não configurado. Defina EMAIL_SMTP_HOST no .env."
+MENSAGEM_DESLIGADO = "O envio de e-mail não está ligado nesta plataforma. Nada foi enviado."
+MENSAGEM_DESLIGADO_NO_TERMINAL = "Envio de e-mail desligado: defina EMAIL_SMTP_HOST no .env (veja o .env.example)."
+MENSAGEM_LOGIN_RECUSADO = (
+    "O servidor SMTP recusou o usuário e a senha. No Gmail, use uma senha de app (não a senha da conta)."
+)
 MENSAGEM_ASSUNTO_INVALIDO = "O assunto deve ter uma linha só."
 MENSAGEM_CORPO_INVALIDO = "O corpo tem um caractere inválido."
 
@@ -187,6 +191,13 @@ def enviar(para, assunto, corpo, config, funcionario=None):
     finally:
         _fechar(servidor)
     return id_mensagem
+
+
+def explicar_falha(erro):
+    """A falha de `EnvioIndisponivel` em português, para o terminal de quem configura (nunca para o agente)."""
+    if erro.tipo == "SMTPAuthenticationError":
+        return MENSAGEM_LOGIN_RECUSADO
+    return f"Não enviou: falha na etapa {erro.etapa} ({erro.tipo})."
 
 
 def verificar_conexao(config):
@@ -282,14 +293,16 @@ def principal(argumentos=None, ambiente=os.environ, escrever=print):
     if not endereco_valido(destino):
         raise SystemExit("Endereço de teste inválido.")
     try:
-        config = exigir_configuracao(ambiente)
+        config = configuracao(ambiente)
+        if config is None:
+            raise SystemExit(MENSAGEM_DESLIGADO_NO_TERMINAL)
         id_mensagem = enviar(destino, ASSUNTO_DO_TESTE_MANUAL, CORPO_DO_TESTE_MANUAL, replace(config, destino_teste=""))
     except ConfiguracaoInvalida as erro:
         raise SystemExit(str(erro)) from None
     except ErroFerramenta as erro:
         raise SystemExit(erro.mensagem) from None
     except EnvioIndisponivel as erro:
-        raise SystemExit(f"Não enviou: falha na etapa {erro.etapa} ({erro.tipo}).") from None
+        raise SystemExit(explicar_falha(erro)) from None
     except EfeitoIncerto:
         raise SystemExit("O servidor não confirmou: o e-mail pode ter saído. Confira a caixa de entrada.") from None
     except ConnectionError:
