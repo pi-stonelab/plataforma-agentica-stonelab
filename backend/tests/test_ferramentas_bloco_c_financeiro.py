@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 from ferramentas import dados_sinteticos, governanca, lojista
-from mock import regras
+from mock import regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 from mock.falhas import ligar
 
 from . import gabaritos as g
@@ -324,9 +324,9 @@ def test_parcelas_recusam_principal_e_perdao_incoerentes(engine, argumentos):
 
 
 @pytest.mark.parametrize("numero_parcelas", [1, 6, 7, 12, 13])
-@pytest.mark.parametrize("entrada_percentual", [Decimal("10"), Decimal("20")])
-@pytest.mark.parametrize("desconto", [Decimal("0"), Decimal("5"), Decimal("11")])
-@pytest.mark.parametrize("valor_total", [Decimal("330.67"), Decimal("2500"), Decimal("10500")])
+@pytest.mark.parametrize("entrada_percentual", [Decimal(10), Decimal(20)])
+@pytest.mark.parametrize("desconto", [Decimal(0), Decimal(5), Decimal(11)])
+@pytest.mark.parametrize("valor_total", [Decimal("330.67"), Decimal(2500), Decimal(10500)])
 def test_quem_aprova_e_sempre_a_regra_do_mock_e_o_motivo_nunca_vem_vazio(
     engine, numero_parcelas, entrada_percentual, desconto, valor_total
 ):

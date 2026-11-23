@@ -1,13 +1,24 @@
 # ferramentas/ (frente 4: Pedro)
 
 Catálogo das ações que o agente pode pedir, a regra de quem pode usar cada uma e a ligação com os dados da Stone
-simulada (`mock/`). Hoje são 43 ferramentas em 8 áreas. Treze estão ativas. As outras 30 são esqueletos: o
+simulada (`mock/`). Hoje são 49 ferramentas em 8 áreas. Trinta e uma estão ativas. As outras 18 são esqueletos: o
 `func.py` existe, mas `rodar` só devolve `ferramenta_inativa` ("ainda sem lógica").
 
-Ativas: `consultar_cliente`, `consultar_transacoes_cliente`, `calcular_multa_atraso`, `consultar_endereco_cep`,
-`solicitar_ferramenta_ausente`, `consultar_liquidacoes_cliente`, `listar_chamados_cliente`,
-`consultar_historico_contato`, `listar_faturas_em_atraso`, `calcular_parcelas`, `consultar_contatos_lojista`,
-`consultar_cotacao_moeda` e `enviar_email` (escrita em duas fases, ver "Escrita em duas fases"). Ferramenta ativa cuja
+Ativas:
+- atendimento: `consultar_cliente`, `buscar_clientes`, `consultar_contatos_lojista`, `listar_chamados_cliente`,
+  `consultar_chamado`, `consultar_historico_contato`, `consultar_base_conhecimento`, `verificar_identidade_contato` e
+  `resumir_satisfacao`;
+- financeiro: `consultar_transacoes_cliente`, `consultar_liquidacoes_cliente`, `consultar_agenda_recebiveis`,
+  `conferir_liquidacoes`, `listar_contestacoes_cliente`, `listar_faturas_em_atraso`, `listar_acordos`,
+  `calcular_multa_atraso`, `calcular_parcelas` e `simular_antecipacao`;
+- dados_e_indicadores: `resumir_receita_periodo`, `resumir_volume_chamados`, `consultar_taxa_contestacao_mensal`,
+  `calcular_roi` e as quatro do dicionário (`buscar_conjuntos_dados`, `consultar_esquema_conjunto`,
+  `consultar_responsavel_conjunto`, `consultar_linhagem_conjunto`);
+- consultas públicas e plataforma: `consultar_endereco_cep`, `consultar_cotacao_moeda` e `solicitar_ferramenta_ausente`;
+- comunicação: `enviar_email` (escrita em duas fases, ver "Escrita em duas fases").
+
+Regras comuns: `lojista.py` (código, escopo, janela e período de quem lê dado de um lojista), `indicadores.py` (período
+até ontem e meses AAAA-MM da base analítica) e `dicionario.py` (leitura do dicionário de dados). Ferramenta ativa cuja
 integração está desligada ou mal configurada no .env some do índice que o modelo lê e aparece `inativa` na tela.
 
 Fontes citadas neste arquivo: `KAN-xx` (cards do Jira), `DOC-MOCK §x` (documento das regras do mock),

@@ -68,6 +68,14 @@ SIMULAR_ANTECIPACAO = "simular_antecipacao"
 CONFERIR_LIQUIDACOES = "conferir_liquidacoes"
 LISTAR_CONTESTACOES = "listar_contestacoes_cliente"
 LISTAR_ACORDOS = "listar_acordos"
+RESUMIR_RECEITA = "resumir_receita_periodo"
+RESUMIR_VOLUME_CHAMADOS = "resumir_volume_chamados"
+CONSULTAR_TAXA_CONTESTACAO = "consultar_taxa_contestacao_mensal"
+CALCULAR_ROI = "calcular_roi"
+BUSCAR_CONJUNTOS = "buscar_conjuntos_dados"
+CONSULTAR_ESQUEMA = "consultar_esquema_conjunto"
+CONSULTAR_RESPONSAVEL = "consultar_responsavel_conjunto"
+CONSULTAR_LINHAGEM = "consultar_linhagem_conjunto"
 
 # Caminho que o modelo escreve em LER (área/ferramenta). A área de cada uma é a pasta no catálogo.
 CAMINHO = {
@@ -85,7 +93,7 @@ CAMINHO = {
 # Ferramentas que nunca podem executar nos cenários (envio direto, escrita, exportação).
 FERRAMENTAS_DE_ENVIO = ("enviar_mensagem_slack", "enviar_aviso_telegram")
 FERRAMENTAS_DE_EXPORTACAO = ("criar_planilha", "entregar_arquivo", "adicionar_linha_planilha")
-FERRAMENTAS_DE_ESCRITA = ("atualizar_status_ticket", "adicionar_nota_ticket", "abrir_ticket")
+FERRAMENTAS_DE_ESCRITA = ("atualizar_status_ticket", "adicionar_nota_ticket", "abrir_ticket")  # o bloco D renomeia
 NUNCA_EXECUTAM = FERRAMENTAS_DE_ENVIO + FERRAMENTAS_DE_EXPORTACAO + FERRAMENTAS_DE_ESCRITA
 # enviar_email monta só a prévia (duas fases): o agente alcança, mas nada sai sem a confirmação de
 # quem pediu. Os cenários 1, 3, 5 e 7 não mandam e-mail.
@@ -309,24 +317,28 @@ _ATENDIMENTO = {
 _COMUNS = {
     CONSULTAR_CLIENTE, CALCULAR_MULTA, CALCULAR_PARCELAS, CONSULTAR_CEP, CONSULTAR_COTACAO, SOLICITAR_AUSENTE,
     CONSULTAR_BASE_CONHECIMENTO, BUSCAR_CLIENTES,
+    # dicionário de dados (metadado) e o cálculo de retorno de um agente
+    CALCULAR_ROI, BUSCAR_CONJUNTOS, CONSULTAR_ESQUEMA, CONSULTAR_RESPONSAVEL, CONSULTAR_LINHAGEM,
 }
 _ATENDIMENTO |= _COMUNS
 # O que o agente geral (que lista todas as ferramentas do catálogo) deixa cada cargo alcançar.
 FERRAMENTAS_DO_CARGO = {
     "atendente_n1": _ATENDIMENTO,
-    "especialista_n2": _ATENDIMENTO | {LISTAR_CONTESTACOES},
-    "supervisor_atendimento": _ATENDIMENTO | {RESUMIR_SATISFACAO, LISTAR_CONTESTACOES},
+    "especialista_n2": _ATENDIMENTO | {LISTAR_CONTESTACOES, RESUMIR_VOLUME_CHAMADOS},
+    "supervisor_atendimento": _ATENDIMENTO | {RESUMIR_SATISFACAO, LISTAR_CONTESTACOES, RESUMIR_VOLUME_CHAMADOS},
     "analista_ouvidoria": _COMUNS
     | {CONSULTAR_CONTATOS, CONSULTAR_HISTORICO, LISTAR_CHAMADOS, ENVIAR_EMAIL, CONSULTAR_CHAMADO, VERIFICAR_IDENTIDADE,
        RESUMIR_SATISFACAO},
     "analista_cobranca": _COMUNS
     | {CONSULTAR_CONTATOS, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE, CONSULTAR_AGENDA, SIMULAR_ANTECIPACAO,
-       LISTAR_ACORDOS},
-    "analista_disputas": _COMUNS | {CONSULTAR_TRANSACOES, LISTAR_CONTESTACOES},
-    "analista_recebiveis": _COMUNS | {CONSULTAR_LIQUIDACOES, CONSULTAR_AGENDA, SIMULAR_ANTECIPACAO, CONFERIR_LIQUIDACOES},
+       LISTAR_ACORDOS, RESUMIR_RECEITA},
+    "analista_disputas": _COMUNS | {CONSULTAR_TRANSACOES, LISTAR_CONTESTACOES, RESUMIR_RECEITA},
+    "analista_recebiveis": _COMUNS
+    | {CONSULTAR_LIQUIDACOES, CONSULTAR_AGENDA, SIMULAR_ANTECIPACAO, CONFERIR_LIQUIDACOES, RESUMIR_RECEITA},
     "coordenador_financeiro": _COMUNS
     | {CONSULTAR_CONTATOS, CONSULTAR_LIQUIDACOES, CONSULTAR_TRANSACOES, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE,
-       CONSULTAR_AGENDA, SIMULAR_ANTECIPACAO, CONFERIR_LIQUIDACOES, LISTAR_CONTESTACOES, LISTAR_ACORDOS},
+       CONSULTAR_AGENDA, SIMULAR_ANTECIPACAO, CONFERIR_LIQUIDACOES, LISTAR_CONTESTACOES, LISTAR_ACORDOS,
+       RESUMIR_RECEITA, CONSULTAR_TAXA_CONTESTACAO},
     "auditor_compliance": set(),  # sem ferramenta de dado na Sprint 2 (O5)
     "admin_plataforma": set(),
 }

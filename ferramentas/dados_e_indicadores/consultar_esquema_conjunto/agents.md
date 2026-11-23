@@ -1,29 +1,31 @@
 # consultar_esquema_conjunto
 
-[preencher: o que faz, em uma frase. Sugestão: colunas e tipos de um conjunto de dados]
+Mostra as colunas de uma tabela de dados, com o tipo, a descrição e quais guardam dado restrito.
 
 ## Quando usar
 
-[preencher]
+Use quando o usuário perguntar que campos uma tabela tem ou se ela guarda dado pessoal. Pegue o nome exato da tabela com `buscar_conjuntos_dados`.
 
 ## Quando não usar
 
-[preencher: quando outra ferramenta serve melhor, citando qual]
+Esta ferramenta não lê o dado. Para saber de onde a tabela vem, use `consultar_linhagem_conjunto`.
 
 ## Parâmetros
 
-[preencher: um por linha, com o significado e um exemplo]
+- `conjunto` (texto, obrigatório): nome exato da tabela. Exemplo: `contatos_lojista`.
 
 ## O que devolve
 
-[preencher: campos de `dados` quando dá certo e os erros possíveis]
+Em `dados`: `tabela`, `descricao_da_tabela` e `colunas` (cada uma com `coluna`, `tipo_da_coluna`, `descricao_da_coluna` e `restrita`). Coluna restrita sai mascarada em toda ferramenta que a lê.
+
+Erros possíveis: `nao_encontrado` (tabela que não existe).
 
 ## Para quem mantém
 
 - Área: `dados_e_indicadores`.
 - Acesso: leitura.
 - Integração:
-  - `datahub` (ver `integracoes/datahub/README.md`): [preencher: catálogo simulado de conjuntos de dados (KAN-28)]
-- Permissão: provisória na ficha em func.py [aqui conectamos com Brenno: níveis e áreas oficiais, KAN-62].
+  - `datahub` (ver `integracoes/datahub/README.md`): dicionário do mock, via `ferramentas/dicionario.py`.
+- Permissão: categoria `metadado` (todo cargo com área).
 - Conteúdo de terceiros na saída: não.
-- Situação: esqueleto em func.py, sem lógica.
+- Situação: ativa.

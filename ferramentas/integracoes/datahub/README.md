@@ -1,6 +1,6 @@
 # DataHub
 
-[preencher: o que é este sistema e para que a plataforma o usa]
+Dicionário de dados da Stone simulada: as tabelas de cada sistema, as colunas, quais são restritas e de onde cada tabela é calculada. Não guarda dado, só a descrição do esquema.
 
 ## Ferramentas que usam
 
@@ -11,12 +11,12 @@
 
 ## Conector
 
-`integracoes/sistemas_internos.py` (`ConectorInterno`), modo `simulado`. Ainda sem sistema de `mock.falhas` ligado: o dicionário de dados entra no mock na fase 2 (bloco A do plano).
+`integracoes/sistemas_internos.py` (`ConectorInterno`), modo sempre `simulado`, sem sistema de `mock.falhas`: o dicionário sai do esquema em código, não do banco.
 
 ## Ligação
 
-[preencher: catálogo simulado de conjuntos de dados (KAN-28)]
+`dados_sinteticos.dicionario_de_dados()` (gerado de `mock/modelos.py` e de `regras.CLASSIFICACAO_CAMPOS`), lido pelas ferramentas por `ferramentas/dicionario.py`, que calcula os derivados a partir da origem.
 
 ## Hoje
 
-Dados simulados. [preencher: de onde vêm os dados do mock (KAN-28)]
+Dados simulados. Trocar pelo DataHub real é trocar `ferramentas/dicionario.py` pela API de busca de conjuntos, mantendo os mesmos campos de saída.

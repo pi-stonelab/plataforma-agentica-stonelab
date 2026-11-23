@@ -104,7 +104,7 @@ def test_descricao_sem_marcador_e_a_planejada_mostra_a_frase_sugerida(mundo):
     assert por_nome[ENVIAR]["descricao"] == (
         "Prepara um e-mail para um contato do lojista; ele só sai depois que você confirma."
     )
-    assert por_nome["resumir_receita_periodo"]["descricao"] == "Receita total de um período."
+    assert por_nome["ler_planilha"]["descricao"] == "Lê um intervalo de uma planilha."  # planejada (bloco E2)
 
 
 def test_status_efetivo_planejada_ativa_e_ativa_com_integracao_desligada(mundo, monkeypatch):

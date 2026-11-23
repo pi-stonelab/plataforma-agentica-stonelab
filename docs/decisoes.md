@@ -493,6 +493,46 @@ Escolhas sem fonte no DOC-MOCK, tomadas para a fase 2 (plano `plano-ferramentas-
   a analista fecha sozinha (§7.9); "quem pediu nunca aprova" vale para a dupla aprovação.
 - No código: `gerar.CONTA_EM_VERIFICACAO`, `gerar.ACORDOS`.
 
+## Decisões do bloco C: leitura e cálculo sobre o mock (23/11, C1 a C6)
+
+Tomadas pelo orquestrador ao implementar as ferramentas de leitura e cálculo, sem fonte que as decida. Ficam para o
+Pedro confirmar.
+
+### C1. `consultar_saldo_conta` sai do catálogo
+- Decisão: a ficha planejada foi removida. A Conta Stone não existe no mock, e o saldo que o DOC-MOCK cita é o da
+  agenda de recebíveis, que `consultar_agenda_recebiveis` mostra.
+- No código: a pasta `ferramentas/financeiro/consultar_saldo_conta/` deixou de existir.
+
+### C2. Nomes `*_ticket` viram `*_chamado`
+- Decisão: `consultar_ticket` virou `consultar_chamado` e `resumir_volume_tickets` virou `resumir_volume_chamados`,
+  o vocabulário do mock e de `listar_chamados_cliente`. As três de escrita são renomeadas pelo bloco D.
+- Efeito fora da pasta: o front do professor cita `consultar_ticket` e `listar_tickets_cliente` no seed
+  (`frontend/CONTRATO_API.md`); vale avisar pelo Jira.
+
+### C3. Quem alcança os indicadores
+- Decisão: `resumir_receita_periodo` é do financeiro (N1 em diante); `consultar_taxa_contestacao_mensal` só do
+  coordenador financeiro (N2 do financeiro); `resumir_volume_chamados` do N2 do atendimento (supervisor e
+  especialista N2). O DOC-MOCK §8.2 diz que o supervisor "vê os indicadores do time"; o especialista N2 entra porque
+  a ficha decide por nível, não por cargo.
+- No código: as fichas e `gabaritos.FERRAMENTAS_DO_CARGO`.
+
+### C4. Responsável por um conjunto de dados
+- Decisão: o responsável é o sistema dono da tabela (`cadastro`, `core`, `cobranca`, `disputas`, `crm`,
+  `diretorio`, `analitica`). O mock não tem um time nomeado por sistema, e a ferramenta nunca devolve nome de pessoa.
+- No código: `consultar_responsavel_conjunto`, `ferramentas/dicionario.py`.
+
+### C5. Fórmula do ROI
+- Decisão: ROI simples no horizonte pedido (12 meses se faltar): (ganho total menos custo total) dividido pelo custo
+  total, com o custo de implantação somado ao custo. O payback são os meses inteiros, arredondados para cima, para o
+  ganho líquido mensal pagar a implantação. Sem desconto do dinheiro no tempo. Fonte da necessidade: "Gerir: controlar
+  custos, retorno de investimento" da proposta da Stone e a KAN-16; a fórmula é nossa.
+- No código: `ferramentas/dados_e_indicadores/calcular_roi/func.py`.
+
+### C6. Períodos padrão das ferramentas de indicadores
+- Decisão: sem datas, o relatório vale os últimos 7 dias até ontem; o volume de chamados, de segunda-feira da semana
+  do hoje do mock até ontem; a taxa de chargeback, os últimos 6 meses até o mês atual. Teto de 92 dias e de 24 meses.
+- No código: `ferramentas/indicadores.py` e as três fichas.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que
