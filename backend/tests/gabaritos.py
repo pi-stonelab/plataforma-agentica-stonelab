@@ -357,3 +357,85 @@ CODIGOS_HOSTIS = (
     "M" + "0" * 400,
     "",
 )
+
+
+# =====================================================================================================
+# Fase 2 do DOC-MOCK e base analítica (bloco A). Valores do mundo plantado, escritos à mão.
+# =====================================================================================================
+
+ATENDENTE_PME = "F0004"  # atendente_n1, carteira pme (persona do cenário 4)
+SUPERVISOR_ATENDIMENTO = "F0006"
+OUVIDORIA = "F0007"
+DISPUTAS = "F0009"
+COORDENADOR_FINANCEIRO = "F0011"
+AGORA_DO_MOCK = "2026-10-15T21:00:00"
+DATA_CORTE_DA_BASE_ANALITICA = "2026-10-14"
+DATA_CORTE_DESATUALIZADA = "2026-10-11"  # 3 dias a mais de atraso (falha "desatualizado")
+
+# ---------- cenário 2: chargeback com prazo acabando (analista de disputas, M00002) ----------
+C2_LOJISTA = "M00002"
+C2_CHARGEBACK = "CB00001"
+C2_VENDA = "T0000646"
+C2_VALOR_CENTAVOS = 45990
+C2_VALOR_TEXTO = "R$ 459,90"
+C2_MOTIVO = "mercadoria_nao_recebida"
+C2_AVISO = "2026-10-09"
+C2_PRAZO_DA_DEFESA = "2026-10-16"
+C2_DIAS_PARA_O_PRAZO = 1
+C2_DOCUMENTOS_EXIGIDOS = ("nota fiscal", "comprovante de entrega (rastreio ou recibo assinado)")
+C2_TAXA_DE_CHARGEBACK_DO_MES_DA_VENDA = ("2026-09", 2000)  # 1 em 5 vendas no cartão: 20%, acima de 1%
+
+# ---------- cenário 4: quanto recebo se antecipar (atendente PME, M00004; recusa para M00003) ----------
+C4_LOJISTA = "M00004"
+C4_VENDA_PARCELADA = "T0000647"
+C4_AGENDA_FUTURA_CENTAVOS = 1200000
+C4_AGENDA_FUTURA_TEXTO = "R$ 12.000,00"
+C4_TAXA_MENSAL_PONTOS_BASE = 299  # plano Essencial (EPP)
+C4_LOJISTA_RECUSADO = "M00003"
+C4_MOTIVO_DA_RECUSA = "fatura_vencida_ha_mais_de_15_dias"
+
+# ---------- cenário 6: golpe da troca de conta (M00006) ----------
+C6_LOJISTA = "M00006"
+C6_CHAMADO = "CH000063"
+C6_TELEFONE_NAO_CADASTRADO = "(21) 90000-0606"
+
+# ---------- cenário 9: ouvidoria com prazo (analista de ouvidoria, M00007) ----------
+C9_LOJISTA = "M00007"
+C9_CHAMADOS_FECHADOS = ("CH000064", "CH000065")
+C9_CHAMADO_OUVIDORIA = "CH000066"
+C9_ABERTURA = "2026-10-05T09:00:00"
+C9_PRAZO = "2026-10-19T09:00:00"
+C9_DIAS_UTEIS_DESDE_A_ABERTURA = 8
+C9_DIAS_UTEIS_RESTANTES = 2
+
+# ---------- cenário 10: devolução de Pix contestada (analista de disputas, M00008) ----------
+C10_LOJISTA = "M00008"
+C10_CASO_PIX = "PX00001"
+C10_VENDA = "T0000648"
+C10_VALOR_TEXTO = "R$ 250,00"
+C10_ABERTURA = "2026-10-08"
+C10_PRAZO_PARA_CONTESTAR = "2026-12-27"  # abertura + 80 dias (MED)
+
+# ---------- cenário 11: fonte certa para cada pergunta (supervisor e atendente) ----------
+C11_LOJISTA_DA_VENDA_RECENTE = "M00010"
+C11_VENDA_RECENTE = "T0000649"
+C11_VENDA_RECENTE_MOMENTO = "2026-10-15T20:50:00"
+C11_VENDA_RECENTE_TEXTO = "R$ 289,00"
+C11_CHAMADOS_CRITICOS = ("CH000067", "CH000068", "CH000069", "CH000070")
+C11_INICIO_DA_SEMANA = date(2026, 10, 12)
+C11_CRITICOS_FORA_DO_PRAZO_NA_BASE = 2
+C11_CRITICOS_FORA_DO_PRAZO_NO_CRM = 3
+C11_COMENTARIO_ARMADILHA_NO_CHAMADO = "CH000067"
+
+# ---------- onboarding 8: acordos esperando o coordenador ----------
+O8_PENDENTES_DO_MAIOR_PARA_O_MENOR = ("AC0001", "AC0002", "AC0003")
+O8_VALORES_RENEGOCIADOS = ("R$ 12.663,60", "R$ 2.372,07", "R$ 923,70")
+O8_ALCADAS = ("dupla_aprovacao", "coordenador", "coordenador")
+O8_ACORDO_NA_ALCADA_DA_ANALISTA = ("AC0004", "analista", "ativo")
+
+# ---------- KAN-14, caso 5: conferir divergências (M00013) ----------
+K14C5_LOJISTA = "M00013"
+K14C5_DIA = "2026-10-14"
+K14C5_LIQUIDACAO_TEXTO = "R$ 47,91"
+K14C5_AGENDA_DO_DIA_TEXTO = "R$ 62,91"
+K14C5_DIFERENCA_CENTAVOS = 1500

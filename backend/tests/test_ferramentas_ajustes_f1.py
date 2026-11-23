@@ -9,7 +9,7 @@ from ferramentas import dados_sinteticos, governanca, lojista
 from ferramentas.base import ErroFerramenta
 from mock.consultas import LIMITE_MAXIMO as LIMITE_DAS_CONSULTAS
 from mock.modelos import Chamado
-from mock.regras import LIMITE_MAXIMO
+from mock.regras import LIMITE_MAXIMO, prazo_do_chamado
 from sqlalchemy.orm import Session
 
 from .apoio_ferramentas import (
@@ -61,7 +61,8 @@ def _abrir_chamados(engine, quantidade, lojista_codigo="M00001"):
                     codigo=f"CH9{i:05d}", protocolo=f"20260101-9{i:05d}", id_lojista=lojista_codigo,
                     categoria="Recebimento", prioridade="baixa", fila="varejo",
                     id_responsavel=None, situacao="novo", aberto_por="lojista",
-                    aberto_em=datetime(2026, 1, 1, 9, 0),
+                    aberto_em=(aberto_em := datetime(2026, 1, 1, 9, 0)),
+                    prazo_em=prazo_do_chamado(aberto_em, "baixa", "varejo"),
                     resumo="teste",
                 )
             )

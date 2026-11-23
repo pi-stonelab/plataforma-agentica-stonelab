@@ -6,6 +6,7 @@ mostra). Listas devolvem no máximo 50 linhas, mais o total encontrado. Aqui nã
 permissão: quem decide se o cargo pode chamar é a governança das ferramentas.
 """
 
+import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime, time, timedelta
@@ -16,7 +17,19 @@ from sqlalchemy.orm import Session
 from . import falhas, regras
 from .banco import trava_de_acesso
 from .modelos import (
+    ORIGEM_DAS_TABELAS_ANALITICAS,
+    SISTEMA_DONO_DA_TABELA,
+    SITUACOES_RECEBIVEL,
+    Acordo,
+    AnaliticaAtualizacao,
+    AnaliticaChamadosDiarios,
+    AnaliticaContestacoesMensais,
+    AnaliticaVendasDiarias,
+    ArtigoAjuda,
+    BaseMock,
+    CasoPix,
     Chamado,
+    Chargeback,
     ContaRecebimento,
     ContatoLojista,
     Fatura,
@@ -24,6 +37,8 @@ from .modelos import (
     Interacao,
     Liquidacao,
     Lojista,
+    PesquisaSatisfacao,
+    Recebivel,
     Time,
     Venda,
 )
@@ -299,3 +314,546 @@ def buscar_funcionario(origem: Session | Engine, id_funcionario: str) -> dict | 
             "carteiras": [linha.carteira] if linha.carteira else [],
             "situacao": linha.situacao,
         }
+
+
+# ---------------------------------------------------------------------------------------------
+# Chamado em detalhe (prazo do SLA, DOC-MOCK §6.4)
+# ---------------------------------------------------------------------------------------------
+
+
+def _situacao_do_prazo(prazo_em: datetime, resolvido_em: datetime | None) -> dict:
+    """Prazo estourado (até a resolução ou até agora) e dias úteis que faltam se ainda está aberto."""
+    fim = resolvido_em or regras.AGORA_DO_MOCK
+    restantes = None
+    if resolvido_em is None:
+        restantes = regras.dias_uteis_entre(regras.HOJE_DO_MOCK, prazo_em.date())
+    return {"prazo_estourado": fim > prazo_em, "dias_uteis_restantes": restantes}
+
+
+def buscar_chamado(origem: Session | Engine, codigo_lojista: str, codigo_chamado: str) -> dict | None:
+    """Um chamado DO LOJISTA, com o prazo do SLA. None se não existe ou é de outro lojista."""
+    falhas.verificar("crm")
+    with _sessao_de(origem) as sessao:
+        chamado = sessao.scalar(select(Chamado).where(
+            Chamado.codigo == codigo_chamado, Chamado.id_lojista == codigo_lojista))
+        if chamado is None:
+            return None
+        return {
+            "codigo": chamado.codigo,
+            "protocolo": chamado.protocolo,
+            "categoria": chamado.categoria,
+            "prioridade": chamado.prioridade,
+            "fila": chamado.fila,
+            "id_responsavel": chamado.id_responsavel,
+            "situacao": chamado.situacao,
+            "aberto_por": chamado.aberto_por,
+            "aberto_em": _iso(chamado.aberto_em),
+            "prazo_em": _iso(chamado.prazo_em),
+            "resolvido_em": _iso(chamado.resolvido_em),
+            "resumo": chamado.resumo,
+            "id_liquidacao": chamado.id_liquidacao,
+            "id_fatura": chamado.id_fatura,
+            **_situacao_do_prazo(chamado.prazo_em, chamado.resolvido_em),
+        }
+
+
+# ---------------------------------------------------------------------------------------------
+# Agenda de recebíveis e antecipação (core, DOC-MOCK §7.2 e §7.4)
+# ---------------------------------------------------------------------------------------------
+
+TETO_PARA_CALCULO = 1000  # recebíveis que uma simulação de antecipação lê de uma vez (nunca vão ao modelo)
+
+
+def buscar_recebiveis(
+    origem: Session | Engine,
+    codigo: str,
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    situacao: str | None = None,
+    limite: int | None = None,
+) -> dict:
+    """Agenda do lojista no período (datas previstas inclusivas), da mais próxima para a mais distante."""
+    falhas.verificar("core")
+    consulta = select(
+        Recebivel.codigo, Recebivel.id_venda, Recebivel.numero_parcela, Recebivel.data_prevista,
+        Recebivel.valor_parcela_centavos, Recebivel.situacao,
+    ).where(Recebivel.id_lojista == codigo)
+    if data_inicio is not None:
+        consulta = consulta.where(Recebivel.data_prevista >= data_inicio)
+    if data_fim is not None:
+        consulta = consulta.where(Recebivel.data_prevista <= data_fim)
+    if situacao is not None:
+        consulta = consulta.where(Recebivel.situacao == situacao)
+    consulta = consulta.order_by(Recebivel.data_prevista, Recebivel.codigo)
+
+    def formatar(linha) -> dict:
+        item = dict(linha._mapping)
+        item["data_prevista"] = _iso(item["data_prevista"])
+        return item
+
+    with _sessao_de(origem) as sessao:
+        return _lista(sessao, consulta, limite, formatar)
+
+
+def resumo_da_agenda(origem: Session | Engine, codigo: str) -> dict:
+    """Quantidade e soma (centavos) da agenda futura do lojista, por situação. Situação sem parcela: zero."""
+    falhas.verificar("core")
+    consulta = (
+        select(Recebivel.situacao, func.count(), func.coalesce(func.sum(Recebivel.valor_parcela_centavos), 0))
+        .where(Recebivel.id_lojista == codigo, Recebivel.data_prevista >= regras.HOJE_DO_MOCK)
+        .group_by(Recebivel.situacao)
+    )
+    resumo = {situacao: {"quantidade": 0, "valor_centavos": 0} for situacao in SITUACOES_RECEBIVEL
+              if situacao != "pago"}
+    with _sessao_de(origem) as sessao:
+        for situacao, quantidade, soma in sessao.execute(consulta):
+            resumo[situacao] = {"quantidade": quantidade, "valor_centavos": int(soma)}
+    return resumo
+
+
+def recebiveis_para_antecipacao(origem: Session | Engine, codigo: str) -> list[dict]:
+    """Parcelas futuras que podem ser antecipadas (situação "previsto"): data e valor em centavos.
+
+    Retida e bloqueada ficam de fora (DOC-MOCK §7.4). Sem o teto de 50 linhas: é para calcular, não para
+    listar ao modelo (teto de segurança em TETO_PARA_CALCULO).
+    """
+    falhas.verificar("core")
+    consulta = (
+        select(Recebivel.data_prevista, Recebivel.valor_parcela_centavos)
+        .where(
+            Recebivel.id_lojista == codigo, Recebivel.situacao == "previsto",
+            Recebivel.data_prevista >= regras.HOJE_DO_MOCK,
+        )
+        .order_by(Recebivel.data_prevista, Recebivel.codigo)
+        .limit(TETO_PARA_CALCULO)
+    )
+    with _sessao_de(origem) as sessao:
+        return [
+            {"data_prevista": _iso(dia), "valor_centavos": valor} for dia, valor in sessao.execute(consulta)
+        ]
+
+
+def motivos_de_recusa_da_antecipacao(origem: Session | Engine, codigo: str) -> list[str] | None:
+    """Motivos do lojista que recusam qualquer antecipação (DOC-MOCK §7.4), na ordem de
+    `regras.MOTIVOS_DE_RECUSA_DA_ANTECIPACAO`. Lista vazia: pode antecipar. None: lojista não existe.
+
+    O quarto motivo do §7.4 (parcela retida ou bloqueada) vale parcela por parcela: essas parcelas ficam
+    fora de `recebiveis_para_antecipacao` em vez de recusar tudo.
+    """
+    falhas.verificar("cadastro")
+    falhas.verificar("cobranca")
+    limite_do_vencimento = regras.HOJE_DO_MOCK - timedelta(days=regras.DIAS_DE_FATURA_VENCIDA_QUE_BLOQUEIAM_ANTECIPACAO)
+    with _sessao_de(origem) as sessao:
+        lojista = sessao.get(Lojista, codigo)
+        if lojista is None:
+            return None
+        conta = sessao.scalar(select(ContaRecebimento.situacao).where(ContaRecebimento.id_lojista == codigo))
+        vencida_ha_muito = sessao.scalar(select(func.count()).select_from(Fatura).where(
+            Fatura.id_lojista == codigo, Fatura.situacao == "vencida", Fatura.vencimento < limite_do_vencimento))
+    motivos = []
+    if lojista.situacao == "bloqueado":
+        motivos.append("lojista_bloqueado")
+    if conta == "em_verificacao":
+        motivos.append("conta_em_verificacao")
+    if vencida_ha_muito:
+        motivos.append("fatura_vencida_ha_mais_de_15_dias")
+    return motivos
+
+
+# ---------------------------------------------------------------------------------------------
+# Cobrança: acordos (DOC-MOCK §7.9)
+# ---------------------------------------------------------------------------------------------
+
+
+def buscar_acordos(
+    origem: Session | Engine,
+    codigo: str | None = None,
+    situacao: str | None = None,
+    limite: int | None = None,
+) -> dict:
+    """Acordos de um lojista ou de todos (`codigo` None), do maior valor renegociado para o menor.
+
+    Sem lojista, a lista cruza carteiras: quem chama decide se o cargo pode ver todos (escopo "todas").
+    """
+    falhas.verificar("cobranca")
+    consulta = select(
+        Acordo.codigo, Acordo.id_lojista, Acordo.valor_original_centavos, Acordo.valor_renegociado_centavos,
+        Acordo.entrada_centavos, Acordo.numero_de_parcelas, Acordo.desconto_centavos, Acordo.alcada,
+        Acordo.id_solicitante, Acordo.id_aprovador, Acordo.criado_em, Acordo.situacao,
+    )
+    if codigo is not None:
+        consulta = consulta.where(Acordo.id_lojista == codigo)
+    if situacao is not None:
+        consulta = consulta.where(Acordo.situacao == situacao)
+    consulta = consulta.order_by(Acordo.valor_renegociado_centavos.desc(), Acordo.codigo)
+    with _sessao_de(origem) as sessao:
+        faturas_em_acordo = select(Fatura.codigo, Fatura.id_acordo).where(Fatura.id_acordo.is_not(None))
+        if codigo is not None:
+            faturas_em_acordo = faturas_em_acordo.where(Fatura.id_lojista == codigo)
+        faturas: dict[str, list[str]] = {}
+        for codigo_fatura, id_acordo in sessao.execute(faturas_em_acordo.order_by(Fatura.codigo)):
+            faturas.setdefault(id_acordo, []).append(codigo_fatura)
+
+        def formatar(linha) -> dict:
+            item = dict(linha._mapping)
+            item["criado_em"] = _iso(item["criado_em"])
+            item["faturas"] = faturas.get(item["codigo"], [])
+            return item
+
+        return _lista(sessao, consulta, limite, formatar)
+
+
+# ---------------------------------------------------------------------------------------------
+# Disputas: chargebacks e Pix (DOC-MOCK §7.6 e §7.7)
+# ---------------------------------------------------------------------------------------------
+
+
+def buscar_chargebacks(origem: Session | Engine, codigo: str, limite: int | None = None) -> dict:
+    """Chargebacks do lojista, do aviso mais recente para o mais antigo.
+
+    `documentos_enviados` vira lista; `dias_para_o_prazo` conta a partir de hoje (negativo se já passou).
+    """
+    falhas.verificar("disputas")
+    consulta = (
+        select(
+            Chargeback.codigo, Chargeback.id_venda, Chargeback.motivo, Chargeback.data_notificacao,
+            Chargeback.prazo_defesa, Chargeback.valor_contestado_centavos, Chargeback.documentos_enviados,
+            Chargeback.id_analista, Chargeback.situacao,
+        )
+        .where(Chargeback.id_lojista == codigo)
+        .order_by(Chargeback.data_notificacao.desc(), Chargeback.codigo)
+    )
+
+    def formatar(linha) -> dict:
+        item = dict(linha._mapping)
+        item["documentos_enviados"] = [d for d in item["documentos_enviados"].split(",") if d]
+        item["dias_para_o_prazo"] = (item["prazo_defesa"] - regras.HOJE_DO_MOCK).days
+        item["data_notificacao"] = _iso(item["data_notificacao"])
+        item["prazo_defesa"] = _iso(item["prazo_defesa"])
+        return item
+
+    with _sessao_de(origem) as sessao:
+        return _lista(sessao, consulta, limite, formatar)
+
+
+def buscar_casos_pix(origem: Session | Engine, codigo: str, limite: int | None = None) -> dict:
+    """Pedidos de devolução de Pix (MED) do lojista, do mais recente para o mais antigo."""
+    falhas.verificar("disputas")
+    consulta = (
+        select(
+            CasoPix.codigo, CasoPix.id_venda, CasoPix.data_abertura, CasoPix.prazo_contestacao,
+            CasoPix.valor_bloqueado_centavos, CasoPix.tem_comprovante_entrega, CasoPix.id_analista,
+            CasoPix.situacao,
+        )
+        .where(CasoPix.id_lojista == codigo)
+        .order_by(CasoPix.data_abertura.desc(), CasoPix.codigo)
+    )
+
+    def formatar(linha) -> dict:
+        item = dict(linha._mapping)
+        item["dias_para_o_prazo"] = (item["prazo_contestacao"] - regras.HOJE_DO_MOCK).days
+        item["data_abertura"] = _iso(item["data_abertura"])
+        item["prazo_contestacao"] = _iso(item["prazo_contestacao"])
+        return item
+
+    with _sessao_de(origem) as sessao:
+        return _lista(sessao, consulta, limite, formatar)
+
+
+# ---------------------------------------------------------------------------------------------
+# CRM: satisfação, base de conhecimento e verificação de identidade (DOC-MOCK §6.6 e §6.7)
+# ---------------------------------------------------------------------------------------------
+
+
+def _periodo_das_pesquisas(consulta, data_inicio: date | None, data_fim: date | None, fila: str | None):
+    if data_inicio is not None:
+        consulta = consulta.where(PesquisaSatisfacao.respondida_em >= datetime.combine(data_inicio, time.min))
+    if data_fim is not None:
+        consulta = consulta.where(
+            PesquisaSatisfacao.respondida_em < datetime.combine(data_fim + timedelta(days=1), time.min))
+    if fila is not None:
+        consulta = consulta.where(Chamado.fila == fila)
+    return consulta
+
+
+def buscar_pesquisas(
+    origem: Session | Engine,
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    fila: str | None = None,
+    nota_maxima: int | None = None,
+    limite: int | None = None,
+) -> dict:
+    """Respostas CSAT no período (de todos os lojistas), da mais recente para a mais antiga.
+
+    O comentário é texto livre do lojista (RESTRITO, conteúdo de terceiros): sai em claro para a máscara.
+    """
+    falhas.verificar("crm")
+    consulta = select(
+        PesquisaSatisfacao.id_chamado, Chamado.fila, PesquisaSatisfacao.nota, PesquisaSatisfacao.comentario,
+        PesquisaSatisfacao.respondida_em,
+    ).join(Chamado, PesquisaSatisfacao.id_chamado == Chamado.codigo)
+    consulta = _periodo_das_pesquisas(consulta, data_inicio, data_fim, fila)
+    if nota_maxima is not None:
+        consulta = consulta.where(PesquisaSatisfacao.nota <= nota_maxima)
+    consulta = consulta.order_by(PesquisaSatisfacao.respondida_em.desc(), PesquisaSatisfacao.id)
+
+    def formatar(linha) -> dict:
+        item = dict(linha._mapping)
+        item["respondida_em"] = _iso(item["respondida_em"])
+        return item
+
+    with _sessao_de(origem) as sessao:
+        return _lista(sessao, consulta, limite, formatar)
+
+
+def resumo_satisfacao(
+    origem: Session | Engine,
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    fila: str | None = None,
+) -> dict:
+    """Notas CSAT no período: respostas, quantas de cada nota e a média em centésimos (4,25 vira 425)."""
+    falhas.verificar("crm")
+    consulta = (
+        select(PesquisaSatisfacao.nota, func.count())
+        .join(Chamado, PesquisaSatisfacao.id_chamado == Chamado.codigo)
+        .group_by(PesquisaSatisfacao.nota)
+    )
+    consulta = _periodo_das_pesquisas(consulta, data_inicio, data_fim, fila)
+    notas = {nota: 0 for nota in range(1, 6)}
+    with _sessao_de(origem) as sessao:
+        for nota, quantidade in sessao.execute(consulta):
+            notas[nota] = quantidade
+    respostas = sum(notas.values())
+    soma = sum(nota * quantidade for nota, quantidade in notas.items())
+    media = (200 * soma + respostas) // (2 * respostas) if respostas else None
+    return {"respostas": respostas, "notas": notas, "media_centesimos": media}
+
+
+def _sem_acento_minusculo(texto: str) -> str:
+    return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()
+
+
+def buscar_artigos(
+    origem: Session | Engine,
+    termo: str | None = None,
+    categoria: str | None = None,
+    limite: int | None = None,
+) -> dict:
+    """Artigos da base de conhecimento com todas as palavras do termo (sem acento, sem caixa)."""
+    falhas.verificar("crm")
+    consulta = select(
+        ArtigoAjuda.codigo, ArtigoAjuda.titulo_artigo, ArtigoAjuda.categoria, ArtigoAjuda.texto_artigo,
+        ArtigoAjuda.atualizado_em,
+    )
+    for palavra in _sem_acento_minusculo(termo or "").split():
+        consulta = consulta.where(ArtigoAjuda.termos_de_busca.contains(palavra, autoescape=True))
+    if categoria is not None:
+        consulta = consulta.where(ArtigoAjuda.categoria == categoria)
+    consulta = consulta.order_by(ArtigoAjuda.codigo)
+
+    def formatar(linha) -> dict:
+        item = dict(linha._mapping)
+        item["atualizado_em"] = _iso(item["atualizado_em"])
+        return item
+
+    with _sessao_de(origem) as sessao:
+        return _lista(sessao, consulta, limite, formatar)
+
+
+def _so_digitos(texto: str | None) -> str:
+    return "".join(caractere for caractere in texto or "" if caractere.isdigit())
+
+
+def contato_confere(
+    origem: Session | Engine, codigo: str, telefone: str | None = None, email: str | None = None
+) -> dict | None:
+    """Diz se o telefone ou o e-mail informado é de um contato cadastrado do lojista (DOC-MOCK §6.6).
+
+    Nunca devolve o contato: só {"confere", "papel"}. Telefone compara só os dígitos; e-mail, sem caixa.
+    None se o lojista não existe.
+    """
+    falhas.verificar("cadastro")
+    digitos, endereco = _so_digitos(telefone), (email or "").strip().lower()
+    with _sessao_de(origem) as sessao:
+        if sessao.get(Lojista, codigo) is None:
+            return None
+        contatos = sessao.execute(select(ContatoLojista.papel, ContatoLojista.telefone, ContatoLojista.email)
+                                  .where(ContatoLojista.id_lojista == codigo).order_by(ContatoLojista.id))
+        for papel, telefone_cadastrado, email_cadastrado in contatos:
+            if (digitos and digitos == _so_digitos(telefone_cadastrado)) or (
+                endereco and endereco == email_cadastrado.lower()
+            ):
+                return {"confere": True, "papel": papel}
+    return {"confere": False, "papel": None}
+
+
+# ---------------------------------------------------------------------------------------------
+# Base analítica (DOC-MOCK §4): agregados até o dia de corte
+# ---------------------------------------------------------------------------------------------
+
+
+def _corte(sessao: Session) -> date:
+    """Último dia que a base analítica tem. Com a falha "desatualizado", alguns dias a menos."""
+    corte = sessao.scalar(select(AnaliticaAtualizacao.data_corte).where(AnaliticaAtualizacao.id == 1))
+    if falhas.desatualizado("analitica"):
+        corte -= timedelta(days=regras.ATRASO_EXTRA_DA_BASE_DESATUALIZADA_DIAS)
+    return corte
+
+
+def _periodo_ate_o_corte(coluna, corte: date, inicio: date | None, fim: date | None) -> list:
+    condicoes = [coluna <= (min(fim, corte) if fim is not None else corte)]
+    if inicio is not None:
+        condicoes.append(coluna >= inicio)
+    return condicoes
+
+
+def totais_de_vendas(
+    origem: Session | Engine, data_inicio: date | None = None, data_fim: date | None = None
+) -> dict:
+    """Vendas do período por modalidade (até o corte): quantidades e somas em centavos."""
+    falhas.verificar("analitica")
+    tabela = AnaliticaVendasDiarias
+    with _sessao_de(origem) as sessao:
+        corte = _corte(sessao)
+        consulta = (
+            select(
+                tabela.modalidade, func.sum(tabela.quantidade_aprovadas), func.sum(tabela.quantidade_negadas),
+                func.sum(tabela.valor_bruto_dia_centavos), func.sum(tabela.valor_liquido_dia_centavos),
+                func.sum(tabela.receita_mdr_dia_centavos),
+            )
+            .where(*_periodo_ate_o_corte(tabela.dia, corte, data_inicio, data_fim))
+            .group_by(tabela.modalidade)
+            .order_by(tabela.modalidade)
+        )
+        itens = [
+            {
+                "modalidade": modalidade, "quantidade_aprovadas": int(aprovadas),
+                "quantidade_negadas": int(negadas), "valor_bruto_dia_centavos": int(bruto),
+                "valor_liquido_dia_centavos": int(liquido), "receita_mdr_dia_centavos": int(receita),
+            }
+            for modalidade, aprovadas, negadas, bruto, liquido, receita in sessao.execute(consulta)
+        ]
+    return {"data_corte": _iso(corte), "itens": itens}
+
+
+def vendas_por_dia(
+    origem: Session | Engine,
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    limite: int | None = None,
+) -> dict:
+    """Vendas do período somadas por dia (até o corte), do dia mais recente para o mais antigo."""
+    falhas.verificar("analitica")
+    tabela = AnaliticaVendasDiarias
+    with _sessao_de(origem) as sessao:
+        corte = _corte(sessao)
+        consulta = (
+            select(
+                tabela.dia, func.sum(tabela.quantidade_aprovadas).label("quantidade_aprovadas"),
+                func.sum(tabela.valor_bruto_dia_centavos).label("valor_bruto_dia_centavos"),
+                func.sum(tabela.receita_mdr_dia_centavos).label("receita_mdr_dia_centavos"),
+            )
+            .where(*_periodo_ate_o_corte(tabela.dia, corte, data_inicio, data_fim))
+            .group_by(tabela.dia)
+            .order_by(tabela.dia.desc())
+        )
+
+        def formatar(linha) -> dict:
+            item = {chave: int(valor) for chave, valor in linha._mapping.items() if chave != "dia"}
+            return {"dia": _iso(linha.dia), **item}  # int(): a soma vem como Decimal no Postgres
+
+        resposta = _lista(sessao, consulta, limite, formatar)
+    return {**resposta, "data_corte": _iso(corte)}
+
+
+def chamados_por_fila(
+    origem: Session | Engine,
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    prioridade: str | None = None,
+) -> dict:
+    """Chamados abertos no período, por fila (até o corte): abertos, resolvidos e fora do prazo do SLA."""
+    falhas.verificar("analitica")
+    tabela = AnaliticaChamadosDiarios
+    with _sessao_de(origem) as sessao:
+        corte = _corte(sessao)
+        consulta = select(
+            tabela.fila, func.sum(tabela.quantidade_abertos), func.sum(tabela.quantidade_resolvidos),
+            func.sum(tabela.quantidade_estourados),
+        ).where(*_periodo_ate_o_corte(tabela.dia, corte, data_inicio, data_fim))
+        if prioridade is not None:
+            consulta = consulta.where(tabela.prioridade == prioridade)
+        consulta = consulta.group_by(tabela.fila).order_by(tabela.fila)
+        itens = [
+            {"fila": fila, "quantidade_abertos": int(abertos), "quantidade_resolvidos": int(resolvidos),
+             "quantidade_estourados": int(estourados)}
+            for fila, abertos, resolvidos, estourados in sessao.execute(consulta)
+        ]
+    return {"data_corte": _iso(corte), "itens": itens}
+
+
+def _taxa_em_pontos_base(chargebacks: int, vendas: int) -> int | None:
+    return (20000 * chargebacks + vendas) // (2 * vendas) if vendas else None
+
+
+def contestacoes_por_mes(
+    origem: Session | Engine,
+    mes_inicio: str | None = None,
+    mes_fim: str | None = None,
+    codigo: str | None = None,
+) -> dict:
+    """Vendas no cartão, chargebacks e a taxa (pontos-base, 100 = 1%) por mês, de um lojista ou de todos."""
+    falhas.verificar("analitica")
+    tabela = AnaliticaContestacoesMensais
+    with _sessao_de(origem) as sessao:
+        corte = _corte(sessao)
+        consulta = select(
+            tabela.mes, func.sum(tabela.quantidade_vendas_cartao), func.sum(tabela.quantidade_chargebacks),
+        ).where(tabela.mes <= f"{corte:%Y-%m}")
+        if mes_inicio is not None:
+            consulta = consulta.where(tabela.mes >= mes_inicio)
+        if mes_fim is not None:
+            consulta = consulta.where(tabela.mes <= mes_fim)
+        if codigo is not None:
+            consulta = consulta.where(tabela.id_lojista == codigo)
+        consulta = consulta.group_by(tabela.mes).order_by(tabela.mes)
+        itens = [
+            {"mes": mes, "quantidade_vendas_cartao": int(vendas), "quantidade_chargebacks": int(chargebacks),
+             "taxa_chargeback_pontos_base": _taxa_em_pontos_base(int(chargebacks), int(vendas))}
+            for mes, vendas, chargebacks in sessao.execute(consulta)
+        ]
+    return {"data_corte": _iso(corte), "itens": itens}
+
+
+# ---------------------------------------------------------------------------------------------
+# Dicionário de dados (metadado): tabelas, colunas e sensibilidade, lidos do próprio esquema
+# ---------------------------------------------------------------------------------------------
+
+
+def dicionario_de_dados() -> list[dict]:
+    """Uma entrada por tabela do mock: sistema dono, descrição, de onde vem (base analítica) e colunas.
+
+    Não lê o banco: descreve o esquema (`modelos.py`). Coluna restrita é a de `regras.CLASSIFICACAO_CAMPOS`,
+    a mesma lista que a máscara usa; nenhum dado sai daqui.
+    """
+    tabelas = []
+    for tabela in BaseMock.metadata.sorted_tables:
+        colunas = [
+            {
+                "nome": coluna.name,
+                "tipo": type(coluna.type).__name__.lower(),
+                "descricao": coluna.comment or "",
+                "restrita": coluna.name in regras.CLASSIFICACAO_CAMPOS,
+            }
+            for coluna in tabela.columns
+        ]
+        tabelas.append({
+            "tabela": tabela.name,
+            "sistema": SISTEMA_DONO_DA_TABELA[tabela.name],
+            "descricao": tabela.comment or "",
+            "origem": list(ORIGEM_DAS_TABELAS_ANALITICAS.get(tabela.name, ())),
+            "colunas": colunas,
+        })
+    return tabelas
