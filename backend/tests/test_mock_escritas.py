@@ -4,6 +4,7 @@ Cada teste grava num mundo novo, gerado de verdade em SQLite: o que muda no banc
 """
 
 from datetime import date, datetime
+from decimal import Decimal
 
 import pytest
 from mock import (  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
@@ -17,6 +18,7 @@ from mock.escritas import PRIVILEGIOS_DE_ESCRITA, EscritaRecusada
 from mock.gerar import CONTA_EM_VERIFICACAO, recriar
 from mock.modelos import Acordo, Antecipacao, Chamado, Fatura, Interacao, Liquidacao, Recebivel
 from sqlalchemy import event, func, inspect, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from tests import gabaritos as gab
@@ -146,16 +148,23 @@ def test_erro_no_meio_da_transacao_desfaz_tudo(engine, monkeypatch):
 # --- notas e respostas ------------------------------------------------------------------------
 
 
-def test_nota_interna_fica_no_canal_interno_com_quem_escreveu(engine):
-    feita = escritas.adicionar_nota(engine, "M00001", gab.C1_CHAMADO, "Liguei e expliquei.", "nota_interna", ANA)
+def test_nota_do_agente_fica_no_canal_interno_com_quem_confirmou(engine):
+    feita = escritas.adicionar_nota(
+        engine, "M00001", gab.C1_CHAMADO, "Liguei e expliquei.", "nota_interna", ANA, escrita_pelo_agente=True
+    )
     assert feita == {
         "id_chamado": gab.C1_CHAMADO, "tipo": "nota_interna", "canal": "interno", "data_hora": AGORA.isoformat()
     }
     with Session(engine) as sessao:
         ultima = sessao.scalars(select(Interacao).order_by(Interacao.id.desc())).first()
     assert (ultima.autor, ultima.canal, ultima.id_funcionario, ultima.texto) == (
-        "funcionario", "interno", ANA, "Liguei e expliquei."
+        "agente", "interno", ANA, "Liguei e expliquei."  # §6.8: texto do agente nunca em nome do funcionário
     )
+
+
+def test_o_banco_recusa_texto_do_agente_sem_quem_confirmou(engine):
+    with pytest.raises(IntegrityError), Session(engine) as sessao, sessao.begin():
+        sessao.add(Interacao(id_chamado=gab.C1_CHAMADO, autor="agente", canal="whatsapp", data_hora=AGORA, texto="x"))
 
 
 def test_resposta_ao_lojista_vai_pelo_canal_em_que_ele_falou(engine):
@@ -164,20 +173,20 @@ def test_resposta_ao_lojista_vai_pelo_canal_em_que_ele_falou(engine):
             select(Interacao.canal).where(Interacao.id_chamado == gab.C1_CHAMADO, Interacao.autor == "lojista")
             .order_by(Interacao.data_hora.desc())
         )
-    feita = escritas.adicionar_nota(engine, "M00001", gab.C1_CHAMADO, "Estamos vendo.", "resposta_ao_lojista", ANA)
+    feita = escritas.adicionar_nota(engine, "M00001", gab.C1_CHAMADO, "Estamos vendo.", "resposta_ao_lojista", ANA, escrita_pelo_agente=True)
     assert feita["canal"] == (canal or "whatsapp")
 
 
 def test_nota_recusa_chamado_fechado_de_outro_lojista_e_tipo_desconhecido(engine):
     with Session(engine) as sessao:
         fechado = sessao.scalars(select(Chamado).where(Chamado.situacao == "fechado")).first()
-    assert _recusa(escritas.adicionar_nota, engine, fechado.id_lojista, fechado.codigo, "x", "nota_interna", ANA)[0] == (
+    assert _recusa(escritas.adicionar_nota, engine, fechado.id_lojista, fechado.codigo, "x", "nota_interna", ANA, escrita_pelo_agente=True)[0] == (
         "parametro_invalido"
     )
-    assert _recusa(escritas.adicionar_nota, engine, "M00002", gab.C1_CHAMADO, "x", "nota_interna", ANA)[0] == (
+    assert _recusa(escritas.adicionar_nota, engine, "M00002", gab.C1_CHAMADO, "x", "nota_interna", ANA, escrita_pelo_agente=True)[0] == (
         "nao_encontrado"
     )
-    assert _recusa(escritas.adicionar_nota, engine, "M00001", gab.C1_CHAMADO, "x", "sms", ANA)[0] == "parametro_invalido"
+    assert _recusa(escritas.adicionar_nota, engine, "M00001", gab.C1_CHAMADO, "x", "sms", ANA, escrita_pelo_agente=True)[0] == "parametro_invalido"
 
 
 # --- situação, encaminhamento e suspeita (§6.5 e §6.6) ----------------------------------------
@@ -321,7 +330,7 @@ def test_acordo_de_10_parcelas_sobe_ao_coordenador_e_as_faturas_continuam_vencid
 
 @pytest.mark.parametrize(
     "parcelas, desconto, mensagem",
-    [(13, 0, "parcelas"), (4, 3201, "10%")],
+    [(13, 0, "parcelas"), (4, Decimal("10.01"), "10%")],
 )
 def test_acordo_fora_das_regras_e_recusado_sem_gravar(engine, parcelas, desconto, mensagem):
     antes = _contar(engine, Acordo)
@@ -350,9 +359,46 @@ def test_quem_pediu_nao_aprova_e_o_coordenador_aprova_onboarding_8(engine):
     assert _recusa(escritas.decidir_acordo, engine, "AC0001", True, COORDENADORA)[0] == "parametro_invalido"
 
 
-def test_coordenador_nao_aprova_o_acordo_que_ele_mesmo_pediu(engine):
+def test_coordenador_fecha_sozinho_o_que_cabe_na_alcada_dele(engine):
     feito = escritas.registrar_acordo(engine, "M00003", ("I000121",), 10, None, False, 0, COORDENADORA)
-    assert _recusa(escritas.decidir_acordo, engine, feito["codigo"], True, COORDENADORA)[0] == "permissao_negada"
+    assert (feito["situacao"], feito["alcada"]) == ("ativo", "coordenador")
+    assert _ler(engine, Acordo, feito["codigo"]).id_aprovador == COORDENADORA
+
+
+def _dupla_aprovacao_pedida_pela_coordenadora(engine):
+    escritas.decidir_acordo(engine, "AC0001", False, COORDENADORA)  # solta a fatura de R$ 12.200 da M00013
+    feito = escritas.registrar_acordo(engine, "M00013", ("I000122",), 10, None, False, 0, COORDENADORA)
+    assert (feito["situacao"], feito["alcada"]) == ("pendente_aprovacao", "dupla_aprovacao")
+    return feito["codigo"]
+
+
+def test_dupla_aprovacao_pedida_pela_coordenadora_espera_outra_pessoa(engine):
+    codigo = _dupla_aprovacao_pedida_pela_coordenadora(engine)
+    assert _recusa(escritas.decidir_acordo, engine, codigo, True, COORDENADORA)[0] == "permissao_negada"
+    assert _ler(engine, Acordo, codigo).situacao == "pendente_aprovacao"
+
+
+@pytest.mark.parametrize("quem", [COBRANCA, ANA])
+def test_quem_nao_tem_a_alcada_nao_decide(engine, quem):
+    codigo = _dupla_aprovacao_pedida_pela_coordenadora(engine)
+    tipo, texto = _recusa(escritas.decidir_acordo, engine, codigo, True, quem)
+    assert (tipo, texto) == ("permissao_negada", "Este acordo passa da sua alçada.")
+
+
+def test_quem_nao_negocia_acordo_nao_registra(engine):
+    tipo, texto = _recusa(escritas.registrar_acordo, engine, "M00003", (), 4, None, False, 0, ANA)
+    assert (tipo, texto) == ("permissao_negada", "Seu cargo não negocia acordos.")
+    assert _contar(engine, Acordo) == 4
+
+
+def test_percentuais_arredondam_a_favor_da_regra():
+    so_o_saldo = [{"valor_centavos": 32000, "vencimento": date(2026, 9, 5)}]
+    no_limite = escritas.montar_acordo(so_o_saldo, 4, 20, False, 10)
+    assert no_limite["desconto_principal_centavos"] == 3200 and no_limite["alcada"] == "coordenador"
+    assert no_limite["entrada_centavos"] * 100 >= no_limite["valor_renegociado_centavos"] * 20
+    assert escritas.montar_acordo(so_o_saldo, 4, Decimal("19.99"), False, 0)["alcada"] == "coordenador"
+    with pytest.raises(EscritaRecusada):
+        escritas.montar_acordo(so_o_saldo, 4, 100, False, 0)
 
 
 def test_recusar_solta_as_faturas_do_acordo(engine):
@@ -419,7 +465,7 @@ def _operacoes(engine):
     with engine.begin() as conexao:
         conexao.execute(text("UPDATE contas_recebimento SET situacao = 'ativa' WHERE id_lojista = 'M00001'"))
     yield lambda: _abrir(engine)
-    yield lambda: escritas.adicionar_nota(engine, "M00001", gab.C1_CHAMADO, "Ok.", "nota_interna", ANA)
+    yield lambda: escritas.adicionar_nota(engine, "M00001", gab.C1_CHAMADO, "Ok.", "nota_interna", ANA, escrita_pelo_agente=True)
     yield lambda: escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, "atendente_n1", nova_situacao="em_atendimento")
     yield lambda: escritas.atualizar_chamado(engine, "M00001", gab.C1_CHAMADO, ANA, "atendente_n1", suspeita_fraude=True)
     yield lambda: escritas.reprocessar_liquidacao(engine, "M00001", _id_da_liquidacao_do_cenario_1(engine), RECEBIVEIS)
@@ -439,9 +485,9 @@ def test_cada_operacao_so_insere_e_altera_o_que_o_papel_de_escrita_pode(engine):
             tocados.append((objeto.__tablename__, "insert", None))
         for objeto in sessao.dirty:
             estado = inspect(objeto)
-            for coluna in estado.mapper.columns.keys():  # noqa: SIM118 (keys são os nomes das colunas)
-                if estado.attrs[coluna].history.has_changes():
-                    tocados.append((objeto.__tablename__, "update", coluna))
+            for atributo in estado.mapper.column_attrs:
+                if estado.attrs[atributo.key].history.has_changes():
+                    tocados.append((objeto.__tablename__, "update", atributo.key))
 
     try:
         for operacao in _operacoes(engine):
@@ -458,7 +504,7 @@ def test_cada_operacao_so_insere_e_altera_o_que_o_papel_de_escrita_pode(engine):
 
 def test_toda_escrita_usa_o_relogio_parado_do_mock(engine):
     _abrir(engine)
-    escritas.adicionar_nota(engine, "M00001", gab.C1_CHAMADO, "Ok.", "nota_interna", ANA)
+    escritas.adicionar_nota(engine, "M00001", gab.C1_CHAMADO, "Ok.", "nota_interna", ANA, escrita_pelo_agente=True)
     with engine.connect() as conexao:
         momentos = conexao.execute(text(
             "SELECT aberto_em FROM chamados WHERE codigo = 'CH000071' "

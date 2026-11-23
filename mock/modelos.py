@@ -360,10 +360,8 @@ class Interacao(BaseMock):
     __table_args__ = (
         _um_de("autor", AUTORES_INTERACAO),
         _um_de("canal", CANAIS_DE_INTERACAO),
-        _regra(
-            "nota_interna_de_funcionario",
-            "canal <> 'interno' OR (autor = 'funcionario' AND id_funcionario IS NOT NULL)",
-        ),
+        _regra("nota_interna_com_funcionario", "canal <> 'interno' OR id_funcionario IS NOT NULL"),
+        _regra("texto_do_agente_com_quem_confirmou", "autor <> 'agente' OR id_funcionario IS NOT NULL"),
         Index(None, "id_chamado", "data_hora"),
         {"comment": "Mensagens dos chamados. RESTRITO: texto livre, por onde chegaria uma injeção de comando."},
     )

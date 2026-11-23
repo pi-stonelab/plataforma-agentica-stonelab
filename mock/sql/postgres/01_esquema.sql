@@ -404,7 +404,8 @@ CREATE TABLE interacoes (
     CONSTRAINT pk_interacoes PRIMARY KEY (id),
     CONSTRAINT ck_interacoes_autor CHECK (autor IN ('lojista', 'funcionario', 'agente')),
     CONSTRAINT ck_interacoes_canal CHECK (canal IN ('whatsapp', 'telefone', 'chat', 'email', 'interno')),
-    CONSTRAINT ck_interacoes_nota_interna_de_funcionario CHECK (canal <> 'interno' OR (autor = 'funcionario' AND id_funcionario IS NOT NULL)),
+    CONSTRAINT ck_interacoes_nota_interna_com_funcionario CHECK (canal <> 'interno' OR id_funcionario IS NOT NULL),
+    CONSTRAINT ck_interacoes_texto_do_agente_com_quem_confirmou CHECK (autor <> 'agente' OR id_funcionario IS NOT NULL),
     CONSTRAINT fk_interacoes_id_chamado FOREIGN KEY(id_chamado) REFERENCES chamados (codigo),
     CONSTRAINT fk_interacoes_id_funcionario FOREIGN KEY(id_funcionario) REFERENCES funcionarios (id)
 );

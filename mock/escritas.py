@@ -17,6 +17,7 @@ No Postgres, quem grava é o papel `mock_escrita` (`PRIVILEGIOS_DE_ESCRITA`, ger
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime, time
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
@@ -226,11 +227,19 @@ def _canal_da_conversa(sessao: Session, chamado: Chamado) -> str:
 
 
 def adicionar_nota(
-    engine: Engine, codigo_lojista: str, codigo_chamado: str, texto: str, tipo: str, id_funcionario: str
+    engine: Engine,
+    codigo_lojista: str,
+    codigo_chamado: str,
+    texto: str,
+    tipo: str,
+    id_funcionario: str,
+    *,
+    escrita_pelo_agente: bool,
 ) -> dict:
     """Grava uma nota interna (só a equipe vê) ou uma resposta ao lojista, pelo canal em que ele falou.
 
-    Chamado fechado não recebe mais nada (§6.5: um novo contato abre outro chamado).
+    Texto escrito pelo agente de IA fica com autor "agente" (§6.8), sempre com `id_funcionario` = quem revisou e
+    confirmou. Chamado fechado não recebe mais nada (§6.5: um novo contato abre outro chamado).
     """
     if tipo not in TIPOS_DE_NOTA:
         raise EscritaRecusada("parametro_invalido", "Tipo de nota desconhecido.")
@@ -244,7 +253,7 @@ def adicionar_nota(
         canal = CANAL_INTERNO if tipo == "nota_interna" else _canal_da_conversa(sessao, chamado)
         interacao = Interacao(
             id_chamado=chamado.codigo,
-            autor="funcionario",
+            autor="agente" if escrita_pelo_agente else "funcionario",
             canal=canal,
             data_hora=regras.AGORA_DO_MOCK,
             texto=texto.strip(),
@@ -478,38 +487,42 @@ def _faturas_para_o_acordo(sessao: Session, codigo_lojista: str, codigos: tuple[
     return faturas
 
 
+def _percentual_de(centavos: int, percentual: Decimal, arredondamento: str) -> int:
+    return int((Decimal(centavos) * percentual / 100).to_integral_value(arredondamento))
+
+
 def montar_acordo(
     faturas: list[dict],
     numero_de_parcelas: int,
-    entrada_centavos: int | None,
+    entrada_percentual: Decimal | int | None,
     perdoar_encargos: bool,
-    desconto_principal_centavos: int,
+    desconto_principal_percentual: Decimal | int,
 ) -> dict:
     """Os números do acordo (§7.5 e §7.9), sem banco: a prévia e a gravação usam a mesma conta.
 
-    `faturas`: [{"valor_centavos", "vencimento" (date)}]. Sem `entrada_centavos`, a entrada mínima da analista
-    (20% do renegociado, arredondada para cima ao centavo).
+    `faturas`: [{"valor_centavos", "vencimento" (date)}]. Sem `entrada_percentual`, a entrada mínima da analista
+    (20% do renegociado). A entrada arredonda para cima e o desconto para baixo, ao centavo: o arredondamento nunca
+    tira o acordo da alçada que os percentuais pedidos dão.
     """
     if not 1 <= numero_de_parcelas <= regras.PARCELAS_MAXIMAS_COORDENADOR:
         raise EscritaRecusada(
             "parametro_invalido", f"O acordo vai de 1 a {regras.PARCELAS_MAXIMAS_COORDENADOR} parcelas (§7.9)."
         )
+    if entrada_percentual is None:
+        entrada_percentual = regras.ENTRADA_MINIMA_ANALISTA_PERCENTUAL
+    entrada_percentual, desconto_principal_percentual = Decimal(entrada_percentual), Decimal(desconto_principal_percentual)
+    if not (0 <= entrada_percentual < 100 and 0 <= desconto_principal_percentual < 100):
+        raise EscritaRecusada("parametro_invalido", "A entrada e o desconto são percentuais de 0 a 99.")
     original = sum(f["valor_centavos"] for f in faturas)
     encargos = sum(
         sum(regras.encargos_de_atraso_centavos(f["valor_centavos"], (regras.HOJE_DO_MOCK - f["vencimento"]).days))
         for f in faturas
     )
-    if desconto_principal_centavos < 0 or desconto_principal_centavos > original:
-        raise EscritaRecusada("parametro_invalido", "O desconto no principal fica entre zero e o valor das faturas.")
+    desconto = _percentual_de(original, desconto_principal_percentual, ROUND_FLOOR)
     perdao = encargos if perdoar_encargos else 0
-    renegociado = original + encargos - perdao - desconto_principal_centavos
-    if entrada_centavos is None:
-        entrada_centavos = -(-renegociado * regras.ENTRADA_MINIMA_ANALISTA_PERCENTUAL // 100)
-    if not 0 <= entrada_centavos <= renegociado:
-        raise EscritaRecusada("parametro_invalido", "A entrada fica entre zero e o valor renegociado.")
-    alcada = regras.alcada_do_acordo(
-        original, renegociado, numero_de_parcelas, entrada_centavos, perdao, desconto_principal_centavos
-    )
+    renegociado = original + encargos - perdao - desconto
+    entrada = _percentual_de(renegociado, entrada_percentual, ROUND_CEILING)
+    alcada = regras.alcada_do_acordo(original, renegociado, numero_de_parcelas, entrada, perdao, desconto)
     if alcada == "proibido":
         raise EscritaRecusada(
             "parametro_invalido",
@@ -519,11 +532,11 @@ def montar_acordo(
         "valor_original_centavos": original,
         "encargos_centavos": encargos,
         "perdao_encargos_centavos": perdao,
-        "desconto_principal_centavos": desconto_principal_centavos,
+        "desconto_principal_centavos": desconto,
         "valor_renegociado_centavos": renegociado,
-        "entrada_centavos": entrada_centavos,
+        "entrada_centavos": entrada,
         "numero_de_parcelas": numero_de_parcelas,
-        "valor_da_parcela_centavos": -(-(renegociado - entrada_centavos) // numero_de_parcelas),
+        "valor_da_parcela_centavos": -(-(renegociado - entrada) // numero_de_parcelas),
         "alcada": alcada,
     }
 
@@ -544,25 +557,29 @@ def registrar_acordo(
     codigo_lojista: str,
     codigos_das_faturas: tuple[str, ...],
     numero_de_parcelas: int,
-    entrada_centavos: int,
+    entrada_percentual: Decimal | int | None,
     perdoar_encargos: bool,
-    desconto_principal_centavos: int,
+    desconto_principal_percentual: Decimal | int,
     id_solicitante: str,
 ) -> dict:
     """Grava o acordo com as faturas da prévia, recalculado agora.
 
-    Na alçada da analista, o acordo nasce ativo e ela é a aprovadora (ela negocia dentro da alçada, §8.2). Acima,
-    nasce "pendente_aprovacao" e as faturas continuam vencidas até o coordenador aprovar (a régua segue, §7.5).
+    Na alçada de quem pede (`regras.ALCADAS_DE_ACORDO_DO_CARGO`), o acordo nasce ativo e quem pediu é o aprovador
+    ("negocia dentro da alçada", §8.2). Acima, nasce "pendente_aprovacao" e as faturas continuam vencidas até a
+    aprovação (a régua segue, §7.5). Dupla aprovação nunca nasce ativa.
     """
     with _transacao(engine, "cadastro", "cobranca") as sessao:
         _lojista(sessao, codigo_lojista)
-        _funcionario_ativo(sessao, id_solicitante)
+        solicitante = _funcionario_ativo(sessao, id_solicitante)
+        alcadas = regras.ALCADAS_DE_ACORDO_DO_CARGO.get(solicitante.cargo)
+        if not alcadas:
+            raise EscritaRecusada("permissao_negada", "Seu cargo não negocia acordos.")
         faturas = _faturas_para_o_acordo(sessao, codigo_lojista, codigos_das_faturas)
         numeros = montar_acordo(
             [{"valor_centavos": f.valor_centavos, "vencimento": f.vencimento} for f in faturas],
-            numero_de_parcelas, entrada_centavos, perdoar_encargos, desconto_principal_centavos,
+            numero_de_parcelas, entrada_percentual, perdoar_encargos, desconto_principal_percentual,
         )
-        na_alcada_de_quem_pede = numeros["alcada"] == "analista"
+        na_alcada_de_quem_pede = numeros["alcada"] in alcadas
         acordo = Acordo(
             codigo=_proximo_codigo(sessao, Acordo.codigo, "AC", 4),
             id_lojista=codigo_lojista,
@@ -571,7 +588,7 @@ def registrar_acordo(
             entrada_centavos=numeros["entrada_centavos"],
             numero_de_parcelas=numero_de_parcelas,
             perdao_encargos_centavos=numeros["perdao_encargos_centavos"],
-            desconto_principal_centavos=desconto_principal_centavos,
+            desconto_principal_centavos=numeros["desconto_principal_centavos"],
             alcada=numeros["alcada"],
             id_solicitante=id_solicitante,
             id_aprovador=id_solicitante if na_alcada_de_quem_pede else None,
@@ -587,10 +604,17 @@ def registrar_acordo(
         return {"codigo": acordo.codigo, "situacao": acordo.situacao, "faturas": [f.codigo for f in faturas], **numeros}
 
 
+def _decide_o_acordo(cargo: str, alcada: str) -> bool:
+    if alcada == "dupla_aprovacao":
+        return cargo in regras.CARGOS_DA_SEGUNDA_APROVACAO
+    return alcada in regras.ALCADAS_DE_ACORDO_DO_CARGO.get(cargo, ())
+
+
 def decidir_acordo(engine: Engine, codigo_acordo: str, aprovar: bool, id_aprovador: str) -> dict:
-    """O coordenador aprova ou recusa um acordo pendente. Quem pediu nunca decide (§8, segregação; §7.9)."""
+    """Aprova ou recusa um acordo pendente. Quem pediu nunca decide (§8.1, segregação; §7.9), e quem decide precisa
+    ter a alçada do acordo; a dupla aprovação é dada pelo coordenador (§8.2)."""
     with _transacao(engine, "cobranca") as sessao:
-        _funcionario_ativo(sessao, id_aprovador)
+        aprovador = _funcionario_ativo(sessao, id_aprovador)
         acordo = sessao.scalar(select(Acordo).where(Acordo.codigo == codigo_acordo).with_for_update())
         if acordo is None:
             raise EscritaRecusada("nao_encontrado", "Acordo não encontrado.")
@@ -598,6 +622,8 @@ def decidir_acordo(engine: Engine, codigo_acordo: str, aprovar: bool, id_aprovad
             raise EscritaRecusada("parametro_invalido", "Só acordo pendente de aprovação é aprovado ou recusado.")
         if acordo.id_solicitante == id_aprovador:
             raise EscritaRecusada("permissao_negada", "Quem pediu o acordo não pode aprová-lo nem recusá-lo.")
+        if not _decide_o_acordo(aprovador.cargo, acordo.alcada):
+            raise EscritaRecusada("permissao_negada", "Este acordo passa da sua alçada.")
         faturas = sessao.scalars(select(Fatura).where(Fatura.id_acordo == acordo.codigo).with_for_update()).all()
         if aprovar:
             acordo.situacao, acordo.id_aprovador = "ativo", id_aprovador

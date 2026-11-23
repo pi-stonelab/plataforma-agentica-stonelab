@@ -541,3 +541,12 @@ SITUACOES_DE_CHAMADO_SEM_ENCAMINHAMENTO = ("resolvido", "fechado")
 # entra agendada para o próximo dia útil; o recebível do dia continua retido até ela ser paga.
 SITUACOES_DE_LIQUIDACAO_QUE_REPROCESSAM = ("falhou",)
 SITUACAO_DA_CONTA_QUE_RECEBE = "ativa"
+
+# §7.9: até onde cada cargo aprova um acordo sozinho ("Alçada é o valor até onde um cargo pode aprovar algo
+# sozinho"). A dupla aprovação nunca é de uma pessoa só: quem pediu não aprova, e a segunda aprovação é do
+# coordenador (§8.2).
+ALCADAS_DE_ACORDO_DO_CARGO = {
+    "analista_cobranca": ("analista",),
+    "coordenador_financeiro": ("analista", "coordenador"),
+}
+CARGOS_DA_SEGUNDA_APROVACAO = frozenset({"coordenador_financeiro"})
