@@ -10,8 +10,8 @@ FINAL dizendo que a prévia está esperando a confirmação na tela. Nunca diga 
 
 ## Quando não usar
 
-Não use para chamado de lojista (código como `CH000001`): para esse existe `adicionar_nota_chamado`. Não coloque
-CPF, cartão, conta ou telefone de lojista no texto.
+Não use para chamado de lojista (código como `CH000001`): esse é do CRM, nas ferramentas de atendimento. Não
+coloque CPF, cartão, conta ou telefone de lojista no texto.
 
 ## Parâmetros
 
@@ -20,8 +20,8 @@ CPF, cartão, conta ou telefone de lojista no texto.
 
 ## O que devolve
 
-Em `dados`: `confirmacao_id`, `situacao` (`aguardando_confirmacao`), `expira_em`, `chave`, `resumo_do_chamado` e
-`texto` como será gravado (dado pessoal sai mascarado).
+Em `dados`: `confirmacao_id`, `situacao` (`aguardando_confirmacao`), `expira_em`, `chave_jira`, `resumo` (do
+chamado, para conferir) e `texto` como será gravado (dado pessoal sai mascarado).
 
 Erros possíveis: `parametro_invalido` (chave fora do formato ou de projeto não liberado, texto vazio ou longo
 demais), `nao_encontrado` (o chamado não existe ou a conta não o vê) e `integracao_indisponivel`.

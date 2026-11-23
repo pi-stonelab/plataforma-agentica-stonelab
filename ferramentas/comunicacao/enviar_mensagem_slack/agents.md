@@ -11,7 +11,7 @@ diga que a mensagem foi enviada: quem envia é o funcionário, ao confirmar.
 
 ## Quando não usar
 
-Não use para falar com o lojista (para isso há `enviar_email`) nem para pessoas fora da Stone. Não coloque CPF,
+Não use para falar com o lojista nem com pessoas fora da Stone: o Slack é só para colegas. Não coloque CPF,
 cartão, conta ou telefone de lojista no texto; cite o código do lojista (como `M00001`). Se o funcionário pedir um
 canal fora da lista, a ferramenta recusa e diz quais existem: repasse isso, não tente outro canal por conta própria.
 

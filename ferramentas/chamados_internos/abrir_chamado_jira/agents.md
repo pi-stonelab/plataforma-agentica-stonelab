@@ -11,8 +11,8 @@ chamado foi aberto: quem abre é o funcionário, ao confirmar.
 
 ## Quando não usar
 
-Não use para registrar o atendimento de um lojista: para isso existe o chamado do CRM (`abrir_chamado`). Não
-coloque CPF, cartão, conta ou telefone de lojista no texto; cite o código do lojista (como `M00001`).
+Não use para registrar o atendimento de um lojista: isso é chamado do CRM, nas ferramentas de atendimento.
+Não coloque CPF, cartão, conta ou telefone de lojista no texto; cite o código do lojista (como `M00001`).
 
 ## Parâmetros
 
@@ -26,8 +26,8 @@ coloque CPF, cartão, conta ou telefone de lojista no texto; cite o código do l
 ## O que devolve
 
 Em `dados`: `confirmacao_id`, `situacao` (`aguardando_confirmacao`), `expira_em` (a prévia vale 15 minutos),
-`projeto`, `tipo`, `resumo` e `descricao` como serão enviados (CPF, cartão e telefone saem mascarados). Depois
-que o funcionário confirma, a tela mostra a `chave` criada.
+`projeto`, `tipo`, `resumo` e `texto` (a descrição) como serão enviados (CPF, cartão e telefone saem
+mascarados). Depois que o funcionário confirma, a tela mostra a `chave_jira` criada.
 
 Erros possíveis: `parametro_invalido` (texto vazio ou longo demais, resumo com mais de uma linha, projeto ou tipo
 fora da lista; a mensagem lista os liberados) e `integracao_indisponivel` (Jira desligado, fora do ar ou prévias

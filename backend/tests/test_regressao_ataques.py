@@ -390,9 +390,10 @@ def test_a08_lista_longa_e_cortada_em_50_com_o_total_real():
 
 
 @pytest.mark.parametrize("cargo", gab.CARGOS)
-def test_a08_nenhum_cargo_alcanca_ferramenta_de_arquivo_planilha_ou_envio(cargo):
+def test_a08_nenhum_cargo_alcanca_ferramenta_de_arquivo_ou_planilha_e_envio_so_com_confirmacao(cargo):
     liberadas = set(catalogo.ferramentas_liberadas(pessoa(cargo), geral.FERRAMENTAS_DO_AGENTE))
-    assert not liberadas & set(gab.FERRAMENTAS_DE_EXPORTACAO + gab.FERRAMENTAS_DE_ENVIO)
+    assert not liberadas & set(gab.FERRAMENTAS_DE_EXPORTACAO)
+    assert liberadas & set(gab.FERRAMENTAS_DE_ENVIO) <= set(governanca.ESCRITA_COM_CONFIRMACAO)
 
 
 def test_a08_cem_consultas_gravam_cem_registros_sem_conteudo():

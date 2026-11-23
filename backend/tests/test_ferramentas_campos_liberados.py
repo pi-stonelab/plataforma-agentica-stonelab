@@ -13,8 +13,13 @@ from mock.regras import CAMPOS_NAO_RESTRITOS, CLASSIFICACAO_CAMPOS
 
 # Ferramenta -> campos que ela pode liberar. Só a escrita em duas fases devolve texto escrito pelo modelo
 # (a prévia), então só ela entra aqui. Leitura nunca libera: o texto dela é de lojista.
+CONFIRMACAO = frozenset({"confirmacao_id", "expira_em"})
 LIBERACOES_PERMITIDAS = {
-    "enviar_email": frozenset({"confirmacao_id", "expira_em", "assunto", "corpo", "id_mensagem"}),
+    "enviar_email": CONFIRMACAO | {"assunto", "corpo", "id_mensagem"},
+    "abrir_chamado_jira": CONFIRMACAO | {"projeto"},
+    "comentar_chamado_jira": CONFIRMACAO,
+    "enviar_mensagem_slack": CONFIRMACAO,
+    "enviar_aviso_telegram": CONFIRMACAO | {"chat"},
 }
 COMO_LIBERAR = "Para liberar um campo novo, edite LIBERACOES_PERMITIDAS em test_ferramentas_campos_liberados.py."
 
