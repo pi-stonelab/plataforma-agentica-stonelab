@@ -138,6 +138,7 @@ CREATE INDEX ix_acordos_situacao ON acordos (situacao);
 COMMENT ON TABLE acordos IS 'Acordos de renegociação da Cobrança (DOC-MOCK §7.9). A alçada diz quem aprova. Confidencial.';
 COMMENT ON COLUMN acordos.valor_original_centavos IS 'Soma das faturas incluídas.';
 COMMENT ON COLUMN acordos.valor_renegociado_centavos IS 'Faturas mais multa e juros até a criação, menos o desconto.';
+COMMENT ON COLUMN acordos.desconto_centavos IS 'Desconto no principal: só o coordenador, até 10%% (DOC-MOCK §7.9).';
 
 CREATE TABLE analitica_contestacoes_mensais (
     mes VARCHAR(7) NOT NULL,

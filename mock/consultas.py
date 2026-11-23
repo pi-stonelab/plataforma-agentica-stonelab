@@ -487,10 +487,11 @@ def buscar_acordos(
         consulta = consulta.where(Acordo.situacao == situacao)
     consulta = consulta.order_by(Acordo.valor_renegociado_centavos.desc(), Acordo.codigo)
     with _sessao_de(origem) as sessao:
+        faturas_em_acordo = select(Fatura.codigo, Fatura.id_acordo).where(Fatura.id_acordo.is_not(None))
+        if codigo is not None:
+            faturas_em_acordo = faturas_em_acordo.where(Fatura.id_lojista == codigo)
         faturas: dict[str, list[str]] = {}
-        for codigo_fatura, id_acordo in sessao.execute(
-            select(Fatura.codigo, Fatura.id_acordo).where(Fatura.id_acordo.is_not(None)).order_by(Fatura.codigo)
-        ):
+        for codigo_fatura, id_acordo in sessao.execute(faturas_em_acordo.order_by(Fatura.codigo)):
             faturas.setdefault(id_acordo, []).append(codigo_fatura)
 
         def formatar(linha) -> dict:
@@ -834,7 +835,8 @@ def contestacoes_por_mes(
 def dicionario_de_dados() -> list[dict]:
     """Uma entrada por tabela do mock: sistema dono, descrição, de onde vem (base analítica) e colunas.
 
-    Não lê o banco: descreve o esquema (`modelos.py`). Coluna restrita vem marcada; nenhum dado sai daqui.
+    Não lê o banco: descreve o esquema (`modelos.py`). Coluna restrita é a de `regras.CLASSIFICACAO_CAMPOS`,
+    a mesma lista que a máscara usa; nenhum dado sai daqui.
     """
     tabelas = []
     for tabela in BaseMock.metadata.sorted_tables:
@@ -843,7 +845,7 @@ def dicionario_de_dados() -> list[dict]:
                 "nome": coluna.name,
                 "tipo": type(coluna.type).__name__.lower(),
                 "descricao": coluna.comment or "",
-                "restrita": (coluna.comment or "").startswith(("RESTRITO", "Dado pessoal")),
+                "restrita": coluna.name in regras.CLASSIFICACAO_CAMPOS,
             }
             for coluna in tabela.columns
         ]

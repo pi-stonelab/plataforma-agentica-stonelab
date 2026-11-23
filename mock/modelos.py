@@ -412,7 +412,9 @@ class Acordo(BaseMock):
     )
     entrada_centavos: Mapped[int] = mapped_column(BigInteger)
     numero_de_parcelas: Mapped[int] = mapped_column(Integer)
-    desconto_centavos: Mapped[int] = mapped_column(BigInteger, default=0)
+    desconto_centavos: Mapped[int] = mapped_column(
+        BigInteger, default=0, comment="Desconto no principal: só o coordenador, até 10% (DOC-MOCK §7.9)."
+    )
     alcada: Mapped[str] = mapped_column(String(20))
     id_solicitante: Mapped[str] = mapped_column(ForeignKey("funcionarios.id"))
     id_aprovador: Mapped[str | None] = mapped_column(ForeignKey("funcionarios.id"))

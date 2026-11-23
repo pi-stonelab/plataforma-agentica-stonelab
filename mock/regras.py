@@ -239,8 +239,8 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "receita_mdr", "quantidade",
         # verificação de identidade (§6.6): só diz se confere, nunca o contato
         "confere",
-        # código do lojista como o modelo o vê, nas listas que cruzam lojistas
-        "id_cliente",
+        # código do lojista: como o modelo o vê (id_cliente) e como o banco o chama (id_lojista)
+        "id_cliente", "id_lojista",
     }
 )
 
