@@ -538,3 +538,60 @@ def test_falha_de_disco_de_verdade_continua_contando_no_disjuntor(pasta, monkeyp
         with pytest.raises(ConnectionError):
             ANEXOS.guardar_entrada(ANA_ID, "a.txt", b"x")
     assert ANEXOS.saude() == "pausada"
+
+
+# --- retenção na leitura e cota sob concorrência (achados 11 e 19 da revisão) ------------------------------------------
+
+
+def envelhecer(caminho, dias=8):
+    passado = (anexos._agora() - timedelta(days=dias)).timestamp()
+    os.utime(caminho, (passado, passado))
+
+
+def test_arquivo_vencido_nao_e_listado_nem_lido_mesmo_sem_novo_envio_e_some_do_disco(pasta, ana):
+    identificador = anexar("velho.txt", b"dado de lojista sintetico")
+    (caminho,) = (pasta / "entrada" / ANA_ID).iterdir()
+    envelhecer(caminho)
+    assert ANEXOS.listar_entradas(ANA_ID) == []
+    assert usar(LER, {"anexo_id": identificador}, ana)["tipo_erro"] == "nao_encontrado"
+    assert arquivos_em(pasta) == []  # apagado do disco quando alguém o procurou
+
+
+def test_arquivo_vencido_de_quem_nunca_mais_volta_e_apagado_pela_varredura_geral(pasta):
+    anexar("da-bia.txt", b"x", BIA_ID)
+    (caminho,) = (pasta / "entrada" / BIA_ID).iterdir()
+    envelhecer(caminho)
+    assert arquivos_em(pasta) != []
+    assert ANEXOS.expurgar_vencidos() == 1
+    assert arquivos_em(pasta) == []
+
+
+def test_o_envio_de_uma_pessoa_dispara_a_varredura_de_todas_no_maximo_uma_vez_por_hora(pasta):
+    anexar("da-bia.txt", b"x", BIA_ID)  # este envio já fez a varredura da hora
+    (da_bia,) = (pasta / "entrada" / BIA_ID).iterdir()
+    envelhecer(da_bia)
+    anexar("da-ana.txt", b"y")  # dentro da mesma hora: não varre de novo
+    assert da_bia.exists()
+    anexos.ULTIMO_EXPURGO["quando"] = anexos._agora() - anexos.INTERVALO_DO_EXPURGO
+    anexar("outro-da-ana.txt", b"z")  # passou a hora: a varredura leva o vencido da Bia
+    assert not da_bia.exists()
+
+
+def test_37_envios_ao_mesmo_tempo_nao_passam_do_limite_de_30_arquivos(pasta):
+    resultados = []
+    largada = threading.Barrier(37)
+
+    def enviar(n):
+        largada.wait()
+        try:
+            resultados.append(anexar(f"p{n}.txt", f"conteudo {n}".encode()))
+        except ErroFerramenta as erro:
+            resultados.append(erro.tipo_erro)
+
+    linhas = [threading.Thread(target=enviar, args=(n,)) for n in range(37)]
+    for linha in linhas:
+        linha.start()
+    for linha in linhas:
+        linha.join()
+    assert len(ANEXOS.listar_entradas(ANA_ID)) == anexos.ARQUIVOS_POR_PESSOA
+    assert resultados.count("integracao_indisponivel") == 7

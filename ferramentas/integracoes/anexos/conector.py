@@ -12,7 +12,9 @@ memória, com alguns de exemplo).
 Regras (valem nos dois modos):
 - tipos de entrada: txt, csv, xlsx, docx e pdf; de saída: csv, xlsx e txt; até 5 MB por arquivo;
 - arquivo com macro, nome sem tipo conhecido, "zip" que não é xlsx/docx ou texto com byte nulo é recusado no envio;
-- até 30 arquivos e 50 MB por pessoa; arquivo com mais de 7 dias é apagado no próximo envio da mesma pessoa;
+- até 30 arquivos e 50 MB por pessoa (conferidos sob uma trava por pessoa: envios ao mesmo tempo não passam do limite);
+- arquivo com mais de 7 dias some: nenhuma listagem, leitura ou download o enxerga, e ele é apagado na hora em que
+  alguém o procura e, no máximo uma vez por hora, numa varredura de todas as pessoas (`expurgar_vencidos`);
 - gravação atômica, permissão 0600 (só o usuário da plataforma) e abertura sem seguir link simbólico.
 
 Pontos de ligação:
@@ -38,7 +40,7 @@ from pathlib import Path
 
 from ferramentas.base import ErroFerramenta
 from ferramentas.integracoes import formatos
-from ferramentas.integracoes.conector import Conector, ConfiguracaoInvalida
+from ferramentas.integracoes.conector import Conector, ConfiguracaoInvalida, TravasPorChave
 from ferramentas.integracoes.escritorio_simulado import PLANILHAS
 from ferramentas.integracoes.registro import registrar
 
@@ -49,6 +51,7 @@ PREFIXO_DO_ARQUIVO = re.compile(r"((?:ANX|ARQ)-[A-Z]{12})__(.+)")
 TIPOS_DE_ENTRADA = ("txt", "csv", "xlsx", "docx", "pdf")
 TIPOS_DE_SAIDA = ("csv", "xlsx", "txt")
 TIPOS_DE_OFFICE = ("xlsx", "docx")
+INTERVALO_DO_EXPURGO = timedelta(hours=1)  # no mais: a varredura de todas as pessoas roda a cada envio, no máximo uma vez por hora
 ARQUIVOS_POR_PESSOA = 30
 BYTES_POR_PESSOA = 50_000_000
 RETENCAO = timedelta(days=7)
@@ -64,6 +67,10 @@ MENSAGEM_PEDIDO_INVALIDO = "O nome do arquivo ou a pessoa não são aceitos pelo
 ID_DO_SIMULADO = {  # anexos de exemplo (o "hoje" do mock): letras, como os ids de verdade
     "csv": "ANX-SIMULADOCSVX", "txt": "ANX-SIMULADOTXTX", "xlsx": "ANX-SIMULADOXLSX",
 }
+
+
+TRAVAS_DAS_PESSOAS = TravasPorChave()  # uma por pessoa e pasta: conferir a cota e gravar andam juntos
+ULTIMO_EXPURGO = {"quando": None}
 
 
 def nome_seguro(nome):
@@ -147,9 +154,12 @@ class ArmazenamentoLocal(_Armazenamento):
         return caminho
 
     def listar(self, pasta, id_usuario):
+        """Os arquivos da pessoa que ainda estão na retenção. O vencido (mais de 7 dias) é apagado na hora: nenhuma
+        leitura, listagem ou abertura enxerga arquivo vencido, mesmo que a pessoa não envie nada novo (LGPD)."""
         caminho = self._pasta(pasta, id_usuario)
         if not caminho.is_dir():
             return []
+        limite = _agora() - RETENCAO
         metas = []
         with os.scandir(caminho) as itens:
             for item in itens:
@@ -157,22 +167,47 @@ class ArmazenamentoLocal(_Armazenamento):
                 if achado is None or not item.is_file(follow_symlinks=False):
                     continue
                 dados = item.stat(follow_symlinks=False)
-                metas.append(_meta(achado.group(1), achado.group(2), dados.st_size, datetime.fromtimestamp(dados.st_mtime, UTC)))
+                criado_em = datetime.fromtimestamp(dados.st_mtime, UTC)
+                if criado_em < limite:
+                    Path(item.path).unlink(missing_ok=True)
+                    continue
+                metas.append(_meta(achado.group(1), achado.group(2), dados.st_size, criado_em))
         return sorted(metas, key=lambda m: m["criado_em"], reverse=True)
 
-    def _expurgar(self, pasta, id_usuario):
-        limite = _agora() - RETENCAO
-        for meta in self.listar(pasta, id_usuario):
-            if datetime.fromisoformat(meta["criado_em"]) < limite:
-                self._caminho(pasta, id_usuario, meta).unlink(missing_ok=True)
+    def expurgar_vencidos(self):
+        """Apaga os arquivos vencidos de TODAS as pessoas (quem nunca mais volta também não guarda dado para sempre).
+        Devolve quantos apagou."""
+        apagados = 0
+        for pasta in PASTAS:
+            raiz = self.raiz / pasta
+            if not raiz.is_dir():
+                continue
+            with os.scandir(raiz) as pessoas:
+                nomes = [p.name for p in pessoas if p.is_dir(follow_symlinks=False) and PADRAO_ID_USUARIO.fullmatch(p.name)]
+            for id_usuario in nomes:
+                antes = len(list(self._pasta(pasta, id_usuario).iterdir()))
+                self.listar(pasta, id_usuario)  # listar apaga o que venceu
+                apagados += antes - len(list(self._pasta(pasta, id_usuario).iterdir()))
+        return apagados
 
     def _caminho(self, pasta, id_usuario, meta):
         return self._pasta(pasta, id_usuario) / f"{meta['id']}__{meta['nome']}"
 
     def guardar(self, pasta, prefixo, id_usuario, raiz, extensao, conteudo):
         caminho = self._pasta(pasta, id_usuario, criar=True)
-        self._expurgar(pasta, id_usuario)
-        self._conferir_cota(self.listar(pasta, id_usuario), conteudo)
+        self._expurgar_de_tempos_em_tempos()
+        with TRAVAS_DAS_PESSOAS.da((pasta, id_usuario)):  # sem ela, 37 envios juntos passariam do limite de 30
+            self._conferir_cota(self.listar(pasta, id_usuario), conteudo)
+            return self._gravar(caminho, pasta, prefixo, raiz, extensao, conteudo)
+
+    def _expurgar_de_tempos_em_tempos(self):
+        agora = _agora()
+        ultimo = ULTIMO_EXPURGO["quando"]
+        if ultimo is None or agora - ultimo >= INTERVALO_DO_EXPURGO:
+            ULTIMO_EXPURGO["quando"] = agora
+            self.expurgar_vencidos()
+
+    def _gravar(self, caminho, pasta, prefixo, raiz, extensao, conteudo):
         nome = f"{raiz}.{extensao}"
         for _ in range(5):  # o id é sorteado; se já existir, sorteia de novo
             id_arquivo = _sortear(prefixo)
@@ -405,9 +440,17 @@ class ConectorAnexos(Conector):
         self._usar("testar", ambiente, provar)
         return "A pasta de anexos aceitou gravar e ler um arquivo de prova (apagado em seguida)."
 
+    def expurgar_vencidos(self, ambiente=os.environ):
+        """Apaga o que passou da retenção, de todas as pessoas. O back-end pode rodar isto de tempos em tempos (um
+        agendador por dia basta); sem ele, a varredura de hora em hora dentro do envio já cobre. Quantos apagou."""
+        if self._ligado(ambiente) == "simulado":
+            return 0  # a memória some quando a plataforma reinicia
+        return self._usar("expurgar", ambiente, lambda a: a.expurgar_vencidos())
+
     def reiniciar(self):
         super().reiniciar()
         self.simulado.limpar()
+        ULTIMO_EXPURGO["quando"] = None
 
 
 CONECTOR = registrar(ConectorAnexos())
