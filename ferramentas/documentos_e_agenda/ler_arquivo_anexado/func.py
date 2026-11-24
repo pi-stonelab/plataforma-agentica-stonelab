@@ -77,7 +77,7 @@ class LerArquivoAnexado(Ferramenta):
             resultado["paginas"] = lido["paginas"]
         resultado["truncado"] = truncado
         if truncado:
-            resultado["aviso"] = AVISO_DE_CORTE
+            resultado["aviso_de_corte"] = AVISO_DE_CORTE
         resultado["fonte"] = anexos.fonte()
         return resultado
 

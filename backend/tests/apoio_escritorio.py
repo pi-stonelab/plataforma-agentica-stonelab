@@ -32,7 +32,7 @@ JSON = {"Content-Type": "application/json; charset=utf-8"}
 GOOGLE_CLIENT_ID = "123456789012-abcdefghijklmnop.apps.googleusercontent.com"
 GOOGLE_CLIENT_SECRET = "GOCSPX-segredo-de-teste-abcdefghij"
 GOOGLE_REDIRECT_URI = "http://localhost:8000/integracoes/google_workspace/callback"
-MICROSOFT_CLIENT_ID = "11111111-2222-3333-4444-555555555555"
+MICROSOFT_CLIENT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 MICROSOFT_CLIENT_SECRET = "segredo~de~teste~da~microsoft~0123"
 MICROSOFT_REDIRECT_URI = "http://localhost:8000/integracoes/microsoft_365/callback"
 MICROSOFT_TENANT = "99999999-8888-7777-6666-555555555555"

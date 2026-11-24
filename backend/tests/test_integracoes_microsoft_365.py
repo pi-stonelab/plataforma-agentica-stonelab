@@ -238,7 +238,7 @@ def test_cria_o_evento_em_utc_com_transaction_id_convidados_liberados_e_assinatu
 
 def test_convidado_de_fora_nao_vira_previa_e_a_repeticao_do_pedido_nao_duplica(conta_com_escrita, ana):
     servidor, dados = conta_com_escrita
-    fora = usar(CRIAR_EVENTO, {"titulo": "x", "data": "2026-10-20", "hora_inicio": "10:00", "convidados": "a@gmail.com"}, ana)
+    fora = usar(CRIAR_EVENTO, {"titulo": "x", "data": "2026-10-20", "hora_inicio": "10:00", "convidados": "a@externo.example"}, ana)
     assert fora["tipo_erro"] == "parametro_invalido" and pedidos_ao_graph(servidor) == []
     previa = dados_de(CRIAR_EVENTO, {"titulo": "Único", "data": "2026-10-20", "hora_inicio": "10:00"}, ana)
     confirmacoes.confirmar(previa["confirmacao_id"], ana)
@@ -371,10 +371,10 @@ def test_aba_pelo_nome_com_espaco_intervalo_e_aba_inexistente(conta, ana):
 
 def test_planilha_longa_vem_truncada_e_celula_com_cpf_sai_mascarada(conta, ana):
     _, dados = conta
-    dados.itens[PLANILHA]["abas"]["Resumo"] = [["123.456.789-09", "maria@empresa.com"]] + [["Linha", str(n)] for n in range(1, 61)]
+    dados.itens[PLANILHA]["abas"]["Resumo"] = [["123.456.789-09", "maria@empresa.example"]] + [["Linha", str(n)] for n in range(1, 61)]
     resultado = dados_de(LER_PLANILHA, {"id_arquivo": PLANILHA, "limite": 10}, ana)
     assert len(resultado["linhas"]) == 10 and resultado["truncado"] is True
-    assert "123.456.789-09" not in json.dumps(resultado) and "maria@empresa.com" not in json.dumps(resultado)
+    assert "123.456.789-09" not in json.dumps(resultado) and "maria@empresa.example" not in json.dumps(resultado)
 
 
 def test_arquivo_que_nao_e_planilha_ou_documento_do_office_e_recusado_com_clareza(conta, ana):

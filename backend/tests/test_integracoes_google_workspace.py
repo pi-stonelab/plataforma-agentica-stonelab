@@ -135,9 +135,9 @@ def test_evento_cancelado_nao_aparece_e_titulo_com_dado_pessoal_sai_mascarado(co
     _, dados = conta
     dados.evento(ANA_ID, "Cancelada", "2026-10-15T10:00:00-03:00", "2026-10-15T11:00:00-03:00", status="cancelled")
     dados.evento(ANA_ID, "Ligar para 123.456.789-09 sobre o chamado", "2026-10-15T11:00:00-03:00", "2026-10-15T12:00:00-03:00",
-                 location="falar com joao@empresa.com")
+                 location="falar com joao@empresa.example")
     (evento,) = dados_de(EVENTOS, {}, ana)["eventos"]
-    assert "123.456.789-09" not in evento["titulo"] and "joao@empresa.com" not in evento["local"]
+    assert "123.456.789-09" not in evento["titulo"] and "joao@empresa.example" not in evento["local"]
 
 
 def test_o_limite_corta_a_lista_e_avisa_que_ha_mais(conta, ana):
@@ -309,10 +309,10 @@ def test_planilha_muito_longa_vem_truncada_pelo_limite(conta, ana):
 
 def test_celula_com_cpf_ou_email_sai_mascarada_celula_a_celula(conta, ana):
     _, dados = conta
-    dados.planilhas[PLANILHA]["abas"]["Resumo"] = [["Cliente", "Contato"], ["123.456.789-09", "maria@empresa.com"], ["10", "20"]]
+    dados.planilhas[PLANILHA]["abas"]["Resumo"] = [["Cliente", "Contato"], ["123.456.789-09", "maria@empresa.example"], ["10", "20"]]
     linhas = dados_de(LER_PLANILHA, {"id_arquivo": PLANILHA}, ana)["linhas"]
     texto = json.dumps(linhas)
-    assert "123.456.789-09" not in texto and "maria@empresa.com" not in texto
+    assert "123.456.789-09" not in texto and "maria@empresa.example" not in texto
     assert linhas[2] == ["10", "20"]  # número comum passa
 
 
@@ -342,10 +342,10 @@ def test_le_o_texto_do_documento_com_a_tabela_em_linhas(conta, ana):
 
 def test_documento_grande_vem_truncado_e_com_dado_pessoal_mascarado(conta, ana):
     _, dados = conta
-    dados.documentos[DOCUMENTO]["paragrafos"] = ["CPF do lojista 123.456.789-09 e e-mail maria@empresa.com.\n"] + ["palavra " * 100 + "\n"] * 30
+    dados.documentos[DOCUMENTO]["paragrafos"] = ["CPF do lojista 123.456.789-09 e e-mail maria@empresa.example.\n"] + ["palavra " * 100 + "\n"] * 30
     resultado = dados_de(LER_DOCUMENTO, {"id_arquivo": DOCUMENTO}, ana)
     assert resultado["truncado"] is True and len(resultado["texto"]) <= 6100
-    assert "123.456.789-09" not in resultado["texto"] and "maria@empresa.com" not in resultado["texto"]
+    assert "123.456.789-09" not in resultado["texto"] and "maria@empresa.example" not in resultado["texto"]
 
 
 def test_texto_do_documento_e_dado_de_terceiro_e_a_ficha_avisa(conta, ana):
@@ -385,7 +385,7 @@ def test_criar_evento_so_mostra_a_previa_e_so_cria_depois_de_confirmar(conta_com
 def test_convidado_de_dominio_nao_liberado_e_recusado_na_previa(conta_com_escrita, ana):
     servidor, _ = conta_com_escrita
     resposta = usar(CRIAR_EVENTO, {
-        "titulo": "Alinhamento", "data": "2026-10-20", "hora_inicio": "10:00", "convidados": "fulano@gmail.com",
+        "titulo": "Alinhamento", "data": "2026-10-20", "hora_inicio": "10:00", "convidados": "fulano@externo.example",
     }, ana)
     assert resposta["tipo_erro"] == "parametro_invalido" and "domínios liberados: stone.example, filial.example" in resposta["mensagem"]
     assert pedidos_a_apis(servidor) == []
@@ -472,8 +472,8 @@ def test_adicionar_linha_com_aba_inexistente_lista_as_abas(conta_com_escrita, an
 
 
 def test_adicionar_linha_com_dado_pessoal_mostra_a_previa_mascarada(conta_com_escrita, ana):
-    previa = dados_de(ADICIONAR_LINHA, {"id_arquivo": PLANILHA, "valores": "123.456.789-09 | maria@empresa.com"}, ana)
-    assert "123.456.789-09" not in json.dumps(previa) and "maria@empresa.com" not in json.dumps(previa)
+    previa = dados_de(ADICIONAR_LINHA, {"id_arquivo": PLANILHA, "valores": "123.456.789-09 | maria@empresa.example"}, ana)
+    assert "123.456.789-09" not in json.dumps(previa) and "maria@empresa.example" not in json.dumps(previa)
 
 
 @pytest.mark.parametrize("valores", ["", " | | ", "|".join(["x"] * 25), "a\nb|c"])
@@ -556,7 +556,7 @@ def test_modo_simulado_escreve_so_na_memoria_e_a_leitura_seguinte_ve(monkeypatch
     assert dados_de(LER_PLANILHA, {"id_arquivo": criada["dados"]["id_arquivo"]}, ana)["linhas"] == [["a", "b"], ["1", "2"]]
     _, evento = confirmar(CRIAR_EVENTO, {"titulo": "Demo", "data": "2026-10-20", "hora_inicio": "10:00", "convidados": "bia@stonesim.example"}, ana)
     assert evento["status"] == "ok"
-    assert usar(CRIAR_EVENTO, {"titulo": "x", "data": "2026-10-20", "hora_inicio": "10:00", "convidados": "a@gmail.com"}, ana)["tipo_erro"] == "parametro_invalido"
+    assert usar(CRIAR_EVENTO, {"titulo": "x", "data": "2026-10-20", "hora_inicio": "10:00", "convidados": "a@externo.example"}, ana)["tipo_erro"] == "parametro_invalido"
     assert previa["servico"] == "Google Workspace"
 
 

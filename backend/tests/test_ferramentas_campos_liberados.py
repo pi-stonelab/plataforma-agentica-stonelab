@@ -20,6 +20,10 @@ LIBERACOES_PERMITIDAS = {
     "comentar_chamado_jira": CONFIRMACAO,
     "enviar_mensagem_slack": CONFIRMACAO,
     "enviar_aviso_telegram": CONFIRMACAO | {"chat"},
+    # Agenda e planilhas da conta Google ou Microsoft (bloco E2): a prévia mostra o que vai ser criado ou gravado.
+    "criar_evento_agenda": CONFIRMACAO | {"servico", "quando", "convidados"},
+    "adicionar_linha_planilha": CONFIRMACAO | {"servico", "planilha", "valores", "linhas_adicionadas"},
+    "criar_planilha": CONFIRMACAO | {"servico"},
 }
 COMO_LIBERAR = "Para liberar um campo novo, edite LIBERACOES_PERMITIDAS em test_ferramentas_campos_liberados.py."
 

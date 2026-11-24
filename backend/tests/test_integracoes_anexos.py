@@ -260,22 +260,22 @@ def test_xlsx_com_varias_abas_le_a_pedida_e_diz_a_que_nao_existe(pasta, ana):
 def test_csv_longo_vem_truncado_com_aviso_e_o_limite_vale(pasta, ana):
     identificador = anexar("g.csv", "\n".join(f"linha;{n}" for n in range(500)).encode())
     lido = dados_de(LER, {"anexo_id": identificador, "limite": 20}, ana)
-    assert len(lido["linhas"]) == 20 and lido["truncado"] is True and "maior do que o limite" in lido["aviso"]
+    assert len(lido["linhas"]) == 20 and lido["truncado"] is True and "maior do que o limite" in lido["aviso_de_corte"]
     inteiro = dados_de(LER, {"anexo_id": anexar("p.csv", b"a;b\n1;2")}, ana)
-    assert inteiro["truncado"] is False and "aviso" not in inteiro
+    assert inteiro["truncado"] is False and "aviso_de_corte" not in inteiro
     assert usar(LER, {"anexo_id": identificador, "limite": 101}, ana)["tipo_erro"] == "parametro_invalido"
 
 
 def test_texto_longo_vem_truncado_no_limite_da_ferramenta(pasta, ana):
     lido = dados_de(LER, {"anexo_id": anexar("l.txt", ("palavra " * 5000).encode())}, ana)
-    assert lido["truncado"] is True and len(lido["texto"]) <= 6000 and "aviso" in lido
+    assert lido["truncado"] is True and len(lido["texto"]) <= 6000 and "aviso_de_corte" in lido
 
 
 def test_dado_pessoal_no_conteudo_e_no_nome_do_arquivo_sai_mascarado(pasta, ana):
-    csv_id = anexar("cliente 123.456.789-09.csv", "Contato;Cartão\nmaria@empresa.com;4111 1111 1111 1111\n".encode())
-    txt_id = anexar("t.txt", b"Falar com 123.456.789-09 ou maria@empresa.com, telefone (21) 99999-8888.")
+    csv_id = anexar("cliente 123.456.789-09.csv", "Contato;Cartão\nmaria@empresa.example;4111 1111 1111 1111\n".encode())
+    txt_id = anexar("t.txt", b"Falar com 123.456.789-09 ou maria@empresa.example, telefone (21) 99999-8888.")
     saida = json.dumps([dados_de(LER, {"anexo_id": csv_id}, ana), dados_de(LER, {"anexo_id": txt_id}, ana), dados_de(LER, {}, ana)])
-    for dado in ("123.456.789-09", "maria@empresa.com", "4111 1111 1111 1111", "99999-8888"):
+    for dado in ("123.456.789-09", "maria@empresa.example", "4111 1111 1111 1111", "99999-8888"):
         assert dado not in saida
 
 
@@ -373,10 +373,10 @@ def test_celula_com_cara_de_formula_vira_texto_no_csv_e_no_xlsx(pasta, ana):
 
 
 def test_dado_pessoal_no_conteudo_e_mascarado_antes_de_gravar(pasta, ana):
-    csv = entregar(ana, nome="x", formato="csv", conteudo="Contato\n123.456.789-09\nmaria@empresa.com")
-    txt = entregar(ana, nome="y", formato="txt", conteudo="CPF 123.456.789-09 e maria@empresa.com")
+    csv = entregar(ana, nome="x", formato="csv", conteudo="Contato\n123.456.789-09\nmaria@empresa.example")
+    txt = entregar(ana, nome="y", formato="txt", conteudo="CPF 123.456.789-09 e maria@empresa.example")
     gravado = ANEXOS.abrir_saida(ANA_ID, csv["arquivo_id"])[1] + ANEXOS.abrir_saida(ANA_ID, txt["arquivo_id"])[1]
-    assert b"123.456.789-09" not in gravado and b"maria@empresa.com" not in gravado
+    assert b"123.456.789-09" not in gravado and b"maria@empresa.example" not in gravado
 
 
 @pytest.mark.parametrize(

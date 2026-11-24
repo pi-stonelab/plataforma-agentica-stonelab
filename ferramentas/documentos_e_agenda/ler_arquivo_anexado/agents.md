@@ -25,7 +25,7 @@ Não use para arquivo que está no Google Drive ou no OneDrive (`buscar_arquivos
 Em `dados`, sempre `anexo_id`, `arquivo` (o nome), `tipo`, `tamanho` (bytes), `truncado` e `fonte`. Depois:
 - csv e xlsx: `linhas` (listas de células em texto); xlsx também traz `aba` e `abas` (as que existem);
 - txt, docx e pdf: `texto` (até 6000 caracteres); pdf também traz `paginas` (quantas tem; só as 20 primeiras são lidas).
-Se `truncado` for verdadeiro, vem um `aviso`: o arquivo é maior do que o lido, e você deve dizer isso ao funcionário.
+Se `truncado` for verdadeiro, vem um `aviso_de_corte`: o arquivo é maior do que o lido, e você deve dizer isso ao funcionário.
 CPF, cartão, telefone e e-mail no conteúdo aparecem mascarados. Fórmulas não são calculadas (vale o último resultado
 que o Excel guardou), imagens e macros são ignoradas, e PDF digitalizado (só imagem) volta sem texto.
 

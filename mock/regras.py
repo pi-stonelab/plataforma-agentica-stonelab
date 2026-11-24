@@ -267,8 +267,8 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         # passando pela máscara de texto livre (CPF, cartão e telefone), só não vira "***". `id_arquivo` e `link` têm
         # formato fixo (`FORMATO_DE_IDENTIFICADORES`).
         "titulo", "inicio", "fim", "local", "aba", "intervalo", "linhas", "colunas", "modificado_em",
-        # anexos do chat: o nome do arquivo e das abas já saem mascarados da ferramenta; `aviso` é frase fixa
-        "arquivo", "abas", "formato", "tamanho", "paginas", "aviso", "anexos",
+        # anexos do chat: o nome do arquivo e das abas já saem mascarados da ferramenta; `aviso_de_corte` é frase fixa
+        "arquivo", "abas", "formato", "tamanho", "paginas", "aviso_de_corte", "anexos",
     }
 )
 

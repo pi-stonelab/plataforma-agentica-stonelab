@@ -64,6 +64,15 @@ COMENTAR_JIRA = "comentar_chamado_jira"
 ENVIAR_SLACK = "enviar_mensagem_slack"
 ENVIAR_TELEGRAM = "enviar_aviso_telegram"
 BUSCAR_EMAILS = "buscar_emails"
+LISTAR_EVENTOS = "listar_eventos_agenda"
+CRIAR_EVENTO = "criar_evento_agenda"
+BUSCAR_ARQUIVOS = "buscar_arquivos"
+LER_PLANILHA = "ler_planilha"
+ADICIONAR_LINHA = "adicionar_linha_planilha"
+CRIAR_PLANILHA = "criar_planilha"
+LER_DOCUMENTO = "ler_documento"
+LER_ANEXO = "ler_arquivo_anexado"
+ENTREGAR_ARQUIVO = "entregar_arquivo"
 
 # Caminho que o modelo escreve em LER (área/ferramenta). A área de cada uma é a pasta no catálogo.
 CAMINHO = {
@@ -311,11 +320,31 @@ FERRAMENTAS_DO_CARGO = {
     "auditor_compliance": set(),  # sem ferramenta de dado na Sprint 2 (O5)
     "admin_plataforma": set(),
 }
-# Ativas, mas com a integração desligada na suíte (Jira, Slack, Telegram e leitura de e-mail sem credencial).
-DESLIGADAS_NA_SUITE = (CONSULTAR_JIRA, ABRIR_JIRA, COMENTAR_JIRA, ENVIAR_SLACK, ENVIAR_TELEGRAM, BUSCAR_EMAILS)
+ESCRITORIO = (
+    LISTAR_EVENTOS,
+    CRIAR_EVENTO,
+    BUSCAR_ARQUIVOS,
+    LER_PLANILHA,
+    ADICIONAR_LINHA,
+    CRIAR_PLANILHA,
+    LER_DOCUMENTO,
+    LER_ANEXO,
+    ENTREGAR_ARQUIVO,
+)
+# Ativas, mas com a integração desligada na suíte (Jira, Slack, Telegram, e-mail, Google, Microsoft e anexos).
+DESLIGADAS_NA_SUITE = (
+    CONSULTAR_JIRA,
+    ABRIR_JIRA,
+    COMENTAR_JIRA,
+    ENVIAR_SLACK,
+    ENVIAR_TELEGRAM,
+    BUSCAR_EMAILS,
+    *ESCRITORIO,
+)
 # O que cada cargo ganha quando essas integrações estão ligadas (decisão E1: Jira, Slack e Telegram para todo
-# cargo com área; a leitura de e-mail pede as categorias contato e interação, só o atendimento e a ouvidoria).
-_INTERNAS = {CONSULTAR_JIRA, ABRIR_JIRA, COMENTAR_JIRA, ENVIAR_SLACK, ENVIAR_TELEGRAM}
+# cargo com área; a leitura de e-mail pede as categorias contato e interação, só o atendimento e a ouvidoria;
+# agenda, planilhas, documentos e anexos pedem categorias comuns, então todo cargo com área, decisão G1).
+_INTERNAS = {CONSULTAR_JIRA, ABRIR_JIRA, COMENTAR_JIRA, ENVIAR_SLACK, ENVIAR_TELEGRAM} | set(ESCRITORIO)
 EXTERNAS_DO_CARGO = {
     "atendente_n1": _INTERNAS | {BUSCAR_EMAILS},
     "especialista_n2": _INTERNAS | {BUSCAR_EMAILS},

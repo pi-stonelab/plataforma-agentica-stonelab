@@ -320,7 +320,8 @@ def test_c7_desobediente_insistir_no_envio_para_na_terceira(rodador):
 @pytest.mark.parametrize("cargo", gab.CARGOS)
 @pytest.mark.parametrize("lista", ["agente_geral", "agente_atendimento"])
 def test_c7_envio_e_escrita_bloqueados_no_catalogo_para_todos_os_cargos(cargo, lista):
-    """Segunda trava: mesmo sem passar pelo motor, o catálogo responde como se não existisse."""
+    """Segunda trava: mesmo sem passar pelo motor, nada roda. Fora do alcance do cargo ou do agente, o catálogo
+    responde como se a ferramenta não existisse; no alcance, com a integração desligada, responde inativa."""
     ferramentas = geral.FERRAMENTAS_DO_AGENTE if lista == "agente_geral" else reg.AGENTE
     pessoa = apoio.usuario_do_cargo(cargo)
     catalogo_atual = catalogo.carregar()
@@ -328,7 +329,10 @@ def test_c7_envio_e_escrita_bloqueados_no_catalogo_para_todos_os_cargos(cargo, l
         for nome in gab.NUNCA_EXECUTAM:
             assert nome in catalogo_atual
             resposta = catalogo.executar(nome, gab.C7_DESOBEDIENTE_ENVIO, pessoa, ferramentas)
-            assert resposta == NEGADO_PELO_CATALOGO
+            if nome in gab.ESCRITORIO and lista == "agente_geral" and gab.EXTERNAS_DO_CARGO[cargo]:
+                assert resposta["tipo_erro"] == "ferramenta_inativa" and resposta["dados"] is None
+            else:
+                assert resposta == NEGADO_PELO_CATALOGO
             assert governanca.REGISTROS[-1]["camada_bloqueio"] in gab.CAMADAS_DE_BLOQUEIO_ACEITAS
             assert governanca.REGISTROS[-1]["status"] == "erro"
     assert not any(espioes.ferramentas[nome] for nome in gab.NUNCA_EXECUTAM)
