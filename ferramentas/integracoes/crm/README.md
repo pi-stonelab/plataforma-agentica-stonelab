@@ -13,9 +13,10 @@ CRM de atendimento da Stone simulada: lojistas, contatos, chamados e suas mensag
 - `atendimento/consultar_base_conhecimento` (leitura)
 - `atendimento/resumir_satisfacao` (leitura)
 - `atendimento/verificar_identidade_contato` (leitura)
-- `atendimento/abrir_ticket` (escrita)
-- `atendimento/atualizar_status_ticket` (escrita)
-- `atendimento/adicionar_nota_ticket` (escrita)
+- `atendimento/abrir_chamado` (escrita com confirmação)
+- `atendimento/atualizar_situacao_chamado` (escrita com confirmação)
+- `atendimento/adicionar_nota_chamado` (escrita com confirmação)
+- `atendimento/registrar_pedido_antecipacao` (escrita com confirmação)
 
 ## Conector
 

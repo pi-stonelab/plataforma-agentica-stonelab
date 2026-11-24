@@ -21,7 +21,7 @@ usuário]
 ## Para quem mantém
 
 - Integrações da área: `sql`.
-- Ferramentas (12):
+- Ferramentas (16):
   - `consultar_transacoes_cliente` (leitura)
   - `consultar_liquidacoes_cliente` (leitura)
   - `consultar_agenda_recebiveis` (leitura)
@@ -34,5 +34,9 @@ usuário]
   - `calcular_multa_atraso` (cálculo)
   - `calcular_parcelas` (cálculo)
   - `simular_antecipacao` (cálculo)
+  - `executar_antecipacao` (escrita com confirmação, ativa, só N2)
+  - `reprocessar_liquidacao` (escrita com confirmação, ativa)
+  - `registrar_acordo` (escrita com confirmação, ativa)
+  - `aprovar_acordo` (escrita com confirmação, ativa)
 - Saiu: `consultar_saldo_conta`. A Stone não guarda um saldo de conta do lojista no mock; o que ele tem a receber está na agenda (`consultar_agenda_recebiveis`). Ver `docs/decisoes.md`.
-- Escrita (executar antecipação, aprovar acordo, enviar defesa) é do bloco D e fica de fora daqui.
+- Enviar defesa de contestação continua de fora (sem ferramenta).

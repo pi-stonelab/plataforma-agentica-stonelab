@@ -1,7 +1,7 @@
 # ferramentas/ (frente 4: Pedro)
 
 Catálogo das ações que o agente pode pedir, a regra de quem pode usar cada uma e a ligação com os dados da Stone
-simulada (`mock/`). Hoje são 51 ferramentas em 8 áreas. Trinta e três estão ativas. As outras 18 são esqueletos: o
+simulada (`mock/`). Hoje são 56 ferramentas em 8 áreas. Quarenta e sete estão ativas. As outras 9 (`documentos_e_agenda`) são esqueletos: o
 `func.py` existe, mas `rodar` só devolve `ferramenta_inativa` ("ainda sem lógica").
 
 Ativas:
@@ -18,6 +18,9 @@ Ativas:
 - consultas públicas e plataforma: `consultar_endereco_cep`, `consultar_cotacao_moeda` e `solicitar_ferramenta_ausente`;
 - comunicação e chamados internos: `enviar_email`, `enviar_mensagem_slack`, `enviar_aviso_telegram`, `abrir_chamado_jira` e
   `comentar_chamado_jira` (escrita em duas fases, ver "Escrita em duas fases"), `consultar_chamado_jira` e `buscar_emails`.
+- escritas em duas fases sobre o mock (bloco D): `abrir_chamado`, `adicionar_nota_chamado`, `atualizar_situacao_chamado`,
+  `registrar_pedido_antecipacao` (atendimento) e `executar_antecipacao`, `reprocessar_liquidacao`, `registrar_acordo` e
+  `aprovar_acordo` (financeiro).
 
 Regras comuns: `lojista.py` (código, escopo, janela e período de quem lê dado de um lojista), `indicadores.py` (período
 até ontem e meses AAAA-MM da base analítica) e `dicionario.py` (leitura do dicionário de dados). Ferramenta ativa cuja
@@ -59,6 +62,9 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
   maior lista e marca `truncado`, `cortados_por_tamanho` e `aviso_de_tamanho`. `executar` chama depois da máscara.
 - `mascara.py`: mascara CPF, telefone, e-mail, conta, cartão, nome e texto livre. Função pura.
 - `dados_sinteticos.py`: fachada do mock. Lê o banco por `mock/consultas.py` e devolve dicts.
+- `escritas_sinteticas.py`: fachada de escrita do mock. Grava por `mock/escritas.py` (só no `efetivar`, depois da
+  confirmação) e oferece as contas da prévia (`classificar_chamado`, `montar_acordo`) e o `ensaiar`. Regra do negócio
+  violada vira `ErroFerramenta` com a mesma frase; banco fora do ar vira `ConnectionError` (nada gravado).
 - `diretorio.py`: `buscar_usuario(id)` monta o `Usuario` do funcionário pelo diretório do mock, e só se a situação for
   exatamente `ativo`. É o ponto único para o terminal e para o `montar_acesso` do back-end (decisão D11).
 - `confirmacoes.py`: escrita em duas fases. `FerramentaComConfirmacao` (a classe-mãe), a fila de prévias e as funções
@@ -355,9 +361,14 @@ Regras que valem para qualquer ferramenta nova em duas fases:
   a subclasse soma os seus. O texto liberado continua passando pela máscara de CPF e cartão. A lista de quem pode
   liberar o quê é fechada em `backend/tests/test_ferramentas_campos_liberados.py`: ferramenta nova que libere um
   campo falha lá até alguém editar a lista, e essa edição passa pela revisão do CODEOWNERS.
-- Para criar uma: subclasse de `FerramentaComConfirmacao` com `montar` e `efetivar`, `titulo` e `rotulos_da_previa`
-  (o cartão de confirmação da interface; `texto_do_campo` muda como um campo aparece), nome em
-  `governanca.ESCRITA_COM_CONFIRMACAO` e testes como os de `test_ferramentas_enviar_email.py`.
+- A prévia recusa tudo o que a confirmação recusaria, com a mesma frase (a regra que o Enrico cobrou no e-mail). Nas
+  escritas no mock, `montar` termina com `escritas_sinteticas.ensaiar(self._gravar, conteudo, usuario)`: a gravação de
+  verdade roda com todas as regras e é desfeita. `efetivar` chama o mesmo `_gravar`.
+- `mensagem_feito` é a frase de sucesso da confirmação ("Chamado aberto."); o padrão é "Enviado.".
+- Para criar uma: subclasse de `FerramentaComConfirmacao` com `montar` e `efetivar`, `titulo`, `mensagem_feito` e
+  `rotulos_da_previa` (o cartão de confirmação da interface; `texto_do_campo` muda como um campo aparece), nome em
+  `governanca.ESCRITA_COM_CONFIRMACAO`, a linha dela em `gabaritos.FERRAMENTAS_DO_CARGO` e testes como os de
+  `test_ferramentas_enviar_email.py` e `test_ferramentas_escritas_mock.py`.
 
 ## Pendências entre frentes (marcadores)
 

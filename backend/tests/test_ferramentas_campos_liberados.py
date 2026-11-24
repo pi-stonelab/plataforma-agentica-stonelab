@@ -21,6 +21,16 @@ LIBERACOES_PERMITIDAS = {
     "comentar_chamado_jira": CONFIRMACAO,
     "enviar_mensagem_slack": CONFIRMACAO,
     "enviar_aviso_telegram": CONFIRMACAO | {"chat"},
+    # escritas sobre o mock (bloco D)
+    "abrir_chamado": CONFIRMACAO | {"nivel_atendimento"},
+    "adicionar_nota_chamado": CONFIRMACAO | {"tipo_da_nota"},
+    "atualizar_situacao_chamado": CONFIRMACAO
+    | {"situacao_atual", "nova_situacao", "encaminhar_para", "suspeita_fraude", "nivel_atendimento"},
+    "registrar_pedido_antecipacao": CONFIRMACAO | {"nivel_atendimento", "valor_antecipado", "desconto", "data_credito"},
+    "executar_antecipacao": CONFIRMACAO | {"valor_antecipado", "desconto", "data_credito", "taxa_mensal_percentual"},
+    "reprocessar_liquidacao": CONFIRMACAO | {"nova_tentativa_em"},
+    "registrar_acordo": CONFIRMACAO | {"encargos", "valor_da_parcela", "aprovacao"},
+    "aprovar_acordo": CONFIRMACAO | {"id_acordo", "decisao"},
     "buscar_emails": frozenset({"data_inicio", "data_fim"}),
     "buscar_conjuntos_dados": frozenset({"nome_do_sistema"}),
     "conferir_liquidacoes": frozenset({"agenda", "diferenca", "explicacao", "pago"}),

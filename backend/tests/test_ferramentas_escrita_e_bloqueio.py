@@ -139,8 +139,8 @@ def test_leitura_continua_com_um_registro_so(ana):
     ("nome", "agente", "camada"),
     [
         ("consultar_cliente", (), "agente"),
-        ("abrir_ticket", ("consultar_cliente",), "agente"),
-        ("abrir_ticket", ("abrir_ticket",), "usuario"),
+        ("abrir_chamado", ("consultar_cliente",), "agente"),
+        ("reprocessar_liquidacao", ("reprocessar_liquidacao",), "usuario"),
         ("ferramenta_que_nao_existe", ("consultar_cliente",), "desconhecida"),
     ],
 )
@@ -164,7 +164,7 @@ def test_ferramenta_de_outra_area_barrada_pelo_cargo_registra_a_camada_usuario(e
 
 def test_registrar_bloqueio_publico_serve_ao_agente_que_barra_antes_do_catalogo(ana):
     contexto = {"execucao_id": "exe-1", "passo": 3, "agente_id": "agente_geral"}
-    resposta = catalogo.registrar_bloqueio("abrir_ticket", ana, contexto, "agente")
+    resposta = catalogo.registrar_bloqueio("abrir_chamado", ana, contexto, "agente")
     assert resposta == NEGADO_PELO_CATALOGO
     (registro,) = governanca.REGISTROS
     assert registro["camada_bloqueio"] == "agente" and registro["passo"] == 3

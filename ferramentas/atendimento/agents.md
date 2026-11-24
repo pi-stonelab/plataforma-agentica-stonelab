@@ -21,7 +21,7 @@ usuário]
 ## Para quem mantém
 
 - Integrações da área: `crm`.
-- Ferramentas (12):
+- Ferramentas (13):
   - `consultar_cliente` (leitura)
   - `buscar_clientes` (leitura)
   - `listar_chamados_cliente` (leitura)
@@ -31,7 +31,7 @@ usuário]
   - `consultar_base_conhecimento` (leitura)
   - `verificar_identidade_contato` (leitura)
   - `resumir_satisfacao` (leitura)
-  - `abrir_ticket` (escrita)
-  - `atualizar_status_ticket` (escrita)
-  - `adicionar_nota_ticket` (escrita)
-- As três de escrita (chamado, nota e situação) são do bloco D.
+  - `abrir_chamado` (escrita com confirmação, ativa)
+  - `atualizar_situacao_chamado` (escrita com confirmação, ativa)
+  - `adicionar_nota_chamado` (escrita com confirmação, ativa)
+  - `registrar_pedido_antecipacao` (escrita com confirmação, ativa)

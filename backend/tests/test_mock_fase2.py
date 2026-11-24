@@ -11,6 +11,7 @@ import pytest
 from mock import regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 from mock.banco import criar_engine
 from mock.consultas import motivos_de_recusa_da_antecipacao
+from mock.escritas import TABELAS_SO_DA_ESCRITA
 from mock.gerar import (
     ACORDOS,
     COMENTARIO_ARMADILHA,
@@ -130,9 +131,13 @@ def test_o_mundo_passa_em_todas_as_checagens(sessao):
     assert verificar(sessao) == []
 
 
-def test_as_vinte_tabelas_tem_linhas(sessao):
+def test_toda_tabela_do_mundo_tem_linhas_menos_as_da_escrita(sessao):
     for tabela in BaseMock.metadata.sorted_tables:
-        assert sessao.scalar(select(func.count()).select_from(tabela)) > 0, tabela.name
+        quantidade = sessao.scalar(select(func.count()).select_from(tabela))
+        if tabela.name in TABELAS_SO_DA_ESCRITA:
+            assert quantidade == 0, tabela.name
+        else:
+            assert quantidade > 0, tabela.name
 
 
 # --- regras de negócio novas (regras.py) -----------------------------------------------------

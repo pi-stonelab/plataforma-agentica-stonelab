@@ -1,4 +1,5 @@
-"""Exporta o mundo do mock como SQL pronto: `mock/sql/<banco>/01_esquema.sql` e `02_dados.sql`.
+"""Exporta o mundo do mock como SQL pronto: `mock/sql/<banco>/01_esquema.sql` e `02_dados.sql`, mais os
+papéis do Postgres (`mock/sql/postgres/03_papeis.sh`, leitura e escrita).
 
 Os arquivos vão para o Git. Quem baixa o repositório carrega o mock sem rodar Python:
 o Postgres do `mock/docker-compose.yml` lê `mock/sql/postgres/` sozinho na primeira subida, e o
@@ -28,12 +29,14 @@ from sqlalchemy.schema import (
 )
 
 from .banco import criar_engine
+from .escritas import PRIVILEGIOS_DE_ESCRITA, SEQUENCIAS_DE_ESCRITA
 from .gerar import SEMENTE, recriar
 from .modelos import VERSAO_DO_ESQUEMA, BaseMock, Funcionario
 
 PASTA_SQL = Path(__file__).resolve().parent / "sql"
 ARQUIVO_ESQUEMA = "01_esquema.sql"
 ARQUIVO_DADOS = "02_dados.sql"
+ARQUIVO_PAPEIS = "03_papeis.sh"
 # paramstyle "named": com o padrão (pyformat) o literal_binds escreve "2,99%" como "2,99%%" no SQL pronto.
 DIALETOS: dict[str, Dialect] = {"sqlite": sqlite.dialect(), "postgres": postgresql.dialect(paramstyle="named")}
 
@@ -122,6 +125,54 @@ def dados_sql(banco: str, engine: Engine | None = None) -> str:
     return "\n".join(partes) + "\n"
 
 
+PAPEIS_CABECALHO = """#!/bin/sh
+# Papéis do Postgres do mock. Gerado por `python -m mock.exportar` a partir de mock/escritas.py
+# (PRIVILEGIOS_DE_ESCRITA). Não edite à mão: rode o exportador.
+#
+# - mock_leitura: só SELECT. É o das ferramentas de leitura, em MOCK_DATABASE_URL.
+# - mock_escrita: lê tudo, insere e altera só o que as ferramentas de escrita gravam depois da confirmação
+#   da pessoa (mock/escritas.py), em MOCK_ESCRITA_DATABASE_URL. Nunca apaga nem cria tabela.
+# O dono (POSTGRES_USER) só serve para criar e recriar.
+#
+# O Postgres do mock/docker-compose.yml roda este arquivo uma vez, na primeira subida, depois do
+# 01_esquema.sql e do 02_dados.sql. Ele pode ser executado ou lido com "source", então não muda
+# opções do shell nem usa exit. As senhas vêm do .env e nunca ficam escritas no repositório.
+: "${MOCK_LEITURA_PASSWORD:?defina MOCK_LEITURA_PASSWORD no .env}"
+: "${MOCK_ESCRITA_PASSWORD:?defina MOCK_ESCRITA_PASSWORD no .env}"
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \\
+    -v banco="$POSTGRES_DB" -v senha="$MOCK_LEITURA_PASSWORD" -v senha_escrita="$MOCK_ESCRITA_PASSWORD" <<'SQL'
+CREATE ROLE mock_leitura LOGIN PASSWORD :'senha';
+CREATE ROLE mock_escrita LOGIN PASSWORD :'senha_escrita';
+
+-- ninguém além do dono usa o banco por padrão
+REVOKE ALL ON DATABASE :"banco" FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+
+-- o papel de leitura só conecta e lê
+GRANT CONNECT ON DATABASE :"banco" TO mock_leitura;
+GRANT USAGE ON SCHEMA public TO mock_leitura;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO mock_leitura;
+
+-- o papel de escrita lê tudo e grava só o que mock/escritas.py precisa
+GRANT CONNECT ON DATABASE :"banco" TO mock_escrita;
+GRANT USAGE ON SCHEMA public TO mock_escrita;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO mock_escrita;
+"""
+
+
+def papeis_sh() -> str:
+    """O script dos papéis do Postgres, com os GRANT de escrita de `escritas.PRIVILEGIOS_DE_ESCRITA`."""
+    linhas = []
+    for tabela, privilegio in sorted(PRIVILEGIOS_DE_ESCRITA.items()):
+        if privilegio["insert"]:
+            linhas.append(f"GRANT INSERT ON {tabela} TO mock_escrita;")
+        if privilegio["update"]:
+            linhas.append(f"GRANT UPDATE ({', '.join(privilegio['update'])}) ON {tabela} TO mock_escrita;")
+    linhas.append(f"GRANT USAGE ON SEQUENCE {', '.join(SEQUENCIAS_DE_ESCRITA)} TO mock_escrita;")
+    return PAPEIS_CABECALHO + "\n".join(linhas) + "\nSQL\n"
+
+
 def arquivos() -> dict[Path, str]:
     """Todos os arquivos exportados, com o conteúdo que deveriam ter."""
     engine = _mundo()
@@ -129,6 +180,7 @@ def arquivos() -> dict[Path, str]:
     for banco in DIALETOS:
         conteudo[PASTA_SQL / banco / ARQUIVO_ESQUEMA] = esquema_sql(banco)
         conteudo[PASTA_SQL / banco / ARQUIVO_DADOS] = dados_sql(banco, engine)
+    conteudo[PASTA_SQL / "postgres" / ARQUIVO_PAPEIS] = papeis_sh()
     engine.dispose()
     return conteudo
 

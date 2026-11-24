@@ -39,6 +39,14 @@ ESCRITA_COM_CONFIRMACAO = (
     "enviar_aviso_telegram",
     "abrir_chamado_jira",
     "comentar_chamado_jira",
+    "abrir_chamado",
+    "adicionar_nota_chamado",
+    "atualizar_situacao_chamado",
+    "registrar_pedido_antecipacao",
+    "executar_antecipacao",
+    "reprocessar_liquidacao",
+    "registrar_acordo",
+    "aprovar_acordo",
 )
 ESCRITAS_LIBERADAS = ESCRITA_SEM_CONFIRMACAO + ESCRITA_COM_CONFIRMACAO
 LIMITE_LINHAS = regras.LIMITE_MAXIMO

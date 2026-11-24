@@ -109,6 +109,7 @@ class FerramentaComConfirmacao(Ferramenta):
     mensagem_de_sucesso = MENSAGEM_PREVIA_PRONTA  # "Concluído." puxaria o modelo para dizer que já foi enviado
     campos_liberados = ("confirmacao_id", "expira_em", "aviso")  # a subclasse soma os campos da sua prévia
     titulo = ""  # como a interface chama a ação ("Enviar e-mail")
+    mensagem_feito = "Enviado."  # a frase da confirmação que deu certo ("Chamado aberto.")
     rotulos_da_previa = {}  # campo da prévia -> rótulo, na ordem em que a interface mostra
     # Campos que só a pessoa vê no cartão, nunca o modelo (texto de terceiro lido para conferir o destino).
     campos_so_da_interface = ()
@@ -129,8 +130,9 @@ class FerramentaComConfirmacao(Ferramenta):
         return " ".join(avisos) or None
 
     def mensagem_ao_confirmar(self, dados):
-        """A frase de sucesso do `confirmar`; a subclasse diz o que aconteceu ("Chamado PLAT-101 aberto.")."""
-        return "Enviado."
+        """A frase de sucesso do `confirmar`. Por padrão é `mensagem_feito`; a subclasse que sabe o que
+        foi criado fora ("Chamado PLAT-101 aberto.") sobrescreve."""
+        return self.mensagem_feito
 
     def referencia_do_resultado(self, dados):
         """Id neutro do que foi criado fora da plataforma, para o registro (ex.: a chave do Jira). None se nada."""

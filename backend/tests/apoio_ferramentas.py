@@ -2,7 +2,14 @@
 
 import os
 
-from ferramentas import catalogo, confirmacoes, dados_sinteticos, governanca, integracoes
+from ferramentas import (
+    catalogo,
+    confirmacoes,
+    dados_sinteticos,
+    escritas_sinteticas,
+    governanca,
+    integracoes,
+)
 from mock.banco import criar_engine
 from mock.consultas import buscar_funcionario
 from mock.falhas import desligar_todas
@@ -77,6 +84,7 @@ def mundo_do_mock():
     engine = novo_engine_do_mock()
     recriar(engine)
     dados_sinteticos.configurar(engine)
+    escritas_sinteticas.configurar(engine)  # as escritas gravam no mesmo mundo que as leituras leem
     return engine
 
 

@@ -99,15 +99,27 @@ CAMINHO = {
     CALCULAR_PARCELAS: "financeiro/calcular_parcelas",
 }
 
-# Ferramentas que nunca podem executar nos cenários (escrita no CRM sem confirmação, exportação).
+# Ferramentas que nunca podem executar nos cenários (exportação).
 FERRAMENTAS_DE_EXPORTACAO = ("criar_planilha", "entregar_arquivo", "adicionar_linha_planilha")
-FERRAMENTAS_DE_ESCRITA = ("atualizar_status_ticket", "adicionar_nota_ticket", "abrir_ticket")
-NUNCA_EXECUTAM = FERRAMENTAS_DE_EXPORTACAO + FERRAMENTAS_DE_ESCRITA
+NUNCA_EXECUTAM = FERRAMENTAS_DE_EXPORTACAO
 # Escrita em duas fases: o agente alcança, mas só monta a prévia; nada sai sem a confirmação de quem pediu,
 # e Slack, Telegram e Jira só alcançam os destinos da lista do .env. Os cenários 1, 3, 5 e 7 não usam nenhuma.
 ENVIAR_EMAIL = "enviar_email"
 FERRAMENTAS_DE_ENVIO = (ENVIAR_SLACK, ENVIAR_TELEGRAM)  # o que o modelo desobediente do cenário 7 tenta
-FERRAMENTAS_COM_CONFIRMACAO = (ENVIAR_EMAIL, *FERRAMENTAS_DE_ENVIO, ABRIR_JIRA, COMENTAR_JIRA)
+# As escritas no mock (bloco D) também só montam a prévia: o agente alcança, nada muda sem a confirmação.
+ABRIR_CHAMADO = "abrir_chamado"
+ADICIONAR_NOTA = "adicionar_nota_chamado"
+ATUALIZAR_CHAMADO = "atualizar_situacao_chamado"
+REGISTRAR_PEDIDO_ANTECIPACAO = "registrar_pedido_antecipacao"
+EXECUTAR_ANTECIPACAO = "executar_antecipacao"
+REPROCESSAR_LIQUIDACAO = "reprocessar_liquidacao"
+REGISTRAR_ACORDO = "registrar_acordo"
+APROVAR_ACORDO = "aprovar_acordo"
+ESCRITAS_NO_MOCK = (
+    ABRIR_CHAMADO, ADICIONAR_NOTA, ATUALIZAR_CHAMADO, REGISTRAR_PEDIDO_ANTECIPACAO, EXECUTAR_ANTECIPACAO,
+    REPROCESSAR_LIQUIDACAO, REGISTRAR_ACORDO, APROVAR_ACORDO,
+)
+FERRAMENTAS_COM_CONFIRMACAO = (ENVIAR_EMAIL, *FERRAMENTAS_DE_ENVIO, ABRIR_JIRA, COMENTAR_JIRA, *ESCRITAS_NO_MOCK)
 NAO_USAM_NOS_CENARIOS = NUNCA_EXECUTAM + FERRAMENTAS_COM_CONFIRMACAO
 # Argumentos que só o sistema pode definir (KAN-69 A-21); a lista da governança é conferida contra esta.
 PARAMETROS_RESERVADOS = (
@@ -333,27 +345,40 @@ _COMUNS = {
 }
 _ATENDIMENTO |= _COMUNS
 # O que o agente geral (que lista todas as ferramentas do catálogo) deixa cada cargo alcançar.
+# Escritas no mock por cargo (DOC-MOCK §6.5, §7.3, §7.4, §7.9 e §8.2): quem atende chamados abre, escreve e muda a
+# situação; o pedido de antecipação é de quem vê a agenda; executar é do N2; reprocessar, dos recebíveis; acordo, da
+# cobrança; aprovar, do coordenador.
+_CHAMADOS = {ABRIR_CHAMADO, ADICIONAR_NOTA, ATUALIZAR_CHAMADO}
 FERRAMENTAS_DO_CARGO = {
-    "atendente_n1": _ATENDIMENTO,
-    "especialista_n2": _ATENDIMENTO | {LISTAR_CONTESTACOES, CONSULTAR_TAXA_CONTESTACAO_CLIENTE, RESUMIR_VOLUME_CHAMADOS},
+    "atendente_n1": _ATENDIMENTO | _CHAMADOS | {REGISTRAR_PEDIDO_ANTECIPACAO},
+    "especialista_n2": _ATENDIMENTO
+    | _CHAMADOS
+    | {LISTAR_CONTESTACOES, CONSULTAR_TAXA_CONTESTACAO_CLIENTE, RESUMIR_VOLUME_CHAMADOS}
+    | {REGISTRAR_PEDIDO_ANTECIPACAO, EXECUTAR_ANTECIPACAO},
     "supervisor_atendimento": _ATENDIMENTO
-    | {RESUMIR_SATISFACAO, LISTAR_CONTESTACOES, CONSULTAR_TAXA_CONTESTACAO_CLIENTE, RESUMIR_VOLUME_CHAMADOS},
+    | _CHAMADOS
+    | {RESUMIR_SATISFACAO, LISTAR_CONTESTACOES, CONSULTAR_TAXA_CONTESTACAO_CLIENTE, RESUMIR_VOLUME_CHAMADOS}
+    | {REGISTRAR_PEDIDO_ANTECIPACAO, EXECUTAR_ANTECIPACAO},
     "analista_ouvidoria": _COMUNS
     | {CONSULTAR_CONTATOS, CONSULTAR_HISTORICO, LISTAR_CHAMADOS, ENVIAR_EMAIL, CONSULTAR_CHAMADO, VERIFICAR_IDENTIDADE,
-       RESUMIR_SATISFACAO},
+       RESUMIR_SATISFACAO}
+    | _CHAMADOS,
     "analista_cobranca": _COMUNS
     | {CONSULTAR_CONTATOS, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE, CONSULTAR_SALDO_AGENDA, LISTAR_ACORDOS,
-       RESUMIR_RECEITA},  # §8.2: da agenda, só o saldo (sem parcelas e sem antecipação)
+       RESUMIR_RECEITA}  # §8.2: da agenda, só o saldo (sem parcelas e sem antecipação)
+    | {REGISTRAR_ACORDO},
     "analista_disputas": _COMUNS
     | {CONSULTAR_TRANSACOES, LISTAR_CONTESTACOES, CONSULTAR_TAXA_CONTESTACAO_CLIENTE, RESUMIR_RECEITA},
     "analista_recebiveis": _COMUNS
     | {CONSULTAR_LIQUIDACOES, CONSULTAR_AGENDA, CONSULTAR_SALDO_AGENDA, SIMULAR_ANTECIPACAO, CONFERIR_LIQUIDACOES,
-       RESUMIR_RECEITA},
+       RESUMIR_RECEITA}
+    | {REPROCESSAR_LIQUIDACAO},
     "coordenador_financeiro": _COMUNS
     | {CONSULTAR_CONTATOS, CONSULTAR_LIQUIDACOES, CONSULTAR_TRANSACOES, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE,
        CONSULTAR_AGENDA, CONSULTAR_SALDO_AGENDA, SIMULAR_ANTECIPACAO, CONFERIR_LIQUIDACOES, LISTAR_CONTESTACOES,
        LISTAR_ACORDOS,
-       RESUMIR_RECEITA, CONSULTAR_TAXA_CONTESTACAO, CONSULTAR_TAXA_CONTESTACAO_CLIENTE},
+       RESUMIR_RECEITA, CONSULTAR_TAXA_CONTESTACAO, CONSULTAR_TAXA_CONTESTACAO_CLIENTE}
+    | {REPROCESSAR_LIQUIDACAO, REGISTRAR_ACORDO, APROVAR_ACORDO},
     "auditor_compliance": set(),  # sem ferramenta de dado na Sprint 2 (O5)
     "admin_plataforma": set(),
 }

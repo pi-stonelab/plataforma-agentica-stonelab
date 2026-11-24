@@ -69,6 +69,8 @@ Dinheiro é sempre inteiro em centavos (O8). Quem mostra para o modelo converte 
   permissão e não mascara. Já calcula `dias_em_atraso`, `dias_em_aberto`, o prazo do SLA, os dias até o prazo da
   disputa e o corte da base analítica. `contato_confere` nunca devolve o contato, só se confere.
 - `falhas.py`: "fora do ar" e "dado desatualizado".
+- `escritas.py`: o que a plataforma grava nos sistemas simulados depois que a pessoa confirma (seção "Escrita da
+  plataforma" abaixo). A tabela `antecipacoes` só é preenchida por ele.
 
 Depende de `mock/` por import: `ferramentas/governanca.py` (listas de cargo, área, categoria),
 `ferramentas/mascara.py` e `ferramentas/dados_sinteticos.py` (a fachada). `mock/` não importa nenhuma outra pasta.
@@ -100,6 +102,25 @@ com 2). O passo a passo está no `README.md`. O gerador lê `MOCK_DATABASE_URL` 
 "teste") e `MOCK_TESTE_POSTGRES_LEITURA_URL` (papel de leitura num banco montado pelos três arquivos). Sem elas, tudo
 roda em SQLite em memória. Diferença conhecida: o Postgres não guarda o byte NUL em texto, então o caso "nulo no meio"
 do A-13 é pulado nele.
+
+## Escrita da plataforma (`escritas.py`)
+
+As ferramentas de escrita (bloco D) gravam aqui, sempre depois da confirmação da pessoa (`ferramentas/confirmacoes.py`)
+e pela fachada `ferramentas/escritas_sinteticas.py`. Operações: abrir chamado, nota interna ou resposta, situação,
+encaminhamento e suspeita de fraude (§6.3 a §6.6), reprocessar liquidação (§7.3), executar antecipação (§7.4) e
+registrar ou decidir acordo (§7.5 e §7.9).
+
+- Uma transação por operação (tudo ou nada); sistema fora do ar (`falhas`) é conferido antes; as regras do negócio
+  são conferidas dentro da transação, com o cargo e o nível lidos do diretório (nunca do que quem chama diz).
+- Regra violada: `EscritaRecusada(tipo_erro, mensagem)`, com uma frase para a pessoa e sem dado restrito.
+- O relógio está parado: toda escrita acontece em `regras.AGORA_DO_MOCK`.
+- `ensaiar(operacao, ...)`: roda a operação com todas as regras e desfaz no fim. A prévia das ferramentas usa para
+  recusar já na prévia o que a confirmação recusaria.
+- Postgres: quem grava é o papel `mock_escrita` (`MOCK_ESCRITA_DATABASE_URL`, `banco.url_de_escrita`), que lê tudo,
+  insere só em `PRIVILEGIOS_DE_ESCRITA` e altera só as colunas listadas lá, nunca apaga. O `03_papeis.sh` é gerado
+  dessa lista por `exportar.py`, e um teste confere que cada operação só mexe no que o papel pode. No SQLite local
+  (uma pessoa só), a escrita usa o mesmo arquivo da leitura. Sem a URL de escrita, Postgres não grava.
+- Recriar o mundo (`python -m mock.gerar`) apaga o que a plataforma gravou: a demo volta ao estado dos cenários.
 
 O back-end não cria as tabelas do mock. `Base.metadata.create_all()` dele só conhece a `Base` dele. São dois
 criadores, dois comandos.

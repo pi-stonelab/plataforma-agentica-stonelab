@@ -39,6 +39,7 @@ from .regras import (
     FILAS,
     MOTIVOS_DE_CHARGEBACK,
     MOTIVOS_DO_MED,
+    NIVEIS_DE_ATENDIMENTO,
     PORTES,
 )
 
@@ -53,7 +54,7 @@ CONVENCAO_DE_NOMES = {
 
 # Sobe quando o esquema muda. O SQLite local guarda a versão (PRAGMA user_version) e é refeito
 # sozinho quando ela é diferente (`gerar.garantir_mundo_local`).
-VERSAO_DO_ESQUEMA = 4
+VERSAO_DO_ESQUEMA = 5
 
 
 class BaseMock(DeclarativeBase):
@@ -70,7 +71,9 @@ PAPEIS_CONTATO = ("socio", "financeiro", "operador_caixa")
 MODALIDADES = ("debito", "credito_a_vista", "parcelado", "pix")
 BANDEIRAS = ("visa", "mastercard", "elo")
 SITUACOES_VENDA = ("aprovada", "negada", "cancelada")
-SITUACOES_LIQUIDACAO = ("paga", "falhou", "devolvida")
+# "reprocessada": a que falhou e ganhou nova tentativa; "agendada": a nova tentativa, esperando o dia (§7.3).
+SITUACOES_LIQUIDACAO = ("paga", "falhou", "devolvida", "reprocessada", "agendada")
+SITUACOES_LIQUIDACAO_SEM_MOTIVO = ("paga", "agendada")
 TIPOS_FATURA = ("aluguel", "tarifa", "saldo_negativo")
 SITUACOES_FATURA = ("aberta", "paga", "vencida", "em_acordo", "cancelada")
 CATEGORIAS_DE_CHAMADO = (
@@ -83,11 +86,16 @@ CATEGORIAS_DE_CHAMADO = (
     "Contestação",
 )
 PRIORIDADES = ("baixa", "média", "alta", "crítica")
-SITUACOES_CHAMADO = ("novo", "em_atendimento", "aguardando_lojista", "resolvido", "fechado")
+SITUACOES_CHAMADO = (
+    "novo", "em_atendimento", "aguardando_lojista", "aguardando_area_interna", "resolvido", "fechado",
+)
 SITUACOES_RESOLVIDAS = ("resolvido", "fechado")
 ABERTO_POR = ("sistema", "lojista", "funcionario")
 AUTORES_INTERACAO = ("lojista", "funcionario", "agente")
 CANAIS = ("whatsapp", "telefone", "chat", "email")
+# Nota interna: escrita por um funcionário no chamado, sem ir ao lojista (o gerador sorteia só de CANAIS).
+CANAL_INTERNO = "interno"
+CANAIS_DE_INTERACAO = (*CANAIS, CANAL_INTERNO)
 MAXIMO_DE_PARCELAS = 12
 SITUACOES_RECEBIVEL = ("previsto", "pago", "retido", "bloqueado", "antecipado")
 SITUACOES_ACORDO = ("pendente_aprovacao", "ativo", "quitado", "quebrado", "recusado")
@@ -95,6 +103,8 @@ SITUACOES_CHARGEBACK = (
     "aguardando_defesa", "em_analise", "reapresentado", "aceito", "ganho", "perdido",
 )
 SITUACOES_CASO_PIX = ("bloqueado", "contestado", "devolvido", "liberado")
+SITUACOES_ANTECIPACAO = ("executada", "creditada")
+PEDIDA_POR = ("lojista", "funcionario")
 CATEGORIAS_DE_ARTIGO = (
     "Recebimento", "Antecipação", "Fatura e aluguel", "Contestação", "Pix e devolução",
     "Alteração cadastral", "Taxas e planos", "Atendimento", "Maquininha",
@@ -248,8 +258,13 @@ class Liquidacao(BaseMock):
         _regra("valor_nao_negativo", "valor_total_centavos >= 0"),
         _regra(
             "motivo_so_quando_falha",
-            "(situacao = 'paga' AND motivo_falha IS NULL)"
-            " OR (situacao <> 'paga' AND motivo_falha IS NOT NULL)",
+            "(situacao IN ('paga', 'agendada') AND motivo_falha IS NULL)"
+            " OR (situacao NOT IN ('paga', 'agendada') AND motivo_falha IS NOT NULL)",
+        ),
+        _regra(
+            "nova_tentativa_liga_a_original",
+            "(situacao = 'agendada' AND id_liquidacao_original IS NOT NULL)"
+            " OR (situacao <> 'agendada' AND id_liquidacao_original IS NULL)",
         ),
         Index(None, "id_lojista", "data"),
         {"comment": "Depósito diário ao lojista (recebíveis do dia menos descontos). Confidencial."},
@@ -261,6 +276,9 @@ class Liquidacao(BaseMock):
     valor_total_centavos: Mapped[int] = mapped_column(BigInteger)
     situacao: Mapped[str] = mapped_column(String(12))
     motivo_falha: Mapped[str | None] = mapped_column(String(30))
+    id_liquidacao_original: Mapped[int | None] = mapped_column(
+        ForeignKey("liquidacoes.id"), comment="Na nova tentativa (agendada): a liquidação que falhou."
+    )
 
 
 class Fatura(BaseMock):
@@ -299,6 +317,7 @@ class Chamado(BaseMock):
         _um_de("fila", FILAS),
         _um_de("situacao", SITUACOES_CHAMADO),
         _um_de("aberto_por", ABERTO_POR),
+        _um_de("nivel_atendimento", NIVEIS_DE_ATENDIMENTO),
         _regra("codigo_formato", "codigo LIKE 'CH______'"),
         _regra("protocolo_formato", "protocolo LIKE '________-______'"),
         _regra("prazo_depois_da_abertura", "prazo_em > aberto_em"),
@@ -328,13 +347,21 @@ class Chamado(BaseMock):
     resumo: Mapped[str] = mapped_column(Text, comment="RESTRITO (texto livre).")
     id_liquidacao: Mapped[int | None] = mapped_column(ForeignKey("liquidacoes.id"))
     id_fatura: Mapped[str | None] = mapped_column(ForeignKey("faturas.codigo"))
+    nivel_atendimento: Mapped[str] = mapped_column(
+        String(12), default="N1", comment="Quem cuida (DOC-MOCK §6.3): N1, N2 ou supervisor."
+    )
+    suspeita_fraude: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="Marcado por quem atende, como no golpe da troca de conta (§6.6)."
+    )
 
 
 class Interacao(BaseMock):
     __tablename__ = "interacoes"
     __table_args__ = (
         _um_de("autor", AUTORES_INTERACAO),
-        _um_de("canal", CANAIS),
+        _um_de("canal", CANAIS_DE_INTERACAO),
+        _regra("nota_interna_com_funcionario", "canal <> 'interno' OR id_funcionario IS NOT NULL"),
+        _regra("texto_do_agente_com_quem_confirmou", "autor <> 'agente' OR id_funcionario IS NOT NULL"),
         Index(None, "id_chamado", "data_hora"),
         {"comment": "Mensagens dos chamados. RESTRITO: texto livre, por onde chegaria uma injeção de comando."},
     )
@@ -349,6 +376,9 @@ class Interacao(BaseMock):
         Boolean, default=False, comment="Marca o dado de teste de segurança (DOC-MOCK §10.3)."
     )
     comportamento_esperado: Mapped[str | None] = mapped_column(Text)
+    id_funcionario: Mapped[str | None] = mapped_column(
+        ForeignKey("funcionarios.id"), comment="Quem escreveu e confirmou, nas mensagens gravadas pela plataforma."
+    )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -377,6 +407,39 @@ class Recebivel(BaseMock):
     numero_parcela: Mapped[int] = mapped_column(Integer)
     data_prevista: Mapped[date] = mapped_column(Date)
     valor_parcela_centavos: Mapped[int] = mapped_column(BigInteger)
+    situacao: Mapped[str] = mapped_column(String(12))
+    id_antecipacao: Mapped[str | None] = mapped_column(ForeignKey("antecipacoes.codigo"))
+
+
+class Antecipacao(BaseMock):
+    __tablename__ = "antecipacoes"
+    __table_args__ = (
+        _um_de("situacao", SITUACOES_ANTECIPACAO),
+        _um_de("pedida_por", PEDIDA_POR),
+        _regra("codigo_formato", "codigo LIKE 'AN____'"),
+        _regra("valor_bruto_positivo", "valor_antecipado_bruto_centavos > 0"),
+        _regra(
+            "liquido_e_o_bruto_menos_o_desconto",
+            "valor_antecipado_liquido_centavos = valor_antecipado_bruto_centavos - desconto_antecipacao_centavos",
+        ),
+        Index(None, "id_lojista"),
+        {
+            "comment": "Antecipações executadas (DOC-MOCK §7.4): só com o pedido do lojista registrado num chamado. "
+            "Confidencial."
+        },
+    )
+
+    codigo: Mapped[str] = mapped_column(String(6), primary_key=True)  # AN0001
+    id_lojista: Mapped[str] = mapped_column(ForeignKey("lojistas.codigo"))
+    id_chamado: Mapped[str] = mapped_column(ForeignKey("chamados.codigo"), comment="Onde o pedido do lojista está.")
+    pedida_por: Mapped[str] = mapped_column(String(12))
+    id_executor: Mapped[str] = mapped_column(ForeignKey("funcionarios.id"))
+    executada_em: Mapped[datetime] = mapped_column(DateTime)
+    valor_antecipado_bruto_centavos: Mapped[int] = mapped_column(BigInteger)
+    desconto_antecipacao_centavos: Mapped[int] = mapped_column(BigInteger)
+    valor_antecipado_liquido_centavos: Mapped[int] = mapped_column(BigInteger)
+    taxa_antecipacao_pontos_base: Mapped[int] = mapped_column(Integer)
+    data_credito: Mapped[date] = mapped_column(Date)
     situacao: Mapped[str] = mapped_column(String(12))
 
 
@@ -619,7 +682,7 @@ class AnaliticaResultadoDiario(BaseMock):
 # Sistema simulado dono de cada tabela (DOC-MOCK §4): só o dono altera; os outros leem.
 SISTEMA_DONO_DA_TABELA = {
     "lojistas": "cadastro", "contatos_lojista": "cadastro", "contas_recebimento": "cadastro",
-    "vendas": "core", "recebiveis": "core", "liquidacoes": "core",
+    "vendas": "core", "recebiveis": "core", "liquidacoes": "core", "antecipacoes": "core",
     "faturas": "cobranca", "acordos": "cobranca",
     "chargebacks": "disputas", "casos_pix": "disputas",
     "chamados": "crm", "interacoes": "crm", "pesquisas_satisfacao": "crm", "artigos_ajuda": "crm",

@@ -411,6 +411,16 @@ def resumo_da_agenda(origem: Session | Engine, codigo: str) -> dict:
     return resumo
 
 
+def filtro_dos_recebiveis_antecipaveis(codigo: str) -> tuple:
+    """As condições de "dá para antecipar hoje" (§7.4). Uma fonte só: a simulação e a execução
+    (`mock/escritas.py`) usam as mesmas parcelas."""
+    return (
+        Recebivel.id_lojista == codigo,
+        Recebivel.situacao == "previsto",
+        Recebivel.data_prevista > regras.data_de_credito_da_antecipacao(),
+    )
+
+
 def recebiveis_para_antecipacao(origem: Session | Engine, codigo: str) -> list[dict]:
     """O que dá para antecipar hoje, parcela por parcela: [{"data_prevista", "valor_centavos"}].
 
@@ -421,10 +431,7 @@ def recebiveis_para_antecipacao(origem: Session | Engine, codigo: str) -> list[d
     falhas.verificar("core")
     consulta = (
         select(Recebivel.data_prevista, Recebivel.valor_parcela_centavos)
-        .where(
-            Recebivel.id_lojista == codigo, Recebivel.situacao == "previsto",
-            Recebivel.data_prevista > regras.data_de_credito_da_antecipacao(),
-        )
+        .where(*filtro_dos_recebiveis_antecipaveis(codigo))
         .order_by(Recebivel.data_prevista, Recebivel.codigo)
     )
     with _sessao_de(origem) as sessao:

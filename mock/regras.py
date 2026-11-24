@@ -493,3 +493,71 @@ def data_de_corte_da_base_analitica(desatualizada: bool = False) -> date:
 def momento_de_corte_da_base_analitica() -> datetime:
     """Fim do último dia da base analítica (o começo de hoje)."""
     return datetime.combine(data_de_corte_da_base_analitica() + timedelta(days=1), time.min)
+
+
+# ---------------------------------------------------------------------------------------------
+# Escrita nos sistemas (DOC-MOCK §6.3, §6.5, §7.3, §7.4 e §7.9): quem pode mudar o quê
+# ---------------------------------------------------------------------------------------------
+
+# Quem cuida do chamado (§6.3). A ouvidoria é uma fila, não um nível: o caso dela continua com o N1 que o abriu
+# até a ouvidoria assumir.
+NIVEIS_DE_ATENDIMENTO = ("N1", "N2", "supervisor")
+NIVEL_DE_ATENDIMENTO_POR_CATEGORIA = {
+    "Dúvida de produto": "N1",
+    "Recebimento": "N1",
+    "Maquininha": "N1",
+    "Fatura e aluguel": "N1",
+    "Antecipação": "N1",
+    "Alteração cadastral": "N2",
+    "Contestação": "N2",
+}
+# Prioridade padrão de cada categoria (§6.3). Maquininha é crítica quando o lojista não consegue vender.
+PRIORIDADE_POR_CATEGORIA = {
+    "Dúvida de produto": "baixa",
+    "Recebimento": "alta",
+    "Maquininha": "média",
+    "Fatura e aluguel": "média",
+    "Antecipação": "média",
+    "Alteração cadastral": "média",
+    "Contestação": "alta",
+}
+CATEGORIA_QUE_FICA_CRITICA_SE_NAO_VENDE = "Maquininha"
+VALOR_QUE_SOBE_O_CHAMADO_PARA_O_N2_CENTAVOS = 100000  # "o valor envolvido passa de R$ 1.000" (§6.5)
+CATEGORIA_DO_PEDIDO_DE_ANTECIPACAO = "Antecipação"
+
+# Ciclo de vida do chamado (§6.5): de onde para onde a situação pode ir. "Fechado" não volta: um novo contato
+# abre outro chamado. Fechar é do sistema, 7 dias depois de resolvido; quem atende só resolve.
+TRANSICOES_DO_CHAMADO = {
+    "novo": ("em_atendimento",),
+    "em_atendimento": ("aguardando_lojista", "aguardando_area_interna", "resolvido"),
+    "aguardando_lojista": ("em_atendimento", "resolvido"),
+    "aguardando_area_interna": ("em_atendimento", "resolvido"),
+    "resolvido": ("em_atendimento",),  # reaberto por uma mensagem do lojista em até 7 dias
+    "fechado": (),
+}
+# O nível de quem atende, por cargo. Só esses cargos mudam a situação de um chamado.
+NIVEL_DE_ATENDIMENTO_DO_CARGO = {
+    "atendente_n1": "N1",
+    "analista_ouvidoria": "N1",
+    "especialista_n2": "N2",
+    "supervisor_atendimento": "supervisor",
+}
+# Na fila da ouvidoria, só a ouvidoria muda a situação (cenário 9: o agente resume, mas não fecha o caso).
+CARGOS_DA_OUVIDORIA = frozenset({"analista_ouvidoria"})
+# Suspeita de fraude sobe o chamado para o N2 (§6.6: só o N2 troca a conta; cenário 6).
+NIVEL_DA_SUSPEITA_DE_FRAUDE = "N2"
+SITUACOES_DE_CHAMADO_SEM_ENCAMINHAMENTO = ("resolvido", "fechado")
+
+# Liquidação (§7.3): só a que falhou é reprocessada, e só com a conta de recebimento ativa. A nova tentativa
+# entra agendada para o próximo dia útil; o recebível do dia continua retido até ela ser paga.
+SITUACOES_DE_LIQUIDACAO_QUE_REPROCESSAM = ("falhou",)
+SITUACAO_DA_CONTA_QUE_RECEBE = "ativa"
+
+# §7.9: até onde cada cargo aprova um acordo sozinho ("Alçada é o valor até onde um cargo pode aprovar algo
+# sozinho"). A dupla aprovação nunca é de uma pessoa só: quem pediu não aprova, e a segunda aprovação é do
+# coordenador (§8.2).
+ALCADAS_DE_ACORDO_DO_CARGO = {
+    "analista_cobranca": ("analista",),
+    "coordenador_financeiro": ("analista", "coordenador"),
+}
+CARGOS_DA_SEGUNDA_APROVACAO = frozenset({"coordenador_financeiro"})

@@ -47,18 +47,22 @@ Tudo abaixo desta linha o código descarta antes de entregar o texto ao agente.
   áreas.
 - `integracoes/` guarda uma pasta por sistema externo, com a descrição e a
   lista das ferramentas que o usam. O agente não lê essa pasta.
-- Situação hoje: 8 áreas e 51 ferramentas. Trinta e três estão ativas: trinta sobre os dados sintéticos do mock
-  (atendimento: `consultar_cliente`, `buscar_clientes`, `consultar_contatos_lojista`, `listar_chamados_cliente`,
-  `consultar_chamado`, `consultar_historico_contato`, `consultar_base_conhecimento`, `verificar_identidade_contato`,
-  `resumir_satisfacao`; financeiro: `consultar_transacoes_cliente`, `consultar_liquidacoes_cliente`,
-  `consultar_agenda_recebiveis`, `consultar_saldo_agenda`, `conferir_liquidacoes`, `listar_contestacoes_cliente`,
-  `consultar_taxa_contestacao_cliente`, `listar_faturas_em_atraso`, `listar_acordos`, `calcular_multa_atraso`,
-  `calcular_parcelas`, `simular_antecipacao`; dados e indicadores: `resumir_receita_periodo`,
+- Situação hoje: 8 áreas e 56 ferramentas. Quarenta e sete estão ativas: as de leitura e cálculo sobre os dados
+  sintéticos do mock (atendimento: `consultar_cliente`, `buscar_clientes`, `consultar_contatos_lojista`,
+  `listar_chamados_cliente`, `consultar_chamado`, `consultar_historico_contato`, `consultar_base_conhecimento`,
+  `verificar_identidade_contato`, `resumir_satisfacao`; financeiro: `consultar_transacoes_cliente`,
+  `consultar_liquidacoes_cliente`, `consultar_agenda_recebiveis`, `consultar_saldo_agenda`, `conferir_liquidacoes`,
+  `listar_contestacoes_cliente`, `consultar_taxa_contestacao_cliente`, `listar_faturas_em_atraso`, `listar_acordos`,
+  `calcular_multa_atraso`, `calcular_parcelas`, `simular_antecipacao`; dados e indicadores: `resumir_receita_periodo`,
   `resumir_volume_chamados`, `consultar_taxa_contestacao_mensal`, `calcular_roi` e as quatro do dicionário;
-  plataforma: `solicitar_ferramenta_ausente`), `enviar_email` (envia por SMTP) e duas que consultam APIs públicas de
-  verdade (`consultar_endereco_cep`, no ViaCEP, e `consultar_cotacao_moeda`, na PTAX do Banco Central). As outras 18
-  são esqueletos em `func.py`, sem lógica. O código que lê e executa tudo isso está em `catalogo.py`; o que fala com
-  cada sistema está em `integracoes/`.
+  plataforma: `solicitar_ferramenta_ausente`), as escritas em duas fases sobre o mock (atendimento: `abrir_chamado`,
+  `adicionar_nota_chamado`, `atualizar_situacao_chamado`, `registrar_pedido_antecipacao`; financeiro:
+  `executar_antecipacao`, `reprocessar_liquidacao`, `registrar_acordo`, `aprovar_acordo`), as de comunicação e chamados
+  internos (`enviar_email` por SMTP, `enviar_mensagem_slack`, `enviar_aviso_telegram`, `abrir_chamado_jira`,
+  `comentar_chamado_jira`, `consultar_chamado_jira`, `buscar_emails`) e duas que consultam APIs públicas de verdade
+  (`consultar_endereco_cep`, no ViaCEP, e `consultar_cotacao_moeda`, na PTAX do Banco Central). As outras 9, da área
+  `documentos_e_agenda`, são esqueletos em `func.py`, sem lógica. O código que lê e executa tudo isso está em
+  `catalogo.py`; o que fala com cada sistema está em `integracoes/`.
 - Falha do registro FINAL de uma escrita (BAIXO-1 da auditoria C): o registro "iniciada" já foi gravado e
   a ação pode ter acontecido (ex.: o pedido entrou na fila). A resposta é `integracao_indisponivel` com
   "Registro indisponível. A ação pode ter sido executada; não repita a chamada.", sem dado nenhum; o
