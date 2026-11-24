@@ -13,7 +13,7 @@ Para a lista de depósitos, use `consultar_liquidacoes_cliente`. Para as parcela
 ## Parâmetros
 
 - `id_cliente` (texto, obrigatório): código do cliente, `M` seguido de cinco dígitos. Exemplo: `M00013`.
-- `data_inicio` (data, opcional): primeiro dia a conferir, no formato AAAA-MM-DD. Se faltar, 30 dias atrás. Exemplo: `2026-10-01`.
+- `data_inicio` (data, opcional): primeiro dia a conferir, no formato AAAA-MM-DD. Se faltar, são 30 dias até a `data_fim`. Exemplo: `2026-10-01`.
 - `data_fim` (data, opcional): último dia a conferir, no formato AAAA-MM-DD. Se faltar, ontem; hoje nunca entra. Exemplo: `2026-10-14`.
 - `limite` (inteiro, opcional): quantas divergências trazer, de 1 a 50. Se faltar, vêm 20. Exemplo: `5`.
 

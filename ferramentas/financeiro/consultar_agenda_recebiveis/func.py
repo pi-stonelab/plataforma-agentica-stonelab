@@ -1,7 +1,20 @@
 """Agenda de recebíveis de um lojista: o que vai cair (ou já caiu) por parcela, e o resumo do que está por vir."""
 
+from datetime import timedelta
+
 from ferramentas import dados_sinteticos, governanca, lojista
 from ferramentas.base import ErroFerramenta, Ferramenta
+
+
+DIAS_PADRAO_DO_PASSADO = 30  # só data_fim no passado: a agenda são os 30 dias que terminam nela
+
+
+def _inicio_padrao(data_fim):
+    """Sem data_inicio, a agenda começa hoje: quem pergunta pela agenda quer o que ainda vai cair."""
+    hoje = dados_sinteticos.HOJE_DO_MOCK
+    if data_fim is None or data_fim >= hoje:
+        return hoje
+    return data_fim - timedelta(days=DIAS_PADRAO_DO_PASSADO - 1)
 
 
 class ConsultarAgendaRecebiveis(Ferramenta):
@@ -30,10 +43,8 @@ class ConsultarAgendaRecebiveis(Ferramenta):
             raise ErroFerramenta(
                 "parametro_invalido", "A situacao deve ser previsto, pago, retido, bloqueado ou antecipado."
             )
-        # Sem data_inicio, a agenda começa hoje: quem pergunta pela agenda quer o que ainda vai cair.
-        pedido = lojista.preparar(
-            usuario, {"data_inicio": dados_sinteticos.HOJE_DO_MOCK} | argumentos, com_periodo=True
-        )
+        padrao = {"data_inicio": _inicio_padrao(argumentos.get("data_fim"))}
+        pedido = lojista.preparar(usuario, padrao | argumentos, com_periodo=True)
         parcelas, total = dados_sinteticos.buscar_agenda(
             pedido.codigo, pedido.data_inicio, pedido.data_fim, situacao, pedido.limite
         )

@@ -13,7 +13,7 @@ Para o depósito que caiu (ou falhou) num dia, use `consultar_liquidacoes_client
 ## Parâmetros
 
 - `id_cliente` (texto, obrigatório): código do cliente, `M` seguido de cinco dígitos. Exemplo: `M00004`.
-- `data_inicio` (data, opcional): primeira data prevista, no formato AAAA-MM-DD. Se faltar, é hoje. Exemplo: `2026-10-16`.
+- `data_inicio` (data, opcional): primeira data prevista, no formato AAAA-MM-DD. Se faltar, é hoje; se só a `data_fim` for passada e já tiver passado, são os 30 dias que terminam nela. Exemplo: `2026-10-16`.
 - `data_fim` (data, opcional): última data prevista, no formato AAAA-MM-DD. Exemplo: `2026-12-31`.
 - `situacao` (texto, opcional): só as parcelas `previsto`, `pago`, `retido`, `bloqueado` ou `antecipado`. Exemplo: `retido`.
 - `limite` (inteiro, opcional): quantas parcelas trazer, de 1 a 50. Se faltar, vêm 20. Exemplo: `10`.

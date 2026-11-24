@@ -305,3 +305,14 @@ def test_taxa_da_stone_nao_traz_limite_nem_diz_que_passou_dele(engine):
     assert "limite" not in texto and "acima" not in texto
     assert dados["tendencia"] in {"subindo", "caindo", "estavel"}
     assert all(isinstance(mes["taxa_chargeback_percentual"], float) for mes in dados["meses"])
+
+
+def test_volume_de_chamados_so_com_data_fim_parte_da_segunda_da_semana_dela(engine):
+    dados = chamar("resumir_volume_chamados", {"data_fim": "2026-10-01"}, usuario(engine, "supervisor_atendimento"))["dados"]
+    assert (dados["data_inicio"], dados["data_fim"]) == ("2026-09-28", "2026-10-01")  # quinta; a segunda é 28/09
+
+
+def test_volume_de_chamados_numa_segunda_mostra_a_semana_que_acabou(engine, monkeypatch):
+    monkeypatch.setattr(dados_sinteticos, "HOJE_DO_MOCK", date(2026, 10, 19))  # segunda-feira
+    dados = chamar("resumir_volume_chamados", {}, usuario(engine, "supervisor_atendimento"))["dados"]
+    assert (dados["data_inicio"], dados["data_fim"]) == ("2026-10-12", "2026-10-18")

@@ -60,8 +60,8 @@ class ConferirLiquidacoes(Ferramenta):
     }
 
     def rodar(self, argumentos, usuario):
-        hoje = dados_sinteticos.HOJE_DO_MOCK
-        padrao = {"data_inicio": hoje - timedelta(days=DIAS_PADRAO), "data_fim": hoje - timedelta(days=1)}
+        fim = argumentos.get("data_fim", dados_sinteticos.HOJE_DO_MOCK - timedelta(days=1))
+        padrao = {"data_inicio": fim - timedelta(days=DIAS_PADRAO - 1), "data_fim": fim}  # o padrão parte da data_fim
         pedido = lojista.preparar(usuario, padrao | argumentos, com_periodo=True, limite_padrao=LIMITE_PADRAO)
         dias = dados_sinteticos.agenda_e_liquidacoes_por_dia(pedido.codigo, pedido.data_inicio, pedido.data_fim)
         divergencias = [item for item in map(_divergencia, dias) if item is not None]

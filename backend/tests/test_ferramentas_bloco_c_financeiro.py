@@ -1,6 +1,7 @@
 """Ferramentas de leitura e cálculo do financeiro (bloco C): agenda, antecipação, conferência, contestações e acordos."""
 
 import json
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -354,3 +355,38 @@ def test_quem_aprova_e_sempre_a_regra_do_mock_e_o_motivo_nunca_vem_vazio(
     esperado = regras.alcada_do_acordo(total, negociado, numero_parcelas, entrada, 0, desconto_centavos)
     assert dados["quem_aprova"] == esperado
     assert dados["motivo"] and not dados["motivo"].endswith(": .")
+
+
+# --- período padrão: só data_fim, e a chamada sem argumento em qualquer dia da semana -----------------
+
+SEMANA_DE_HOJES = [date(2026, 10, dia) for dia in range(12, 19)]  # segunda a domingo
+
+
+def test_conferencia_so_com_data_fim_antiga_conta_30_dias_ate_ela(engine):
+    argumentos = {"id_cliente": g.C4_LOJISTA, "data_fim": "2026-08-31"}
+    resposta = chamar("conferir_liquidacoes", argumentos, usuario(engine, "analista_recebiveis"))
+    assert resultado(resposta) == ("ok", None)
+    assert resposta["dados"]["dias_conferidos"] > 0
+
+
+def test_agenda_so_com_data_fim_no_passado_traz_os_30_dias_ate_ela(engine):
+    argumentos = {"id_cliente": g.C4_LOJISTA, "data_fim": "2026-09-30", "limite": 50}
+    resposta = chamar("consultar_agenda_recebiveis", argumentos, usuario(engine, "analista_recebiveis"))
+    assert resultado(resposta) == ("ok", None)
+    datas = [parcela["data_prevista"] for parcela in resposta["dados"]["parcelas"]]
+    assert datas and min(datas) >= "2026-09-01" and max(datas) <= "2026-09-30"
+
+
+def test_agenda_so_com_data_fim_no_futuro_continua_comecando_hoje(engine):
+    argumentos = {"id_cliente": g.C4_LOJISTA, "data_fim": "2026-12-31", "limite": 50}
+    datas = [p["data_prevista"] for p in chamar("consultar_agenda_recebiveis", argumentos, atendente_pme(engine))["dados"]["parcelas"]]
+    assert datas and min(datas) >= regras.HOJE_DO_MOCK.isoformat()
+
+
+@pytest.mark.parametrize("hoje", SEMANA_DE_HOJES, ids=lambda dia: dia.strftime("%a"))
+def test_chamada_sem_argumento_nao_falha_em_nenhum_dia_da_semana(engine, monkeypatch, hoje):
+    monkeypatch.setattr(dados_sinteticos, "HOJE_DO_MOCK", hoje)
+    recebiveis = usuario(engine, "analista_recebiveis")
+    assert resultado(chamar("conferir_liquidacoes", {"id_cliente": g.C4_LOJISTA}, recebiveis)) == ("ok", None)
+    assert resultado(chamar("consultar_agenda_recebiveis", {"id_cliente": g.C4_LOJISTA}, recebiveis)) == ("ok", None)
+    assert resultado(chamar("resumir_volume_chamados", {}, usuario(engine, "supervisor_atendimento"))) == ("ok", None)

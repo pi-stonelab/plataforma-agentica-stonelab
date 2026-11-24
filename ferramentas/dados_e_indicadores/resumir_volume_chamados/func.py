@@ -12,10 +12,10 @@ AVISO = (
 )
 
 
-def _inicio_da_semana():
-    """Segunda-feira da semana do hoje do mock: o "nesta semana" do supervisor."""
-    hoje = dados_sinteticos.HOJE_DO_MOCK
-    return hoje - timedelta(days=hoje.weekday())
+def _inicio_da_semana_de(dia):
+    """Segunda-feira da semana de `dia`: o "nesta semana" do supervisor, que termina em ontem. Numa segunda-feira
+    ontem é domingo, então vale a semana que acabou (nunca um início depois do fim)."""
+    return dia - timedelta(days=dia.weekday())
 
 
 class ResumirVolumeChamados(Ferramenta):
@@ -41,7 +41,8 @@ class ResumirVolumeChamados(Ferramenta):
         if prioridade is not None and prioridade not in dados_sinteticos.PRIORIDADES:
             opcoes = ", ".join(dados_sinteticos.PRIORIDADES)
             raise ErroFerramenta("parametro_invalido", f"A prioridade deve ser uma destas: {opcoes}.")
-        padrao = {"data_inicio": _inicio_da_semana(), "data_fim": ontem()}
+        fim_padrao = argumentos.get("data_fim", ontem())
+        padrao = {"data_inicio": _inicio_da_semana_de(fim_padrao), "data_fim": fim_padrao}
         inicio, fim = periodo_pedido(padrao | argumentos, dias_padrao=7)
         resposta = dados_sinteticos.chamados_por_fila(inicio, fim, prioridade)
         filas = resposta["itens"]

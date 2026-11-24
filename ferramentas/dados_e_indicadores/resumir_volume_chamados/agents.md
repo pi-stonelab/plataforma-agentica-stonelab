@@ -12,7 +12,7 @@ Para um chamado específico, use `consultar_chamado`. Para os chamados de um loj
 
 ## Parâmetros
 
-- `data_inicio` (data, opcional): primeiro dia, no formato AAAA-MM-DD. Exemplo: `2026-10-12`.
+- `data_inicio` (data, opcional): primeiro dia, no formato AAAA-MM-DD. Se faltar, é a segunda-feira da semana da `data_fim` (numa segunda-feira, a semana que acabou). Exemplo: `2026-10-12`.
 - `data_fim` (data, opcional): último dia, no formato AAAA-MM-DD. Se faltar, vale ontem. Exemplo: `2026-10-14`.
 - `prioridade` (texto, opcional): só uma prioridade: `baixa`, `média`, `alta` ou `crítica`. Exemplo: `crítica`.
 
