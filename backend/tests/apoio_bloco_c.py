@@ -11,6 +11,7 @@ FERRAMENTAS_DO_BLOCO_C = (
     "buscar_clientes",
     "resumir_satisfacao",
     "consultar_agenda_recebiveis",
+    "consultar_saldo_agenda",
     "simular_antecipacao",
     "conferir_liquidacoes",
     "listar_contestacoes_cliente",

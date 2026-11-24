@@ -8,7 +8,7 @@ Use quando o usuário perguntar quanto o cliente tem a receber, quando cai uma v
 
 ## Quando não usar
 
-Para o depósito que caiu (ou falhou) num dia, use `consultar_liquidacoes_cliente`. Para saber quanto ele recebe se antecipar, use `simular_antecipacao`. Para conferir se os depósitos bateram com a agenda, use `conferir_liquidacoes`.
+Para o depósito que caiu (ou falhou) num dia, use `consultar_liquidacoes_cliente`. Para só o saldo, use `consultar_saldo_agenda`. Para saber quanto ele recebe se antecipar, use `simular_antecipacao`. Para conferir se os depósitos bateram com a agenda, use `conferir_liquidacoes`.
 
 ## Parâmetros
 

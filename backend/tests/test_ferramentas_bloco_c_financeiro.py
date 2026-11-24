@@ -86,10 +86,32 @@ def test_agenda_recusa_parametro_invalido(engine, argumentos):
     assert resultado(resposta) == INVALIDO
 
 
-@pytest.mark.parametrize("cargo", ["analista_disputas", "analista_ouvidoria", "auditor_compliance"])
-def test_agenda_nao_aparece_para_quem_nao_ve_agenda(engine, cargo):
+@pytest.mark.parametrize("cargo", ["analista_cobranca", "analista_disputas", "analista_ouvidoria", "auditor_compliance"])
+def test_agenda_por_parcela_nao_aparece_para_quem_nao_ve_agenda(engine, cargo):
     resposta = chamar("consultar_agenda_recebiveis", {"id_cliente": g.C4_LOJISTA}, usuario(engine, cargo))
     assert resultado(resposta) == BLOQUEADA
+
+
+def test_cobranca_ve_so_o_saldo_da_agenda_e_nao_simula_antecipacao(engine):
+    cobranca = usuario(engine, "analista_cobranca")
+    saldo = chamar("consultar_saldo_agenda", {"id_cliente": g.C4_LOJISTA}, cobranca)
+    assert resultado(saldo) == ("ok", None)
+    dados = saldo["dados"]
+    assert dados["agenda_futura"]["previsto"]["valor"] == g.C4_AGENDA_FUTURA_TEXTO and "parcelas" not in dados
+    assert resultado(chamar("simular_antecipacao", {"id_cliente": g.C4_LOJISTA}, cobranca)) == BLOQUEADA
+    assert resultado(chamar("conferir_liquidacoes", {"id_cliente": g.C4_LOJISTA}, cobranca)) == BLOQUEADA
+
+
+@pytest.mark.parametrize("cargo", ["analista_disputas", "analista_ouvidoria", "auditor_compliance"])
+def test_saldo_da_agenda_nao_aparece_para_quem_nao_ve_agenda(engine, cargo):
+    assert resultado(chamar("consultar_saldo_agenda", {"id_cliente": g.C4_LOJISTA}, usuario(engine, cargo))) == BLOQUEADA
+
+
+def test_saldo_da_agenda_respeita_a_carteira_do_atendente(engine):
+    ana = usuario(engine, "atendente_n1")
+    fora = chamar("consultar_saldo_agenda", {"id_cliente": g.C4_LOJISTA}, ana)
+    assert fora == chamar("consultar_saldo_agenda", {"id_cliente": "M00099"}, ana) and resultado(fora) == NEGADA
+    assert resultado(chamar("consultar_saldo_agenda", {"id_cliente": g.C4_LOJISTA}, atendente_pme(engine))) == ("ok", None)
 
 
 # --- simular_antecipacao (cenário 4) --------------------------------------------------------------

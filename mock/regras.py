@@ -42,7 +42,8 @@ CATEGORIAS_DADO = (
     "contato",
     "conta_recebimento",
     "venda",
-    "agenda_recebiveis",
+    "agenda_recebiveis",  # as parcelas e a simulação de antecipação (inclui o saldo)
+    "saldo_agenda",  # só o saldo da agenda por situação, sem parcelas (cobrança, DOC-MOCK §8.2)
     "liquidacao",
     "cobranca",
     "chamado",
@@ -84,6 +85,7 @@ _DADOS_DO_ATENDIMENTO = frozenset(
         "conta_recebimento",
         "venda",
         "agenda_recebiveis",
+        "saldo_agenda",
         "liquidacao",
         "cobranca",
         "chamado",
@@ -142,7 +144,7 @@ CARGOS: dict[str, RegraCargo] = {
         # para identificar o lojista e ligar (telefone chega mascarado na Sprint 2).
         _regra(
             "analista_cobranca", "financeiro", "Colaborador", "N1", ESCOPO_TODAS,
-            None, {"cadastral", "contato", "cobranca", "agenda_recebiveis"} | _COMUNS_COM_AREA,
+            None, {"cadastral", "contato", "cobranca", "saldo_agenda"} | _COMUNS_COM_AREA,
         ),
         # "Vendas, chargebacks e casos de Pix" (§8.2).
         _regra(
@@ -152,12 +154,12 @@ CARGOS: dict[str, RegraCargo] = {
         # "Agenda, liquidações e antecipações". Sem conta de recebimento (segregação §8.1).
         _regra(
             "analista_recebiveis", "financeiro", "Colaborador", "N1", ESCOPO_TODAS,
-            None, {"cadastral", "agenda_recebiveis", "liquidacao"} | _COMUNS_COM_AREA,
+            None, {"cadastral", "agenda_recebiveis", "saldo_agenda", "liquidacao"} | _COMUNS_COM_AREA,
         ),
         # "Tudo do Financeiro": a união dos quatro analistas, menos o que é do atendimento.
         _regra(
             "coordenador_financeiro", "financeiro", "Supervisor", "N2", ESCOPO_TODAS, None,
-            {"cadastral", "contato", "venda", "agenda_recebiveis", "liquidacao", "cobranca", "disputa"}
+            {"cadastral", "contato", "venda", "agenda_recebiveis", "saldo_agenda", "liquidacao", "cobranca", "disputa"}
             | _COMUNS_COM_AREA,
         ),
         # Na Sprint 2 não há ferramenta de dado para os dois cargos transversais.

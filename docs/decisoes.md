@@ -574,6 +574,16 @@ Aplicadas depois da revisão do bloco C. Ficam para o Pedro confirmar.
   (`catalogo.ler("<area>")`), ou subir o teto do índice. Decisão deles.
 - No código: `ferramentas/tamanho.py`, `lojista.limite_pedido` (parâmetro `maximo`), as três fichas.
 
+### C11. A cobrança vê só o saldo da agenda
+- Decisão: o §8.2 diz que a cobrança vê "só faturas, pagamentos, acordos e o saldo da agenda". Nasce a categoria
+  `saldo_agenda` e a ferramenta `consultar_saldo_agenda` (só o resumo por situação, sem parcelas). A cobrança troca
+  `agenda_recebiveis` por `saldo_agenda` e perde `consultar_agenda_recebiveis` e `simular_antecipacao` (o §8.2 dá a
+  simulação ao atendimento, ao analista de recebíveis e ao coordenador). Quem tem `agenda_recebiveis` tem também
+  `saldo_agenda`.
+- Efeito: `analista_cobranca` não alcança mais a agenda parcela a parcela nem a simulação. Se a cobrança precisar da
+  simulação na negociação de acordo, é pergunta para o Pedro (SEM FONTE: o §8.2 não a dá).
+- No código: `mock/regras.py` (`CATEGORIAS_DADO`, `CARGOS`), `ferramentas/financeiro/consultar_saldo_agenda`.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que

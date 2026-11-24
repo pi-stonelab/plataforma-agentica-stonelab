@@ -7,6 +7,7 @@ O core, o cadastro, a cobrança e as disputas da Stone simulada: vendas, agenda 
 - `financeiro/consultar_transacoes_cliente` (leitura)
 - `financeiro/consultar_liquidacoes_cliente` (leitura)
 - `financeiro/consultar_agenda_recebiveis` (leitura)
+- `financeiro/consultar_saldo_agenda` (leitura)
 - `financeiro/conferir_liquidacoes` (leitura)
 - `financeiro/listar_contestacoes_cliente` (leitura)
 - `financeiro/listar_faturas_em_atraso` (leitura)
