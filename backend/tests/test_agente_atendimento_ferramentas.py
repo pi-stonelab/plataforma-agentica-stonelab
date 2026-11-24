@@ -45,6 +45,7 @@ CONTA_PESSOAL_DO_FUNCIONARIO = {  # Google ou Microsoft de cada pessoa: fica com
 DE_OUTRO_PAPEL = {  # segregação de funções, DOC-MOCK §8.1: quem pede não aprova; reprocessar é dos recebíveis
     "aprovar_acordo",
     "reprocessar_liquidacao",
+    "retirar_acordo",  # é da cobrança: quem pediu o acordo o retira
 }
 FORA_DO_AGENTE = (
     INDICADORES_GERENCIAIS | DICIONARIO_DE_DADOS | BASTIDOR_INTERNO | CONTA_PESSOAL_DO_FUNCIONARIO | DE_OUTRO_PAPEL

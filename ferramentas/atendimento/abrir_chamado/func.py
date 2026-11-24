@@ -1,6 +1,11 @@
 """Prepara a abertura de um chamado no CRM simulado; abre só quando quem pediu confirma (duas fases)."""
 
 from ferramentas import dados_sinteticos, escritas_sinteticas, lojista
+from ferramentas.apresentacao import (
+    ROTULOS_DA_PRIORIDADE,
+    ROTULOS_DO_NIVEL,
+    data_e_hora_br,
+)
 from ferramentas.base import ErroFerramenta
 from ferramentas.confirmacoes import FerramentaComConfirmacao
 from ferramentas.mascara import mascarar_valor
@@ -8,6 +13,9 @@ from ferramentas.mascara import mascarar_valor
 TAMANHO_RESUMO = 1000
 LIVRE = "texto_livre"
 CANAL_PADRAO = "whatsapp"
+NOMES_DO_CANAL = {"whatsapp": "WhatsApp", "telefone": "Telefone", "chat": "Chat", "email": "E-mail"}
+CATEGORIA_DO_PEDIDO_DE_ANTECIPACAO = escritas_sinteticas.CATEGORIA_DO_PEDIDO_DE_ANTECIPACAO
+CATEGORIAS = tuple(c for c in escritas_sinteticas.CATEGORIAS_DE_CHAMADO if c != CATEGORIA_DO_PEDIDO_DE_ANTECIPACAO)
 
 
 class AbrirChamado(FerramentaComConfirmacao):
@@ -17,10 +25,12 @@ class AbrirChamado(FerramentaComConfirmacao):
     nivel_minimo = "N1"
     areas_permitidas = ("atendimento",)
     categorias_dados = ("cadastral", "chamado")
-    campos_liberados = (*FerramentaComConfirmacao.campos_liberados, "nivel_atendimento")
+    campos_liberados = (*FerramentaComConfirmacao.campos_liberados, "nivel_atendimento", "atencao")
     sensibilidade = "pessoal"
     conteudo_terceiros = False
     status = "ativa"
+    onde_conferir = "na lista de chamados do lojista"
+    frase_de_nada_feito = "Nada foi gravado."
     titulo = "Abrir chamado"
     mensagem_feito = "Chamado aberto."
     descricao_para_pessoa = "Prepara um chamado novo para o lojista; ele só é aberto depois que você confirma."
@@ -32,6 +42,7 @@ class AbrirChamado(FerramentaComConfirmacao):
         "prioridade": "Prioridade",
         "nivel_atendimento": "Nível",
         "prazo_em": "Prazo",
+        "atencao": "Atenção",
     }
     parametros = {
         "id_cliente": {"tipo": "texto", "obrigatorio": True},
@@ -45,9 +56,12 @@ class AbrirChamado(FerramentaComConfirmacao):
     def montar(self, argumentos, usuario):
         codigo, categoria = argumentos["id_cliente"], argumentos["categoria"]
         canal = argumentos.get("canal") or CANAL_PADRAO
-        if categoria not in escritas_sinteticas.CATEGORIAS_DE_CHAMADO:
-            opcoes = ", ".join(escritas_sinteticas.CATEGORIAS_DE_CHAMADO)
-            raise ErroFerramenta("parametro_invalido", f"Categoria desconhecida. Use uma destas: {opcoes}.")
+        if categoria == CATEGORIA_DO_PEDIDO_DE_ANTECIPACAO:
+            raise ErroFerramenta(
+                "parametro_invalido", "Pedido de antecipação se registra com registrar_pedido_antecipacao, não aqui."
+            )
+        if categoria not in CATEGORIAS:
+            raise ErroFerramenta("parametro_invalido", f"Categoria desconhecida. Use uma destas: {', '.join(CATEGORIAS)}.")
         if canal not in escritas_sinteticas.CANAIS:
             raise ErroFerramenta("parametro_invalido", f"Canal desconhecido. Use: {', '.join(escritas_sinteticas.CANAIS)}.")
         resumo = mascarar_valor(LIVRE, argumentos["resumo"])
@@ -67,7 +81,17 @@ class AbrirChamado(FerramentaComConfirmacao):
             "impede_vender": impede_vender,
             "valor_envolvido_centavos": valor_envolvido,
         }
-        previa = {"id_cliente": codigo, "categoria": categoria, "resumo": resumo, "canal": canal, **classe}
+        previa = {
+            "id_cliente": codigo,
+            "categoria": categoria,
+            "resumo": resumo,
+            "canal": NOMES_DO_CANAL[canal],
+            "prioridade": ROTULOS_DA_PRIORIDADE[classe["prioridade"]],
+            "nivel_atendimento": ROTULOS_DO_NIVEL[classe["nivel_atendimento"]],
+            "prazo_em": data_e_hora_br(classe["prazo_em"]),
+        }
+        if (duplicado := escritas_sinteticas.aviso_de_duplicado(codigo, categoria)) is not None:
+            previa["atencao"] = duplicado
         escritas_sinteticas.ensaiar(self._gravar, conteudo, usuario)  # o que a confirmação recusaria, já recusa
         return conteudo, previa
 

@@ -4,7 +4,7 @@ Prepara um acordo com as faturas vencidas do lojista. Nada acontece antes da con
 
 ## Quando usar
 
-Use quando a cobrança pedir para fechar um acordo, depois de mostrar os encargos (`calcular_multa_atraso`) e as parcelas (`calcular_parcelas`). Dentro da alçada de quem pede, o acordo fica ativo na confirmação; acima, vai para o coordenador. Diga ao funcionário o que a prévia mostra em `aprovacao`. Depois de usar, responda com FINAL dizendo que a prévia está esperando a confirmação na tela.
+Use quando a cobrança pedir para fechar um acordo, depois de mostrar os encargos (`calcular_multa_atraso`) e as parcelas (`calcular_parcelas`). Dentro da alçada de quem pede, o acordo fica ativo na confirmação; acima, vai para o coordenador. Diga ao funcionário o que a prévia mostra em `aprovacao` e em `atencao` (acordos já abertos do lojista, que somam para a alçada, e falta de outra pessoa para aprovar). O pedido que não coube na sua alçada pode ser retirado depois com `retirar_acordo`. Depois de usar, responda com FINAL dizendo que a prévia está esperando a confirmação na tela.
 
 ## Quando não usar
 
@@ -21,7 +21,7 @@ Não use para aprovar acordo pendente (use `aprovar_acordo`) nem para simular pa
 
 ## O que devolve
 
-Em `dados`: `confirmacao_id`, `situacao` (`aguardando_confirmacao`), `expira_em`, `id_cliente`, `faturas`, `valor_original`, `encargos`, `perdao_encargos`, `desconto_principal`, `valor_renegociado`, `entrada`, `numero_de_parcelas`, `valor_da_parcela` e `aprovacao`.
+Em `dados`: `confirmacao_id`, `situacao` (`aguardando_confirmacao`), `expira_em`, `id_cliente`, `faturas`, `valor_original`, `encargos`, `perdao_encargos`, `desconto_principal`, `valor_renegociado`, `entrada`, `numero_de_parcelas` (parcelas além da entrada), `valor_da_parcela`, `valor_da_ultima_parcela` (só quando a última absorve centavos, como em `calcular_parcelas`), `aprovacao` e `atencao` (quando existe).
 
 Erros possíveis: `parametro_invalido` (parcelas fora de 1 a 12, acordo fora das regras, faturas inválidas), `nao_encontrado` (sem fatura vencida fora de acordo), `permissao_negada` (cargo que não negocia, lojista fora da carteira) e `integracao_indisponivel`.
 

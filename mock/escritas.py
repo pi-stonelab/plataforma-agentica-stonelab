@@ -362,6 +362,12 @@ def adicionar_nota(
         chamado = _chamado_do_lojista(sessao, codigo_lojista, codigo_chamado)
         if chamado.situacao == "fechado":
             raise EscritaRecusada("parametro_invalido", "O chamado está fechado: um novo contato abre outro chamado.")
+        if tipo == "resposta_ao_lojista" and chamado.suspeita_fraude:
+            raise EscritaRecusada(
+                "parametro_invalido",
+                "Este chamado tem suspeita de fraude: ninguém responde ao lojista por aqui antes de verificar quem "
+                "está do outro lado. Escreva como nota interna.",
+            )
         canal = CANAL_INTERNO if tipo == "nota_interna" else _canal_da_conversa(sessao, chamado)
         interacao = Interacao(
             id_chamado=chamado.codigo,
@@ -690,7 +696,7 @@ def montar_acordo(
     """
     if not 1 <= numero_de_parcelas <= regras.PARCELAS_MAXIMAS_COORDENADOR:
         raise EscritaRecusada(
-            "parametro_invalido", f"O acordo vai de 1 a {regras.PARCELAS_MAXIMAS_COORDENADOR} parcelas (§7.9)."
+            "parametro_invalido", f"O acordo vai de 1 a {regras.PARCELAS_MAXIMAS_COORDENADOR} parcelas."
         )
     if entrada_percentual is None:
         entrada_percentual = regras.ENTRADA_MINIMA_ANALISTA_PERCENTUAL
@@ -714,7 +720,7 @@ def montar_acordo(
     if alcada == "proibido":
         raise EscritaRecusada(
             "parametro_invalido",
-            "Acordo fora das regras: até 12 parcelas e desconto no principal de até 10% (§7.9).",
+            "Acordo fora das regras: até 12 parcelas e desconto no principal de até 10%.",
         )
     return {
         "valor_original_centavos": original,

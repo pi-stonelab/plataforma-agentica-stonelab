@@ -67,7 +67,7 @@ class CalcularParcelas(Ferramenta):
         "entrada_percentual": {"tipo": "decimal", "obrigatorio": False},
         "desconto_principal_percentual": {"tipo": "decimal", "obrigatorio": False},
         "valor_principal": {"tipo": "decimal", "obrigatorio": False},
-        "perdao_encargos": {"tipo": "decimal", "obrigatorio": False},
+        "valor_do_perdao": {"tipo": "decimal", "obrigatorio": False},
     }
 
     def rodar(self, argumentos, usuario):
@@ -83,12 +83,12 @@ class CalcularParcelas(Ferramenta):
             raise ErroFerramenta("parametro_invalido", "Os percentuais devem ficar entre 0 e 99.")
         total = em_centavos(valor_total)
         principal = em_centavos(argumentos.get("valor_principal", valor_total))
-        perdao = em_centavos(argumentos.get("perdao_encargos", Decimal(0)))
+        perdao = em_centavos(argumentos.get("valor_do_perdao", Decimal(0)))
         if not 0 < principal <= total:
             raise ErroFerramenta("parametro_invalido", "O valor_principal deve ser maior que 0 e até o valor_total.")
         if not 0 <= perdao <= total - principal:
             raise ErroFerramenta(
-                "parametro_invalido", "O perdao_encargos não pode passar da multa e dos juros (valor_total menos valor_principal)."
+                "parametro_invalido", "O valor_do_perdao não pode passar da multa e dos juros (valor_total menos valor_principal)."
             )
         # A alçada é conferida em centavos: o desconto arredonda para baixo e a entrada para cima, para nenhum dos
         # dois sair do percentual pedido (20% de R$ 330,67 é R$ 66,14, não R$ 66,13, que ficaria abaixo de 20%).

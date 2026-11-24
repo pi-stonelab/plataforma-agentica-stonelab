@@ -17,7 +17,7 @@ Esta ferramenta só calcula: não busca a fatura, não fecha nem grava acordo. P
 - `entrada_percentual` (decimal, opcional): entrada paga antes das parcelas, em % do valor negociado, de 0 a 99. Se faltar, vale 20. Exemplo: `20`.
 - `desconto_principal_percentual` (decimal, opcional): desconto no valor principal, em %, de 0 a 99. Se faltar, vale 0. Só use se o usuário pedir desconto. Exemplo: `5`.
 - `valor_principal` (decimal, opcional): valor das faturas sem multa e juros, maior que 0 e até o `valor_total`. Se faltar, vale o `valor_total`. Exemplo: `320.00`.
-- `perdao_encargos` (decimal, opcional): quanto da multa e dos juros perdoar, em reais, até `valor_total` menos `valor_principal`. Se faltar, vale 0. Só use se o usuário pedir. Exemplo: `10.67`.
+- `valor_do_perdao` (decimal, opcional): quanto da multa e dos juros perdoar, em reais (não confundir com `perdoar_encargos` do `registrar_acordo`, que é sim ou não), até `valor_total` menos `valor_principal`. Se faltar, vale 0. Só use se o usuário pedir. Exemplo: `10.67`.
 
 ## O que devolve
 

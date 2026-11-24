@@ -1,10 +1,15 @@
 """Prepara uma nova tentativa da liquidação que falhou; agenda no core simulado só quando quem pediu confirma."""
 
 from ferramentas import dados_sinteticos, escritas_sinteticas, lojista
+from ferramentas.apresentacao import data_br
 from ferramentas.base import ErroFerramenta
 from ferramentas.confirmacoes import FerramentaComConfirmacao
 
 LIMITE_DE_LIQUIDACOES = 50
+ROTULOS_DO_MOTIVO = {
+    "conta_invalida": "Conta de recebimento inválida",
+    "recusa_do_banco": "O banco do lojista recusou o crédito",
+}
 
 
 class ReprocessarLiquidacao(FerramentaComConfirmacao):
@@ -18,6 +23,8 @@ class ReprocessarLiquidacao(FerramentaComConfirmacao):
     sensibilidade = "interna"
     conteudo_terceiros = False
     status = "ativa"
+    onde_conferir = "nas liquidações do lojista"
+    frase_de_nada_feito = "Nada foi gravado."
     titulo = "Reprocessar liquidação"
     mensagem_feito = "Nova tentativa agendada."
     descricao_para_pessoa = (
@@ -50,10 +57,10 @@ class ReprocessarLiquidacao(FerramentaComConfirmacao):
         previa = {
             "id_cliente": codigo,
             "id_liquidacao": id_liquidacao,
-            "data": liquidacao["data"],
+            "data": data_br(liquidacao["data"]),
             "valor": liquidacao["valor"],
-            "motivo_falha": liquidacao["motivo_falha"],
-            "nova_tentativa_em": escritas_sinteticas.proximo_dia_util(),
+            "motivo_falha": ROTULOS_DO_MOTIVO.get(liquidacao["motivo_falha"], "Falha na liquidação"),
+            "nova_tentativa_em": data_br(escritas_sinteticas.proximo_dia_util()),
         }
         escritas_sinteticas.ensaiar(self._gravar, conteudo, usuario)  # o que a confirmação recusaria, já recusa
         return conteudo, previa

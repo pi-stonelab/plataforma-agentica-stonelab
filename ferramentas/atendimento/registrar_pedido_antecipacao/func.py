@@ -2,6 +2,7 @@
 quando quem pediu confirma (duas fases). Não antecipa nada."""
 
 from ferramentas import dados_sinteticos, escritas_sinteticas, lojista
+from ferramentas.apresentacao import ROTULOS_DO_NIVEL, data_br, data_e_hora_br
 from ferramentas.base import ErroFerramenta
 from ferramentas.confirmacoes import FerramentaComConfirmacao
 from ferramentas.mascara import mascarar_valor
@@ -22,10 +23,13 @@ class RegistrarPedidoAntecipacao(FerramentaComConfirmacao):
     categorias_dados = ("cadastral", "chamado", "agenda_recebiveis")
     campos_liberados = (
         *FerramentaComConfirmacao.campos_liberados, "nivel_atendimento", "valor_antecipado", "desconto", "data_credito",
+        "atencao",
     )
     sensibilidade = "interna"
     conteudo_terceiros = False
     status = "ativa"
+    onde_conferir = "na lista de chamados do lojista"
+    frase_de_nada_feito = "Nada foi gravado."
     titulo = "Registrar pedido de antecipação"
     mensagem_feito = "Pedido registrado para o N2."
     descricao_para_pessoa = (
@@ -42,6 +46,7 @@ class RegistrarPedidoAntecipacao(FerramentaComConfirmacao):
         "data_credito": "Crédito em",
         "nivel_atendimento": "Vai para",
         "prazo_em": "Prazo do chamado",
+        "atencao": "Atenção",
     }
     parametros = {
         "id_cliente": {"tipo": "texto", "obrigatorio": True},
@@ -75,10 +80,12 @@ class RegistrarPedidoAntecipacao(FerramentaComConfirmacao):
             "valor_antecipado": simulacao["valor_antecipado"],
             "desconto": simulacao["desconto"],
             "valor_liquido": simulacao["valor_liquido"],
-            "data_credito": simulacao["data_credito"],
-            "nivel_atendimento": classe["nivel_atendimento"],
-            "prazo_em": classe["prazo_em"],
+            "data_credito": data_br(simulacao["data_credito"]),
+            "nivel_atendimento": ROTULOS_DO_NIVEL[classe["nivel_atendimento"]],
+            "prazo_em": data_e_hora_br(classe["prazo_em"]),
         }
+        if (duplicado := escritas_sinteticas.aviso_de_duplicado(codigo, CATEGORIA)) is not None:
+            previa["atencao"] = duplicado
         escritas_sinteticas.ensaiar(self._gravar, conteudo, usuario)  # o que a confirmação recusaria, já recusa
         return conteudo, previa
 

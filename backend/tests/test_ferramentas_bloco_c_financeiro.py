@@ -348,13 +348,13 @@ def test_parcelas_acima_de_dez_mil_pedem_dupla_aprovacao(engine):
 
 def test_perdao_em_divida_acima_de_dois_mil_vai_para_o_coordenador(engine):
     dados = parcelas(
-        engine, valor_total="2600", valor_principal="2400", perdao_encargos="200",
+        engine, valor_total="2600", valor_principal="2400", valor_do_perdao="200",
         numero_parcelas=4,
     )["dados"]
     assert dados["alcada"] == "coordenador" and "perdoa multa e juros" in dados["motivo"]
     assert dados["valor_negociado"] == "R$ 2.400,00"
     pequena = parcelas(
-        engine, valor_total="1900", valor_principal="1800", perdao_encargos="100",
+        engine, valor_total="1900", valor_principal="1800", valor_do_perdao="100",
         numero_parcelas=4,
     )["dados"]
     assert pequena["alcada"] == "analista"
@@ -364,8 +364,8 @@ def test_perdao_em_divida_acima_de_dois_mil_vai_para_o_coordenador(engine):
     "argumentos",
     [
         {"valor_principal": "2000"},  # acima do valor_total
-        {"perdao_encargos": "50"},  # sem multa e juros para perdoar
-        {"valor_principal": "900", "perdao_encargos": "150"},  # perdoa mais do que os encargos
+        {"valor_do_perdao": "50"},  # sem multa e juros para perdoar
+        {"valor_principal": "900", "valor_do_perdao": "150"},  # perdoa mais do que os encargos
     ],
 )
 def test_parcelas_recusam_principal_e_perdao_incoerentes(engine, argumentos):

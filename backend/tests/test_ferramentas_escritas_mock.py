@@ -10,6 +10,7 @@ from datetime import timedelta
 
 import pytest
 from ferramentas import catalogo, confirmacoes, governanca
+from ferramentas.apresentacao import data_e_hora_br
 from mock import falhas  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 from mock.modelos import (
     Acordo,
@@ -83,6 +84,14 @@ def id_da_liquidacao_do_cenario_1(engine):
     return liquidacao.id
 
 
+# A frase de sucesso diz o que aconteceu (qual acordo, qual chamado); as outras escritas usam a frase da ficha.
+FRASES_DE_SUCESSO = {
+    "adicionar_nota_chamado": "Nota interna gravada",
+    "atualizar_situacao_chamado": "Chamado CH000061 agora está",
+    "aprovar_acordo": "Acordo AC0002 aprovado.",
+}
+
+
 # Uma prévia válida de cada escrita, com quem pode fazê-la.
 def casos_validos(engine):
     return {
@@ -117,7 +126,7 @@ def test_previa_nao_grava_e_a_confirmacao_grava_uma_vez_so(engine, nome):
     assert contagem(engine) == antes
     confirmacao_id = previa["dados"]["confirmacao_id"]
     feito = confirmacoes.confirmar(confirmacao_id, pessoa(engine, quem))
-    assert feito["status"] == "ok" and feito["mensagem"] == catalogo.carregar()[nome].mensagem_feito
+    assert feito["status"] == "ok" and feito["mensagem"].startswith(FRASES_DE_SUCESSO.get(nome, catalogo.carregar()[nome].mensagem_feito))
     depois = contagem(engine)
     assert confirmacoes.confirmar(confirmacao_id, pessoa(engine, quem))["tipo_erro"] == "nao_encontrado"
     assert confirmacoes.situacao_da_decisao(confirmacao_id, pessoa(engine, quem)) == "aprovada"
@@ -185,10 +194,10 @@ def test_texto_livre_chega_mascarado_ao_banco_e_o_registro_nao_leva_conteudo(eng
 
 def test_abrir_chamado_prioridade_nivel_e_prazo_vem_das_regras(engine):
     previa = preparar(engine, "abrir_chamado", casos_validos(engine)["abrir_chamado"][0], ANA)["dados"]
-    assert (previa["prioridade"], previa["nivel_atendimento"]) == ("crítica", "N1")
+    assert (previa["prioridade"], previa["nivel_atendimento"]) == ("Crítica", "Atendimento N1")
     alto = preparar(engine, "abrir_chamado", {"id_cliente": "M00001", "categoria": "Recebimento", "resumo": "x",
                                                "valor_envolvido": 1500}, ANA)["dados"]
-    assert alto["nivel_atendimento"] == "N2"
+    assert alto["nivel_atendimento"] == "Atendimento N2"
     feito = confirmacoes.confirmar(alto["confirmacao_id"], pessoa(engine, ANA))["dados"]
     assert (feito["nivel_atendimento"], feito["situacao"]) == ("N2", "novo")  # vai para a fila do N2, sem dono
 
@@ -197,7 +206,7 @@ def test_prazo_do_chamado_usa_a_fila_da_carteira(engine):
     previa = preparar(engine, "abrir_chamado", {"id_cliente": "M00001", "categoria": "Recebimento", "resumo": "x"}, ANA)
     feito = confirmacoes.confirmar(previa["dados"]["confirmacao_id"], pessoa(engine, ANA))
     (chamado,) = ler(engine, Chamado, codigo=feito["dados"]["id_chamado"])
-    assert chamado.fila == "varejo" and chamado.prazo_em.isoformat() == previa["dados"]["prazo_em"]
+    assert chamado.fila == "varejo" and data_e_hora_br(chamado.prazo_em.isoformat()) == previa["dados"]["prazo_em"]
 
 
 @pytest.mark.parametrize(
@@ -263,7 +272,7 @@ def test_atualizar_sem_nada_a_mudar_e_recusado(engine):
 def test_cenario_4_n1_registra_o_pedido_e_o_n2_executa(engine):
     previa = preparar(engine, "registrar_pedido_antecipacao", {"id_cliente": gab.C4_LOJISTA, "resumo": "Antecipar."},
                       N1_PME)["dados"]
-    assert previa["valor_liquido"] == gab.C4_SIMULACAO["valor_liquido"] and previa["nivel_atendimento"] == "N2"
+    assert previa["valor_liquido"] == gab.C4_SIMULACAO["valor_liquido"] and previa["nivel_atendimento"] == "Atendimento N2"
     pedido = confirmacoes.confirmar(previa["confirmacao_id"], pessoa(engine, N1_PME))["dados"]
     assert preparar(engine, "executar_antecipacao", {"id_cliente": gab.C4_LOJISTA, "id_chamado": pedido["id_chamado"]},
                     N1_PME)["tipo_erro"] == gab.TIPO_ERRO_FERRAMENTA_BLOQUEADA  # executar é do N2
@@ -324,7 +333,7 @@ def test_reprocessar_so_liquidacao_que_falhou_e_so_dos_recebiveis(engine):
 @pytest.mark.parametrize(
     ("argumentos", "aprovacao", "situacao"),
     [
-        ({"numero_parcelas": 4}, "dentro da sua alçada", "ativo"),
+        ({"numero_parcelas": 4}, "dentro do que o seu cargo aprova", "ativo"),
         ({"numero_parcelas": 10}, "coordenador", "pendente_aprovacao"),
         ({"numero_parcelas": 4, "entrada_percentual": 10}, "coordenador", "pendente_aprovacao"),
     ],

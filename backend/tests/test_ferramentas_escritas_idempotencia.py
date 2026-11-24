@@ -68,7 +68,7 @@ def test_commit_incerto_diz_que_pode_ter_sido_feito_e_a_previa_nao_volta_para_a_
         resultado = confirmacoes.confirmar(confirmacao_id, pessoa(engine, ANA))
     finally:
         event.remove(Session, "after_commit", cair_depois_do_commit)
-    assert (resultado["tipo_erro"], resultado["mensagem"]) == ("integracao_indisponivel", confirmacoes.MENSAGEM_EFEITO_INCERTO)
+    assert (resultado["tipo_erro"], resultado["mensagem"]) == ("integracao_indisponivel", confirmacoes.mensagem_efeito_incerto(catalogo.carregar()["abrir_chamado"]))
     assert contar(engine, Chamado) == antes + 1  # o commit chegou ao banco
     repetida = confirmacoes.confirmar(confirmacao_id, pessoa(engine, ANA))
     assert repetida["tipo_erro"] == "nao_encontrado" and contar(engine, Chamado) == antes + 1

@@ -13,7 +13,6 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from ferramentas import catalogo, confirmacoes
-from ferramentas.confirmacoes import MENSAGEM_EFEITO_INCERTO
 from ferramentas.integracoes import credenciais, formatos
 from ferramentas.integracoes.conector import FALHAS_PARA_PAUSAR
 from ferramentas.integracoes.google_workspace.conector import CONECTOR as GOOGLE
@@ -42,6 +41,12 @@ EVENTOS, ARQUIVOS, LER_PLANILHA, LER_DOCUMENTO = (
     "listar_eventos_agenda", "buscar_arquivos", "ler_planilha", "ler_documento",
 )
 CRIAR_EVENTO, ADICIONAR_LINHA, CRIAR_PLANILHA = "criar_evento_agenda", "adicionar_linha_planilha", "criar_planilha"
+
+
+def incerto(nome):
+    """A frase de "pode ter acontecido" da ferramenta: diz onde conferir."""
+    return confirmacoes.mensagem_efeito_incerto(catalogo.carregar()[nome])
+
 AGENTE = (EVENTOS, ARQUIVOS, LER_PLANILHA, LER_DOCUMENTO, CRIAR_EVENTO, ADICIONAR_LINHA, CRIAR_PLANILHA)
 PLANILHA, DOCUMENTO = "01PLANILHAAAA", "01DOCUMENTOAA"
 ANA_ID = "F0001"
@@ -588,7 +593,7 @@ def test_linha_sobrescrita_por_outra_pessoa_no_meio_da_escrita_nao_vira_pronto_f
 
     servidor.responder = responder
     resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
-    assert resultado["tipo_erro"] == "integracao_indisponivel" and resultado["mensagem"] == MENSAGEM_EFEITO_INCERTO
+    assert resultado["tipo_erro"] == "integracao_indisponivel" and resultado["mensagem"] == incerto(ADICIONAR_LINHA)
 
 
 def test_escrita_aceita_com_resposta_fora_do_formato_diz_que_pode_ter_acontecido(conta_com_escrita, ana):
@@ -603,7 +608,7 @@ def test_escrita_aceita_com_resposta_fora_do_formato_diz_que_pode_ter_acontecido
 
     servidor.responder = responder
     resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
-    assert resultado["mensagem"] == MENSAGEM_EFEITO_INCERTO
+    assert resultado["mensagem"] == incerto(CRIAR_PLANILHA)
 
 
 def test_documento_enorme_vira_parametro_invalido_e_nao_pausa_a_integracao(conta, ana):

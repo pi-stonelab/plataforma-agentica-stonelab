@@ -20,6 +20,7 @@ from mock.falhas import SistemaIndisponivel
 from sqlalchemy.exc import ArgumentError, DBAPIError, OperationalError
 from sqlalchemy.exc import TimeoutError as TempoEsgotadoNoPool
 
+from ferramentas import dados_sinteticos
 from ferramentas.base import CONFIRMACAO_EM_CURSO, EfeitoIncerto, ErroDefinitivo, ErroFerramenta
 from ferramentas.dados_sinteticos import reais
 
@@ -32,6 +33,7 @@ TIPOS_DE_NOTA = escritas.TIPOS_DE_NOTA
 NIVEIS_DE_ATENDIMENTO = escritas.ORDEM_DOS_NIVEIS
 SITUACOES_DE_LIQUIDACAO_QUE_REPROCESSAM = escritas.regras.SITUACOES_DE_LIQUIDACAO_QUE_REPROCESSAM
 CATEGORIA_DO_PEDIDO_DE_ANTECIPACAO = escritas.regras.CATEGORIA_DO_PEDIDO_DE_ANTECIPACAO
+LIMITE_PARA_DUPLICADO = 50
 RESPOSTAS_SIM = ("sim", "s")
 RESPOSTAS_NAO = ("não", "nao", "n")
 _CONEXAO = {"engine": None}
@@ -70,6 +72,14 @@ def _gravar(operacao, *argumentos, **opcoes):
         raise ConnectionError("integração indisponível") from None
 
 
+def _gravar_leitura(leitura, *argumentos):
+    """Leitura que a prévia faz no banco de escrita (soma de acordos, quem pode aprovar): sem chave de idempotência."""
+    try:
+        return leitura(_engine(), *argumentos)
+    except FALHAS_DE_INTEGRACAO:
+        raise ConnectionError("integração indisponível") from None
+
+
 def _calcular(conta, *argumentos):
     """Conta sem banco (prévia): regra violada vira `ErroFerramenta`."""
     try:
@@ -93,6 +103,21 @@ def abrir_chamado(codigo, categoria, resumo, canal, id_funcionario, impede_vende
         escritas.abrir_chamado, codigo, categoria, resumo, canal, id_funcionario,
         impede_vender=impede_vender, valor_envolvido_centavos=valor_envolvido_centavos, nivel_minimo=nivel_minimo,
     )
+
+
+def chamados_abertos_da_categoria(codigo, categoria):
+    """Códigos dos chamados ainda abertos do lojista nesta categoria (para a prévia avisar de duplicado)."""
+    recentes, _ = dados_sinteticos.buscar_chamados(codigo, LIMITE_PARA_DUPLICADO)
+    return [c["codigo"] for c in recentes if c["categoria"] == categoria and c["situacao"] != "fechado"]
+
+
+def aviso_de_duplicado(codigo, categoria):
+    """"Já existe chamado aberto ..." para a prévia, ou None. Só avisa: abrir outro é decisão da pessoa."""
+    abertos = chamados_abertos_da_categoria(codigo, categoria)
+    if not abertos:
+        return None
+    quantos = "um chamado aberto" if len(abertos) == 1 else f"{len(abertos)} chamados abertos"
+    return f"Este lojista já tem {quantos} de {categoria}: {', '.join(abertos)}. Confira antes de abrir outro."
 
 
 def adicionar_nota(codigo, id_chamado, texto, tipo, id_funcionario):
@@ -120,8 +145,11 @@ def reprocessar_liquidacao(codigo, id_liquidacao, id_funcionario):
     }
 
 
-def executar_antecipacao(codigo, id_chamado, id_funcionario):
-    feito = _gravar(escritas.executar_antecipacao, codigo, id_chamado, id_funcionario)
+def executar_antecipacao(codigo, id_chamado, id_funcionario, valor_maximo_centavos=None):
+    """Sem `valor_maximo_centavos`, antecipa toda a agenda disponível; com ele, só as parcelas mais próximas que cabem."""
+    feito = _gravar(
+        escritas.executar_antecipacao, codigo, id_chamado, id_funcionario, valor_maximo_centavos=valor_maximo_centavos
+    )
     return {
         "codigo": feito["codigo"],
         "id_chamado": feito["id_chamado"],
@@ -141,12 +169,36 @@ def faturas_do_acordo(codigo, codigos_das_faturas):
     return _gravar(escritas.faturas_do_acordo, codigo, codigos_das_faturas)
 
 
-def montar_acordo(faturas, numero_de_parcelas, entrada_percentual, perdoar_encargos, desconto_principal_percentual):
-    """Os números do acordo em centavos (a mesma conta da gravação), sem gravar."""
+def montar_acordo(faturas, numero_de_parcelas, entrada_percentual, perdoar_encargos, desconto_principal_percentual,
+                  acordos_abertos=None):
+    """Os números do acordo em centavos (a mesma conta da gravação), sem gravar. `acordos_abertos`
+    (`acordos_abertos_do_lojista`) soma o que o lojista já tem para a alçada."""
     return _calcular(
         escritas.montar_acordo, faturas, numero_de_parcelas, entrada_percentual, perdoar_encargos,
-        desconto_principal_percentual,
+        desconto_principal_percentual, acordos_abertos,
     )
+
+
+def acordos_abertos_do_lojista(codigo):
+    """{"quantidade", "valor_original_centavos", "valor_renegociado_centavos"} dos acordos pendentes ou ativos do
+    lojista na janela da alçada (os pendentes vencidos não contam)."""
+    return _gravar_leitura(escritas.acordos_abertos_do_lojista, codigo)
+
+
+def aprovadores_possiveis(alcada, id_solicitante):
+    """Quantas outras pessoas ativas podem aprovar um acordo desta alçada (zero: o acordo ficaria parado)."""
+    return _gravar_leitura(escritas.aprovadores_possiveis, alcada, id_solicitante)
+
+
+def retirar_acordo(codigo_acordo, id_solicitante):
+    feito = _gravar(escritas.retirar_acordo, codigo_acordo, id_solicitante)
+    return {
+        "codigo": feito["codigo"],
+        "id_cliente": feito["id_cliente"],
+        "situacao": feito["situacao"],
+        "valor_renegociado": reais(feito["valor_renegociado_centavos"]),
+        "faturas": feito["faturas"],
+    }
 
 
 def registrar_acordo(codigo, codigos_das_faturas, numero_de_parcelas, entrada_percentual, perdoar_encargos,
@@ -180,6 +232,7 @@ def numeros_em_reais(numeros):
         "entrada": reais(numeros["entrada_centavos"]),
         "numero_de_parcelas": numeros["numero_de_parcelas"],
         "valor_da_parcela": reais(numeros["valor_da_parcela_centavos"]),
+        "valor_da_ultima_parcela": reais(numeros["valor_da_ultima_parcela_centavos"]),
         "alcada": numeros["alcada"],
     }
 

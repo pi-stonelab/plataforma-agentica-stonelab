@@ -38,5 +38,6 @@ usuário]
   - `reprocessar_liquidacao` (escrita com confirmação, ativa)
   - `registrar_acordo` (escrita com confirmação, ativa)
   - `aprovar_acordo` (escrita com confirmação, ativa)
+  - `retirar_acordo` (escrita com confirmação, ativa)
 - Saiu: `consultar_saldo_conta`. A Stone não guarda um saldo de conta do lojista no mock; o que ele tem a receber está na agenda (`consultar_agenda_recebiveis`). Ver `docs/decisoes.md`.
 - Enviar defesa de contestação continua de fora (sem ferramenta).

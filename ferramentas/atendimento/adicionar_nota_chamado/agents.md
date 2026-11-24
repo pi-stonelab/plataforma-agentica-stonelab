@@ -4,7 +4,7 @@ Prepara uma nota interna ou uma resposta ao lojista num chamado. Nada acontece a
 
 ## Quando usar
 
-Use quando o funcionário pedir para registrar um resumo, uma observação ou a resposta que vai ao lojista num chamado existente. Escreva só com o que veio das outras ferramentas. O texto entra no histórico como escrito pelo agente e revisado por quem confirmou. Depois de usar, responda com FINAL dizendo que a prévia está esperando a confirmação na tela.
+Use quando o funcionário pedir para registrar um resumo, uma observação ou a resposta que vai ao lojista num chamado existente. Escreva só com o que veio das outras ferramentas. A prévia diz para onde a nota vai: só para a equipe, ou ao lojista pelo canal em que ele falou por último. Chamado com suspeita de fraude não recebe resposta ao lojista (só nota interna): se a plataforma recusar por isso, explique e ofereça a nota interna. O texto entra no histórico como escrito pelo agente e revisado por quem confirmou. Depois de usar, responda com FINAL dizendo que a prévia está esperando a confirmação na tela.
 
 ## Quando não usar
 
@@ -27,5 +27,5 @@ Erros possíveis: `parametro_invalido` (texto vazio, tipo desconhecido, chamado 
 
 - Área: `atendimento`. Escrita em duas fases, listada em `governanca.ESCRITA_COM_CONFIRMACAO`.
 - "Resumo gerado por IA só entra no histórico depois da revisão do atendente" (KAN-69): é exatamente a confirmação. A interação fica com autor `agente` e `id_funcionario` de quem confirmou (DOC-MOCK §6.8).
-- Chamado fechado não recebe nada (§6.5): a gravação recusa.
+- Chamado fechado não recebe nada (§6.5): a gravação recusa. Chamado com `suspeita_fraude` também não recebe `resposta_ao_lojista` (a identidade de quem escreve não foi verificada); a pergunta sobre "contato verificado" fica em H6, porque o mock não guarda essa informação.
 - LGPD: texto pela máscara de texto livre antes da prévia; o registro guarda só metadados.

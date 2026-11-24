@@ -6,11 +6,13 @@ Quem pediu o acordo nunca decide, e quem decide precisa ter a alçada dele (DOC-
 import re
 
 from ferramentas import dados_sinteticos, escritas_sinteticas
+from ferramentas.apresentacao import ROTULOS_DA_ALCADA, cargo_de
 from ferramentas.base import ErroFerramenta
 from ferramentas.confirmacoes import FerramentaComConfirmacao
 
 PADRAO_ACORDO = re.compile(r"AC\d{4}")
 DECISOES = {"aprovar": True, "recusar": False}
+ROTULOS_DA_DECISAO = {"aprovar": "Aprovar", "recusar": "Recusar"}
 LIMITE_DE_PENDENTES = 50
 
 
@@ -25,6 +27,8 @@ class AprovarAcordo(FerramentaComConfirmacao):
     sensibilidade = "interna"
     conteudo_terceiros = False
     status = "ativa"
+    onde_conferir = "na lista de acordos"
+    frase_de_nada_feito = "Nada foi gravado."
     titulo = "Decidir acordo"
     mensagem_feito = "Decisão gravada."
     descricao_para_pessoa = "Prepara a aprovação ou a recusa de um acordo pendente; nada muda antes da sua confirmação."
@@ -39,7 +43,7 @@ class AprovarAcordo(FerramentaComConfirmacao):
         "numero_de_parcelas": "Parcelas",
         "perdao_encargos": "Perdão de encargos",
         "desconto_principal": "Desconto no principal",
-        "alcada": "Alçada",
+        "alcada": "Quem aprova",
         "id_solicitante": "Pedido por",
     }
     parametros = {
@@ -62,7 +66,7 @@ class AprovarAcordo(FerramentaComConfirmacao):
         conteudo = {"id_acordo": id_acordo, "aprovar": DECISOES[decisao]}
         previa = {
             "id_acordo": id_acordo,
-            "decisao": decisao,
+            "decisao": ROTULOS_DA_DECISAO[decisao],
             "id_cliente": acordo["id_cliente"],
             "faturas": acordo["faturas"],
             "valor_original": acordo["valor_original"],
@@ -71,11 +75,14 @@ class AprovarAcordo(FerramentaComConfirmacao):
             "numero_de_parcelas": acordo["numero_de_parcelas"],
             "perdao_encargos": acordo["perdao_encargos"],
             "desconto_principal": acordo["desconto_principal"],
-            "alcada": acordo["alcada"],
-            "id_solicitante": acordo["id_solicitante"],
+            "alcada": ROTULOS_DA_ALCADA.get(acordo["alcada"], acordo["alcada"]),
+            "id_solicitante": cargo_de(acordo["id_solicitante"], dados_sinteticos.buscar_funcionario),
         }
         escritas_sinteticas.ensaiar(self._gravar, conteudo, usuario)  # o que a confirmação recusaria, já recusa
         return conteudo, previa
+
+    def mensagem_ao_confirmar(self, dados):
+        return f"Acordo {dados['codigo']} {'aprovado' if dados['situacao'] == 'ativo' else 'recusado'}."
 
     def referencia_do_resultado(self, dados):
         return dados["codigo"]  # id neutro do acordo decidido: no registro, liga a escrita a quem confirmou

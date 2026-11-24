@@ -19,6 +19,7 @@ class AdicionarLinhaPlanilha(EscritaDeEscritorio):
     categorias_dados = ("documento_de_trabalho",)
     campos_liberados = (*EscritaDeEscritorio.campos_liberados, "planilha", "valores", "linhas_adicionadas", "aba", "abas")
     status = "ativa"
+    onde_conferir = "na planilha"
     titulo = "Adicionar linha à planilha"
     descricao_para_pessoa = (
         "Prepara uma linha nova numa planilha (Google ou Microsoft); ela só é gravada depois que você confirma."

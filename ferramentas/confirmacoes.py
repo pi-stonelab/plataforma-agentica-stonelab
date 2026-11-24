@@ -74,6 +74,9 @@ MENSAGEM_PREVIA_PRONTA = "Prévia pronta. Nada foi enviado: falta a confirmaçã
 MENSAGEM_PREVIA_ENCERRADA = "Esta prévia saiu da fila: peça de novo ao assistente."
 AVISO_DE_DEMONSTRACAO = "Modo de demonstração: nada sai de verdade."
 AVISO_DE_SAIDA = "Esta mensagem sai da plataforma. Confira se não há dado pessoal."
+MENSAGEM_EFEITO_INCERTO_EM = (
+    "O servidor de destino não confirmou: a ação pode ter sido feita. Confira {onde} antes de tentar de novo."
+)
 MENSAGEM_EFEITO_INCERTO = (
     "O servidor de destino não confirmou: a ação pode ter sido feita. Confira antes de pedir uma nova prévia."
 )
@@ -124,6 +127,8 @@ class FerramentaComConfirmacao(Ferramenta):
     rotulos_da_previa = {}  # campo da prévia -> rótulo, na ordem em que a interface mostra
     # Campos que só a pessoa vê no cartão, nunca o modelo (texto de terceiro lido para conferir o destino).
     campos_so_da_interface = ()
+    onde_conferir = None  # "na agenda": onde a pessoa vê se a ação aconteceu, quando o destino não confirmou
+    frase_de_nada_feito = "Nada foi enviado."  # a escrita no mock diz "Nada foi gravado."
     sai_da_plataforma = False  # True: o texto vai para fora (Slack, Telegram, Jira, e-mail), e o cartão avisa
 
     def aviso_da_previa(self, conteudo=None):
@@ -423,7 +428,14 @@ def pendentes(usuario):
 
 def mensagem_nada_saiu(ferramenta, erro=None):
     """Falha antes do envio: qual serviço falhou, que nada saiu e que a prévia continua na fila."""
-    return f"{mensagem_fora_do_ar(ferramenta, erro)} Nada foi enviado. {MENSAGEM_PREVIA_CONTINUA}"
+    return f"{mensagem_fora_do_ar(ferramenta, erro)} {ferramenta.frase_de_nada_feito} {MENSAGEM_PREVIA_CONTINUA}"
+
+
+def mensagem_efeito_incerto(ferramenta):
+    """O destino não confirmou: diz onde conferir, quando a ferramenta sabe (agenda, planilha, chamados)."""
+    if not ferramenta.onde_conferir:
+        return MENSAGEM_EFEITO_INCERTO
+    return MENSAGEM_EFEITO_INCERTO_EM.format(onde=ferramenta.onde_conferir)
 
 
 def confirmar(confirmacao_id, usuario):
@@ -460,7 +472,7 @@ def confirmar(confirmacao_id, usuario):
         nada_saiu = True
         resultado = resposta("erro", None, f"{erro.mensagem} {MENSAGEM_PREVIA_CONTINUA}", erro.tipo_erro)
     except EfeitoIncerto:  # saiu, mas sem confirmação: dizer "nada foi enviado" seria mentir
-        resultado = resposta("erro", None, MENSAGEM_EFEITO_INCERTO, "integracao_indisponivel")
+        resultado = resposta("erro", None, mensagem_efeito_incerto(ferramenta), "integracao_indisponivel")
     except (ConnectionError, TimeoutError) as erro:
         nada_saiu = True
         resultado = resposta("erro", None, mensagem_nada_saiu(ferramenta, erro), "integracao_indisponivel")

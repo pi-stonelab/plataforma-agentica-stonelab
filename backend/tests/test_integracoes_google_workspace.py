@@ -9,7 +9,6 @@ from datetime import timedelta
 
 import pytest
 from ferramentas import catalogo, confirmacoes, governanca, integracoes
-from ferramentas.confirmacoes import MENSAGEM_EFEITO_INCERTO
 from ferramentas.integracoes import credenciais
 from ferramentas.integracoes.__main__ import principal
 from ferramentas.integracoes.conector import FALHAS_PARA_PAUSAR
@@ -35,6 +34,12 @@ EVENTOS, ARQUIVOS, LER_PLANILHA, LER_DOCUMENTO = (
     "listar_eventos_agenda", "buscar_arquivos", "ler_planilha", "ler_documento",
 )
 CRIAR_EVENTO, ADICIONAR_LINHA, CRIAR_PLANILHA = "criar_evento_agenda", "adicionar_linha_planilha", "criar_planilha"
+
+
+def incerto(nome):
+    """A frase de "pode ter acontecido" da ferramenta: diz onde conferir."""
+    return confirmacoes.mensagem_efeito_incerto(catalogo.carregar()[nome])
+
 AGENTE = (EVENTOS, ARQUIVOS, LER_PLANILHA, LER_DOCUMENTO, CRIAR_EVENTO, ADICIONAR_LINHA, CRIAR_PLANILHA)
 PLANILHA, DOCUMENTO = "1aBcD-planilha-de-teste_01", "1xYz-documento-de-teste_01"
 ASSINATURA_DA_ANA = "— Ana, pela Plataforma Agêntica"
@@ -450,7 +455,7 @@ def test_resposta_perdida_na_criacao_diz_que_pode_ter_criado(conta_com_escrita, 
     previa = dados_de(CRIAR_EVENTO, {"titulo": "Incerto", "data": "2026-10-20", "hora_inicio": "10:00"}, ana)
     servidor.responder = lambda pedido: (None, {}, b"")
     resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
-    assert resultado["mensagem"] == MENSAGEM_EFEITO_INCERTO
+    assert resultado["mensagem"] == incerto(CRIAR_EVENTO)
 
 
 def test_adicionar_linha_anexa_como_texto_literal_na_aba_certa(conta_com_escrita, ana):
@@ -626,7 +631,7 @@ def test_escrita_aceita_com_resposta_fora_do_formato_diz_que_pode_ter_acontecido
 
     servidor.responder = responder
     resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
-    assert resultado["tipo_erro"] == "integracao_indisponivel" and resultado["mensagem"] == MENSAGEM_EFEITO_INCERTO
+    assert resultado["tipo_erro"] == "integracao_indisponivel" and resultado["mensagem"] == incerto(ADICIONAR_LINHA)
     assert len(dados.planilhas[PLANILHA]["abas"]["Resumo"]) == 4  # a linha entrou: "nada foi enviado" seria mentira
 
 
@@ -642,4 +647,4 @@ def test_criar_planilha_com_resposta_sem_id_diz_que_pode_ter_criado(conta_com_es
 
     servidor.responder = responder
     resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
-    assert resultado["mensagem"] == MENSAGEM_EFEITO_INCERTO
+    assert resultado["mensagem"] == incerto(CRIAR_PLANILHA)
