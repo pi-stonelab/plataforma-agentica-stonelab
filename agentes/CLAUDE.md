@@ -6,7 +6,7 @@ Runtime dos agentes. Roda no mesmo processo do back-end. O agente só pede ferra
 ## Arquivos
 
 - `agente_atendimento/agente.py`: o motor (`rodar_turno`, `Turno`, `Atendimento`, `Rodada`) e a configuração
-  do agente de atendimento (`AGENTE_ID`, `FERRAMENTAS_DO_AGENTE`, `SISTEMA`). A lista tem 33 das 56 ferramentas do
+  do agente de atendimento (`AGENTE_ID`, `FERRAMENTAS_DO_AGENTE`, `SISTEMA`). A lista tem 33 das 59 ferramentas do
   catálogo (decisão F2; o agente geral tem todas) e `test_agente_atendimento_ferramentas.py` obriga cada ferramenta nova
   a entrar nela ou a ter motivo para ficar de fora. Não importa `mock/`, SQLAlchemy,
   `requests` nem `dotenv` (tem teste); só `ferramentas/`.
