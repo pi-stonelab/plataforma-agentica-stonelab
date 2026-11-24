@@ -24,6 +24,13 @@ MOTIVOS_PARA_A_PESSOA = {
 }
 MOTIVO_GENERICO = "Não liberada para o seu perfil."
 MOTIVO_PLANEJADA = "Ainda não disponível."
+# O motor corta cada leitura em 6000 caracteres (`MAX_CHARS_MD`, agentes/agente_atendimento/agente.py). O índice
+# (`LER:` vazio) lista todas as ferramentas liberadas e vai inteiro em todo passo, então passa de 6000 num cargo
+# com 50 ferramentas e perderia a cauda. Ele se mede e se encurta aqui, abaixo do corte, com folga.
+LIMITE_DO_INDICE = 5800
+SECAO_FERRAMENTAS = "Ferramentas liberadas para você"
+FRASE_MAXIMA = 160  # frase inteira da ficha, quando o índice é pequeno (poucas ferramentas no agente)
+FRASE_MINIMA = 30  # abaixo disso a frase cortada não ajuda: o índice lista só `area/nome` e a área mostra as frases
 FERRAMENTAS = {}
 
 
@@ -168,11 +175,53 @@ def listar_fichas(usuario):
     return fichas
 
 
-def _lista(texto, titulo, itens):
-    """Troca o corpo da seção `## titulo` de `texto` pela lista `- nome: primeira frase` dos itens."""
-    linhas = "\n".join(f"- `{nome}`: {_primeira_frase(destino)}" for nome, destino in itens)
+def _frase_curta(frase, limite):
+    """A frase inteira se cabe em `limite`; senão cortada na última palavra inteira, terminada em reticências."""
+    if len(frase) <= limite:
+        return frase
+    return frase[: limite - 1].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+
+
+def _trocar_secao(texto, titulo, linhas):
+    """Troca o corpo da seção `## titulo` de `texto` pelas `linhas`."""
     padrao = re.compile(rf"(## {titulo}\n).*?(?=\n## |\Z)", re.DOTALL)
-    return padrao.sub(lambda m: f"{m.group(1)}\n{linhas}\n", texto)
+    return padrao.sub(lambda m: f"{m.group(1)}\n" + "\n".join(linhas) + "\n", texto)
+
+
+def _linha(nome, destino, limite):
+    """`- nome: primeira frase` do `agents.md` em `destino`, a frase cortada em `limite`; sem frase se `limite` é 0."""
+    return f"- `{nome}`: {_frase_curta(_primeira_frase(destino), limite)}" if limite else f"- `{nome}`"
+
+
+def _lista(texto, titulo, itens, limite=FRASE_MAXIMA):
+    """Troca o corpo da seção `## titulo` pela lista `- nome: primeira frase` dos `itens` (nome, pasta)."""
+    return _trocar_secao(texto, titulo, [_linha(nome, destino, limite) for nome, destino in itens])
+
+
+def _limite_das_frases(frases, sobra):
+    """Maior limite de frase (até `FRASE_MAXIMA`) com que as `frases` cabem em `sobra` caracteres.
+
+    0 se nem com `FRASE_MINIMA` cabem: aí o índice lista só os nomes."""
+    for limite in range(FRASE_MAXIMA, FRASE_MINIMA - 1, -1):
+        if sum(min(len(frase), limite) for frase in frases) <= sobra:
+            return limite
+    return 0
+
+
+def _indice(ferramentas, liberadas, areas):
+    """A raiz (`LER:` vazio): as áreas com a contagem e uma linha `area/nome: frase` por ferramenta liberada.
+
+    O texto cabe em `LIMITE_DO_INDICE`: o que sobra depois do texto fixo e dos nomes é dividido entre as frases
+    (`_limite_das_frases`, as curtas cedem espaço às longas). A frase inteira está em `LER: <area>`."""
+    quantidades = {a: sum(ferramentas[n].area == a for n in liberadas) for a in areas}
+    contagem = [f"- `{a}`: {q} ferramenta{'s' if q != 1 else ''}" for a, q in quantidades.items()]
+    texto = _trocar_secao(_ler_arquivo(RAIZ), "Áreas", contagem)
+    fichas = sorted((f"{ferramentas[n].area}/{n}", RAIZ / ferramentas[n].area / n) for n in liberadas)
+    fixo = len(_lista(texto, SECAO_FERRAMENTAS, [], limite=0))
+    nomes = sum(len(_linha(nome, destino, 0)) + 1 for nome, destino in fichas)
+    frases = [_primeira_frase(destino) for _, destino in fichas]
+    limite = _limite_das_frases(frases, LIMITE_DO_INDICE - fixo - nomes - 2 * len(fichas))
+    return _lista(texto, SECAO_FERRAMENTAS, fichas, limite)
 
 
 def _texto_do_caminho(caminho, liberadas):
@@ -184,9 +233,7 @@ def _texto_do_caminho(caminho, liberadas):
     ferramentas = carregar()
     areas = sorted({ferramentas[n].area for n in liberadas})
     if caminho == "":
-        texto = _lista(_ler_arquivo(RAIZ), "Áreas", [(a, RAIZ / a) for a in areas])
-        fichas = [(f"{ferramentas[n].area}/{n}", RAIZ / ferramentas[n].area / n) for n in liberadas]
-        return _lista(texto, "Ferramentas liberadas para você", sorted(fichas))
+        return _indice(ferramentas, liberadas, areas)
     if caminho in areas:
         itens = [(n, RAIZ / caminho / n) for n in liberadas if ferramentas[n].area == caminho]
         return _lista(_ler_arquivo(RAIZ / caminho), "Ferramentas", itens)

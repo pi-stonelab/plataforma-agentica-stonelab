@@ -34,7 +34,10 @@ roda um turno e devolve um `Turno(resposta, tipo, trajetoria, estado, motivo)`.
   lida e estava liberada; `FINAL` antes de ler o índice é recusado.
   `USAR` de ferramenta não lida não chega a executar, mas deixa registro de recusa (`catalogo.registrar_bloqueio`,
   `camada_bloqueio="agente"`, sem argumentos nem dados); a resposta à pessoa é a mesma de antes (MED-2).
-- O índice lista as ferramentas liberadas como `area/nome: primeira frase`. Os prompts mandam escolher nessa
+- O índice lista as ferramentas liberadas como `area/nome: primeira frase`. O catálogo (`catalogo._indice`) mede o
+  texto e encurta as frases para ele caber em 5800 caracteres, abaixo do corte do motor (`MAX_CHARS_MD`, 6000); com
+  50 ferramentas a frase fica em ~40 caracteres, e a frase inteira está em `LER: <area>`. O motor não mudou: se alguém
+  mexer em `MAX_CHARS_MD`, `catalogo.LIMITE_DO_INDICE` precisa ficar abaixo dele (`test_catalogo_indice.py` confere). Os prompts mandam escolher nessa
   lista e ler a ficha (`LER: <area>/<ferramenta>`) direto; ler a área é opcional. Os nomes para log vêm de
   `catalogo.nomes_e_areas()` e a lista do agente geral de `catalogo.nomes()`: o agente nunca pega a ferramenta.
 - `Turno.tipo`: `"final"`, `"pergunta"` ou `"limite"`. No limite, `motivo` é `"max_passos"`, `"repeticao"`,

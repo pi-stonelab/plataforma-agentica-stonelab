@@ -294,7 +294,10 @@ Exemplo: `listar_acordos_cliente`, que lê dados que o mock já tem.
 3. Crie `agents.md` da ferramenta com `## Quando usar`, `## Quando não usar`, `## Parâmetros`, `## O que devolve`
    e `## Para quem mantém`. Cada parâmetro aparece entre crases. Sem marcador `[preencher`. A primeira frase do
    primeiro parágrafo vira a linha da ferramenta no índice, então escreva uma frase boa e que termine em ponto.
-   O índice inteiro tem teto de 3500 caracteres (`test_indice_nao_cresce_sem_controle`).
+   O índice (`LER:` vazio) tem teto de `catalogo.LIMITE_DO_INDICE` (5800 caracteres, porque o motor corta cada leitura em
+   6000): quando são muitas ferramentas, o catálogo encurta as frases (até 30 caracteres, cortadas na última palavra, com
+   `…`) e, se nem assim couber, lista só `area/nome`; `LER: <area>` mostra as frases inteiras. Por isso a primeira
+   frase deve trazer o essencial no começo (`test_catalogo_indice.py` confere os 10 cargos com tudo ligado).
 4. Se o dado ainda não existe no mock: coluna em `mock/modelos.py`, consulta em `mock/consultas.py`, função na
    fachada `dados_sinteticos.py` e, para cada campo de texto novo, uma linha em `mock/regras.py`
    (`CLASSIFICACAO_CAMPOS` se for restrito, `CAMPOS_NAO_RESTRITOS` se for liberado). Veja `mock/CLAUDE.md`.
