@@ -137,11 +137,22 @@ class ProvedorDeCredencial(ABC):
             try:
                 nova = fluxo.renovar(atual)
             except ConcessaoRevogada:
-                self.apagar(id_usuario, fluxo.nome)
-                logger.info("conta externa desligada pelo serviço: integracao=%s", fluxo.nome)
-                raise ContaNaoLigada(fluxo.rotulo) from None
+                return self._depois_da_concessao_revogada(id_usuario, fluxo, atual)
             self.guardar(id_usuario, fluxo.nome, nova)
             return nova
+
+    def _depois_da_concessao_revogada(self, id_usuario, fluxo, usada):
+        """O serviço recusou o token de renovação `usada`. Se ele ainda é o guardado, a autorização acabou e a conta
+        é esquecida. Se outro processo já guardou um token novo (o serviço troca o de renovação a cada uso, e o
+        nosso ficou velho), a conta continua ligada e vale a credencial nova: apagá-la desligaria quem não pediu."""
+        guardada = self.ler(id_usuario, fluxo.nome)
+        if guardada is not None and guardada.refresh_token != usada.refresh_token:
+            if guardada.valida():
+                return guardada
+            raise ContaNaoLigada(fluxo.rotulo)  # a pessoa tenta de novo: a credencial guardada é a que renova
+        self.apagar(id_usuario, fluxo.nome)
+        logger.info("conta externa desligada pelo serviço: integracao=%s", fluxo.nome)
+        raise ContaNaoLigada(fluxo.rotulo)
 
 
 class ProvedorEmMemoria(ProvedorDeCredencial):

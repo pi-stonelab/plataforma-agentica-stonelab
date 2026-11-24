@@ -124,7 +124,8 @@ def test_state_de_uso_unico_preso_a_pessoa_e_com_validade(servidor, monkeypatch)
     codigo, estado = dados.consentir(ANA, url)
     with pytest.raises(oauth.AutorizacaoRecusada):  # outra pessoa tenta concluir o pedido da Ana
         GOOGLE.fluxo().concluir(BIA, estado, codigo)
-    with pytest.raises(oauth.AutorizacaoRecusada):  # e o pedido já foi gasto na tentativa
+    GOOGLE.fluxo().concluir(ANA, estado, codigo)  # o pedido da Ana continua valendo: a tentativa da Bia não o gasta
+    with pytest.raises(oauth.AutorizacaoRecusada):  # uso único: depois de concluído, não vale de novo
         GOOGLE.fluxo().concluir(ANA, estado, codigo)
     with pytest.raises(oauth.AutorizacaoRecusada):  # state inventado
         GOOGLE.fluxo().concluir(ANA, "inventado", "qualquer")
@@ -134,6 +135,16 @@ def test_state_de_uso_unico_preso_a_pessoa_e_com_validade(servidor, monkeypatch)
     monkeypatch.setattr(credenciais, "agora", lambda: agora + oauth.VALIDADE_DO_ESTADO + timedelta(seconds=1))
     with pytest.raises(oauth.AutorizacaoRecusada):
         GOOGLE.fluxo().concluir(ANA, estado, codigo)
+
+
+def test_state_roubado_por_outra_pessoa_nao_queima_o_pedido_do_dono(servidor):
+    _, dados = servidor
+    url = GOOGLE.autorizar(ANA)
+    codigo, estado = dados.consentir(ANA, url)
+    with pytest.raises(oauth.AutorizacaoRecusada):  # a Bia chuta o state da Ana
+        GOOGLE.fluxo().concluir(BIA, estado, codigo)
+    GOOGLE.fluxo().cancelar(BIA, estado)  # nem cancelando em nome da Ana
+    assert GOOGLE.fluxo().concluir(ANA, estado, codigo).access_token  # o pedido da Ana continua valendo
 
 
 def test_state_de_um_servico_nao_vale_em_outro(servidor):
@@ -253,6 +264,30 @@ def test_autorizacao_revogada_apaga_a_conta_e_pede_para_ligar_de_novo(servidor):
     assert erro.value.tipo_erro == "integracao_indisponivel" and "não está ligada" in erro.value.mensagem
     assert credenciais.provedor().ler(ANA, "google_workspace") is None
     assert not GOOGLE.conta_ligada(ANA)
+
+
+def test_renovacao_recusada_por_rotacao_de_outro_processo_nao_apaga_a_conta(servidor):
+    """O serviço trocou o token de renovação para outro processo: o nosso ficou velho e foi recusado. A credencial
+    nova, guardada por esse outro processo, não pode ser apagada (a pessoa continua ligada)."""
+    _, dados = servidor
+    antiga = ligar(dados)
+    vencida = credenciais.Credencial(
+        antiga.access_token, credenciais.agora() - timedelta(minutes=1), antiga.escopos, antiga.refresh_token)
+    credenciais.provedor().guardar(ANA, "google_workspace", vencida)
+    novo_dono = credenciais.Credencial(
+        "ya29.token-novo-do-outro-processo", credenciais.agora() + timedelta(hours=1), antiga.escopos, "renovacao-nova-0001")
+    fluxo = GOOGLE.fluxo()
+    original = fluxo.renovar
+
+    def renovar_enquanto_outro_processo_troca(credencial):
+        credenciais.provedor().guardar(ANA, "google_workspace", novo_dono)  # o outro processo termina antes
+        return original(credencial)
+
+    fluxo.renovar = renovar_enquanto_outro_processo_troca
+    del dados.renovacoes[antiga.refresh_token]  # o serviço já não aceita o token velho
+    token = credenciais.provedor().token_de_acesso(ANA, fluxo, {google.CALENDARIO_LEITURA}, recusado=antiga.access_token)
+    assert token == novo_dono.access_token
+    assert credenciais.provedor().ler(ANA, "google_workspace") == novo_dono
 
 
 def test_sem_token_de_renovacao_o_vencimento_pede_para_ligar_de_novo(servidor):

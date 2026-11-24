@@ -99,13 +99,14 @@ class PedidosPendentes:
             return estado
 
     def retirar(self, estado, id_usuario, nome):
-        """O pedido do `estado`, só se ele é desta pessoa e deste serviço. Uso único: sai da lista de qualquer jeito."""
+        """O pedido do `estado`, só se ele é desta pessoa e deste serviço. Uso único: sai da lista ao ser retirado."""
         with self._trava:
             self._recolher_vencidos()
-            pedido = self._pedidos.pop(estado, None) if isinstance(estado, str) else None
-        if pedido is None or pedido.id_usuario != id_usuario or pedido.nome != nome:
-            return None
-        return pedido
+            pedido = self._pedidos.get(estado) if isinstance(estado, str) else None
+            if pedido is None or pedido.id_usuario != id_usuario or pedido.nome != nome:
+                return None  # de outra pessoa ou serviço: o pedido do dono continua valendo (não dá para queimá-lo)
+            del self._pedidos[estado]
+            return pedido
 
     def limpar(self):
         with self._trava:
