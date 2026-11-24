@@ -3,6 +3,122 @@
 Textos prontos para o Pedro mandar. Cada mensagem diz o que mudou na pasta da pessoa ou no que ela usa, o que ajudaria
 fazer e o que pode quebrar. Nada aqui foi enviado nem postado. O Pedro lê, ajusta e decide quando mandar.
 
+## Mensagens do fechamento das ferramentas (bloco F, 24/11)
+
+Uma mensagem por pessoa, curtas, para o Pedro colar no Jira ou no grupo. Nada foi enviado. Os números de linha vêm de
+`python -m ferramentas.pendencias` em 24/11; se o código mudar, rode de novo (`grep -rn "A FAZER (Marcelo"` também serve).
+O estado geral está em `docs/estado-final-ferramentas.md`.
+
+### Para a Larissa e o professor (interface)
+
+Oi, Larissa e professor. O catálogo fechou em 56 ferramentas, todas com lógica. Nada de `frontend/` foi alterado. O que
+a tela ainda precisa para mostrar tudo isso:
+
+1. Tela de conectores: botão "Conectar conta" e "Desconectar" para Google e Microsoft (a conta é de cada pessoa). O
+   estado de cada integração vem de `estado_integracoes()` (campos `modo`, `saude` e `credencial`, que é `pessoa` nessas
+   duas). Quem não conectou recebe da ferramenta `integracao_indisponivel` com a frase "conta não ligada"; a tela deve
+   mostrar a frase como veio. Referências: `ferramentas/integracoes/oauth.py:20`, `google_workspace/README.md:54`.
+2. Cartão de confirmação das escritas: cada prévia (`Confirmacao`, §4.9) agora traz `expira_em` (ISO, horário de
+   Brasília; sugestão de texto "Vale até 20:04") e `aviso` (texto de modo de demonstração, ou o que sai da plataforma;
+   pode ser `null`). Marcador em `ferramentas/confirmacoes.py:294`. Botões enviar e descartar; a prévia vale 15
+   minutos. São 16 escritas em duas fases e todas usam o mesmo cartão.
+3. Caixa de saída simulada (sugestão, opcional): em modo simulado, Slack, Telegram e Jira guardam o que "mandariam"
+   (`ferramentas/integracoes/simuladas.py`). Uma tela só de demonstração que lista esses itens ajudaria a mostrar que a
+   mensagem saiu. Precisa de uma rota do Marcelo, que ainda não existe; só vale se sobrar tempo.
+4. Montar agente: `GET /ferramentas` devolve o catálogo filtrado pela permissão de quem pede (`liberada` e `motivo`
+   em linguagem simples). A tela de criação guiada pode mostrar as não liberadas desabilitadas, com o motivo, em vez de
+   escondê-las. Ferramentas com integração desligada vêm `inativa`.
+5. Anexos do chat (txt, csv, xlsx, docx e pdf, até 5 MB) e o link de download do arquivo que o agente entrega
+   (`arquivo_id` na resposta da ferramenta `entregar_arquivo`): `ferramentas/integracoes/anexos/README.md:39`.
+6. Nomes antigos no mock do front: `frontend/js/mock/ferramentas.js` ainda tem `abrir_ticket`, `adicionar_nota_ticket`,
+   `atualizar_status_ticket`, `consultar_ticket`, `listar_tickets_cliente` e `resumir_volume_tickets` (hoje são
+   `*_chamado`) e `consultar_saldo_conta`, que saiu do catálogo. Faltam 22 ferramentas novas no mock. O arquivo se gera
+   sozinho: `python frontend/scripts/gerar_catalogo_mock.py` na raiz. O `CONTRATO_API.md:674` também cita
+   `listar_tickets_cliente` e `consultar_ticket` no agente de exemplo.
+
+### Para o Marcelo e a Isabel (back-end)
+
+Oi, Marcelo e Isabel. Nada de `backend/app/` foi alterado. O que ficou marcado como `[A FAZER (Marcelo...)]` no código:
+
+- Rotas de login da conta de cada pessoa: `GET /integracoes/{servico}/autorizar` e `.../callback`
+  (`ferramentas/integracoes/oauth.py:16`; detalhes em `google_workspace/README.md:50` e `microsoft_365/README.md:48`).
+- Token da pessoa cifrado: tabela `credenciais_externas` e um `ProvedorNoBanco` (`ferramentas/integracoes/credenciais.py:17`
+  e `conector.py:223`). Hoje o provedor é em memória e some quando reinicia.
+- Gravar `execucoes_ferramenta`: `governanca.adicionar_destino(gravar_execucao)` uma vez no `lifespan`, com sessão própria
+  e erro se não gravar (`ferramentas/governanca.py:196`).
+- Prévias de escrita: tabela e rotas de listar, confirmar e cancelar (`ferramentas/confirmacoes.py:71`), a prévia na
+  resposta do turno (`:336`), 409 e 404 da rota de confirmação (`:356` e `:377`).
+- Rotas de ferramentas e de integrações: `GET /ferramentas` (`ferramentas/catalogo.py:175`) e `GET /integracoes`
+  (`ferramentas/integracoes/registro.py:45`).
+- Anexos: `POST /conversas/{id}/anexos` e `GET /arquivos/{arquivo_id}` (`ferramentas/integracoes/anexos/conector.py:19`).
+- `pypdf` no `requirements.txt` do back-end, senão PDF anexado volta `integracao_indisponivel`
+  (`ferramentas/integracoes/formatos.py:354`). Hoje nenhum dos dois `requirements.txt` o tem.
+- `CLAUDE.md` da raiz está desatualizado: a linha 37 diz "43 ferramentas em 8 áreas, 11 ativas"; hoje são 56 ativas (a
+  lista sai de `catalogo.carregar()`). Não mexemos no arquivo de vocês.
+- Sobre o índice: ele já sai compacto (cabe em 5800 caracteres) e a data de hoje vem do motor. Nada a fazer aí; só não
+  mudem `MAX_CHARS_MD` sem avisar.
+
+### Para o Brenno (segurança)
+
+Oi, Brenno. Decisões nossas sem fonte, que precisam do seu olho:
+
+- Categorias de dado novas para todo cargo com área: `chamado_interno` (Jira), `comunicacao_interna` (Slack e Telegram),
+  `agenda_pessoal` e `documento_de_trabalho` (Google, Microsoft e anexos). Admin, auditor e gestor de acessos ficam de
+  fora (E1 e G1 em `docs/decisoes.md`). Vocês concordam que qualquer funcionário use?
+- E-mail e telefone escritos no meio de um texto livre que sai (corpo de e-mail, mensagem de Slack) não são mascarados;
+  só CPF e cartão são (pergunta aberta 4). É decisão de produto.
+- Alçadas: `calcular_parcelas` e `registrar_acordo` usam as de `mock/regras.py` (analista até 6 parcelas e entrada
+  mínima de 20%, coordenador até 12 parcelas, desconto no principal só do coordenador e até 10%, perdão de encargos do
+  analista até R$ 2.000, dupla aprovação acima de R$ 10.000). `executar_antecipacao` é de N2. Se algum número difere do
+  que vocês desenharam, é uma linha em `regras.py`.
+- Em aberto no `enviar_email`: o supervisor pode confirmar a prévia de outra pessoa? Hoje só quem pediu confirma. E como
+  impedir que o corpo leve dado de outro lojista (`ferramentas/comunicacao/enviar_email/agents.md:39` e `:40`).
+- Contas pessoais (G3): o login do Google e da Microsoft usa PKCE, leitura por padrão e escrita só quando a pessoa usa
+  uma ferramenta de escrita, sem permissão `.All`. O token fica por pessoa e o back-end precisa guardá-lo cifrado, o que
+  ainda não existe. O Admin global não alcança nenhuma ferramenta de dado.
+- Risco de oráculo em `verificar_identidade_contato` (pergunta aberta 15): quem chuta telefones descobre qual confere.
+  Falta limite de tentativas e alerta; precisa de decisão sua e do Enrico.
+
+### Para o Enrico (QA)
+
+Oi, Enrico. A suíte está em `backend/tests/` com 3800+ testes (`python -m pytest backend/tests -q`). Duas falhas são
+aceitas: e-mails `@stonelab.dev` em `frontend/` (o teste de LGPD varre o repositório todo). Regressão por bloco:
+
+- Mock fase 2: `test_mock_consultas_fase2.py`, `test_mock_fase2.py`.
+- Leituras e cálculos (blocos A a C): `test_ferramentas_bloco_c_*.py`, `test_ferramentas_novas_matriz.py` (cargo, escopo, parâmetros
+  e falha do mock para cada ferramenta), `test_regressao_cenarios.py` (cenários 1, 3, 5 e 7).
+- D, escritas no mock: `test_ferramentas_escritas_mock.py` (prévia não grava, confirmar grava uma vez, cancelar e expirar
+  não gravam, outra pessoa não confirma).
+- E1 e E2, integrações: `test_integracoes_*.py`, contra servidores locais falsos; nenhum teste sai da máquina.
+- F, índice, agente e avaliação: `test_catalogo_indice.py`, `test_agente_atendimento_ferramentas.py`,
+  `test_agente_data_de_hoje.py`, `test_agentes_avaliacao.py`.
+
+O que vale testar à mão: o índice de cada um dos 10 cargos com todas as integrações ligadas; uma escrita até a
+confirmação; prévia expirada (15 min); a mesma pergunta com cargos diferentes; o corte de resposta grande (5000
+caracteres). Pendente para você: contar prévias aguardando, confirmadas, canceladas e expiradas a partir do registro
+(`ferramentas/confirmacoes.py:16`). O CI ainda só roda gitleaks e ruff, não o pytest.
+
+### Para o Christopher e o Isack (agentes)
+
+Oi, Christopher e Isack. Três mudanças que tocam o motor ou os prompts, todas pequenas e testadas:
+
+- Índice acima de 6000 caracteres: o corte de `MAX_CHARS_MD` (6000) escondia o fim do índice do agente geral (até 9500
+  caracteres para um supervisor). Resolvemos do nosso lado, em `ferramentas/catalogo.py`: o catálogo mede o índice e
+  encurta as frases para caber em 5800. O motor não mudou. Se mudarem `MAX_CHARS_MD`, `catalogo.LIMITE_DO_INDICE` precisa
+  ficar abaixo (o teste `test_catalogo_indice.py` confere).
+- Data de hoje no prompt: o `montar_prompt` ganhou uma linha (`catalogo.data_de_hoje()`), antes da pergunta. No simulado
+  é 15/10/2026 21h; com uma integração real, o dia de Brasília. Os dois `SISTEMA` ganharam a regra de dizer sempre a data
+  da cotação ou da consulta.
+- Lista de ferramentas do atendimento: agora tem 33 das 56 (`FERRAMENTAS_DO_AGENTE`, decisão F2). Continua fixa no
+  código; ler da configuração do agente é de vocês (marcador `agentes/agente_atendimento/agente.py:46`, KAN-55). Falta
+  também avisar no `Turno` que há prévia aguardando (`ferramentas/comunicacao/enviar_email/agents.md:38`).
+- A avaliação cresceu para 27 cenários, com as escritas em duas fases (`agentes/avaliacao.py`). A rodada com o modelo
+  real fica com o Pedro.
+
+## Mensagens anteriores (bloco de 12/11 a 24/11)
+
+Estas já foram escritas antes do fechamento. Onde um número ficou velho, está corrigido.
+
 O que vale para todas:
 
 - O trabalho está na branch `integracao/seguranca-banco`. Por decisão do Pedro (D1), o PR nosso só sai depois que os PRs
@@ -19,7 +135,7 @@ O que mudou e te afeta:
 
 - O `CLAUDE.md` da raiz foi alinhado ao código que existe hoje, com a autorização do Pedro. Corrigimos só o que
   contradizia o código (por exemplo, `MAX_PASSOS` agora é 10, o agente roda por `rodar_turno`, a `Plataforma` é criada
-  por pedido, e há 43 ferramentas, 11 ativas). Acrescentamos duas seções: "Como as quatro pastas se encaixam" e "O que a
+  por pedido, e havia 43 ferramentas, 11 ativas; hoje são 56, todas ativas). Acrescentamos duas seções: "Como as quatro pastas se encaixam" e "O que a
   etapa do back-end precisa fazer". Se algum trecho não fizer sentido para você, pode desfazer ou reescrever.
 - A segunda dessas seções lista doze pontos que o back-end liga: `montar_acesso`, `Plataforma` por pedido com
   `carregar_agente`, orquestrador decorado, `adicionar_destino` e `ao_registrar`, o `LLMClient` com a assinatura
@@ -150,8 +266,7 @@ O que pode quebrar:
 - Quem chamava `agente(pergunta, usuario, chamar_modelo)` ainda funciona (a função ficou para testes e terminal), mas o
   caminho do produto é `rodar_turno`.
 - `NIVEL`, `AREA` e `CARTEIRA` do `.env` não valem mais. O nível, a área e a carteira vêm do cargo.
-- A lista `FERRAMENTAS_DO_AGENTE` do atendimento continua com 5 nomes (KAN-55). As seis ferramentas novas só entram se
-  vocês as incluírem.
+- A lista `FERRAMENTAS_DO_AGENTE` do atendimento tinha 5 nomes (KAN-55); hoje tem 33 das 56 (decisão F2).
 - A suíte do agente mudou de lugar: `backend/tests/test_agente_*.py`.
 
 Perguntas para vocês: o que acontece quando o turno passa de 10 passos (hoje devolve uma mensagem fixa e o motivo
@@ -217,8 +332,8 @@ documentos da pesquisa. O Pedro confere cada um antes.
 3. Agentes (limites, KAN-38; lista de ferramentas, KAN-55).
 
    > O motor roda por `rodar_turno`, com 10 passos, 3 repetições e prazo de 120 s por turno. O prazo não tem fonte e
-   > precisa ser medido. `PERGUNTAR` devolve o estado. A lista de ferramentas do agente de atendimento continua fixa em 5
-   > (KAN-55). Existe um agente geral sobre o mesmo motor.
+   > precisa ser medido. `PERGUNTAR` devolve o estado. A lista de ferramentas do agente de atendimento é fixa em 33
+   > (KAN-55, decisão F2). Existe um agente geral sobre o mesmo motor.
 
 4. Testes e divergências (KAN-69).
 
@@ -229,7 +344,7 @@ documentos da pesquisa. O Pedro confere cada um antes.
 5. Ferramentas e mock (modelo de dados e dados sintéticos).
 
    > O mock (20 lojistas, 15 funcionários, cenários 1, 3, 5 e 7) vive em banco próprio (`MOCK_DATABASE_URL`) e as
-   > ferramentas leem dele. Seis ferramentas de leitura novas estão ativas (11 ativas em 43). Dado restrito é mascarado
+   > ferramentas leem dele. As ferramentas leem do mock e hoje são 56, todas ativas. Dado restrito é mascarado
    > na saída da ferramenta. Ver `ferramentas/CLAUDE.md` e `mock/CLAUDE.md`.
 
 6. Back-end (OAuth por pessoa e anexos, KAN-60; arquitetura, KAN-31).
