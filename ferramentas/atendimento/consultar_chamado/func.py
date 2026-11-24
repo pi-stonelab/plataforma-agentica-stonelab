@@ -37,10 +37,10 @@ class ConsultarChamado(Ferramenta):
         for mensagem in mensagens:
             mensagem["texto"], mensagem["texto_cortado"] = lojista.cortar_mensagem(mensagem["texto"])
         return {
-            "codigo": pedido.codigo,
+            "id_cliente": pedido.codigo,
             "chamado": chamado,
             "mensagens": mensagens,
-            "total_de_mensagens": total,
+            "total_encontrado": total,
             "truncado": total > len(mensagens),
         }
 

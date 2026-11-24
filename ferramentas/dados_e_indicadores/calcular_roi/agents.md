@@ -20,7 +20,7 @@ Não use para resultado financeiro da Stone (use `resumir_receita_periodo`). Nã
 
 ## O que devolve
 
-Em `dados`: `meses`, `economia_mensal`, `custo_mensal`, `ganho_liquido_mensal`, `ganho_total`, `custo_total`, `roi_percentual` (ganho total menos custo total, dividido pelo custo total; vazio se o custo for zero), `payback_meses` (meses para pagar a implantação; vazio se nunca paga) e `se_paga` (paga dentro do horizonte). Os valores em reais são texto como `R$ 2.000,00`: repita sem converter. Diga que é uma estimativa com os números informados.
+Em `dados`: `meses`, `economia_mensal`, `custo_mensal`, `ganho_liquido_mensal`, `ganho_total`, `custo_total`, `roi_percentual` (número com duas casas, como `328.57`: ganho total menos custo total, dividido pelo custo total; vazio se o custo for zero), `payback_meses` (meses para pagar a implantação; vazio se nunca paga) e `se_paga` (paga dentro do horizonte). Os valores em reais são texto como `R$ 2.000,00`: repita sem converter. Diga que é uma estimativa com os números informados.
 
 Erros possíveis: `parametro_invalido` (horas, valores ou meses fora das faixas).
 

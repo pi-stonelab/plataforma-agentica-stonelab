@@ -192,8 +192,8 @@ def test_simulacao_do_cenario_4_confere_com_a_conta_feita_a_mao(fachada):
 
 
 def test_percentual_em_texto(fachada):
-    assert (fachada.percentual(299), fachada.percentual(2000), fachada.percentual(5)) == ("2,99%", "20,00%", "0,05%")
-    assert fachada.percentual(None) is None
+    assert (fachada.taxa_percentual(299), fachada.taxa_percentual(2000), fachada.taxa_percentual(5)) == (2.99, 20.0, 0.05)
+    assert fachada.taxa_percentual(None) is None
 
 
 def test_antecipacao_recusada_para_quem_tem_fatura_vencida_ha_mais_de_15_dias(fachada):
@@ -313,12 +313,11 @@ def test_comentarios_so_com_comentario_e_no_escopo_da_carteira(fachada, sessao):
     assert len(da_pme) < len(todos)
 
 
-def test_media_da_satisfacao_em_texto(fachada):
+def test_media_da_satisfacao_e_numero_com_duas_casas(fachada):
     resumo = fachada.resumo_satisfacao(None, None, None)
-    assert set(resumo) == {"respostas", "notas", "media"}
-    inteiro, centesimos = resumo["media"].split(",")
+    assert set(resumo) == {"respostas", "notas", "media"} and isinstance(resumo["media"], float)
     soma = sum(nota * quantidade for nota, quantidade in resumo["notas"].items())
-    assert abs(int(inteiro) * 100 + int(centesimos) - 100 * soma / resumo["respostas"]) <= 0.5
+    assert abs(resumo["media"] - soma / resumo["respostas"]) <= 0.005
     assert fachada.resumo_satisfacao(date(2020, 1, 1), date(2020, 1, 2), None)["media"] is None
 
 

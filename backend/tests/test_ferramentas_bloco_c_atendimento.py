@@ -74,14 +74,14 @@ def test_chamado_da_ouvidoria_com_prazo_e_mensagens_do_cenario_9(engine):
     assert (chamado["fila"], chamado["aberto_em"], chamado["prazo_em"]) == ("ouvidoria", g.C9_ABERTURA, g.C9_PRAZO)
     assert (chamado["dias_uteis_restantes"], chamado["prazo_estourado"]) == (g.C9_DIAS_UTEIS_RESTANTES, False)
     assert all(codigo in chamado["resumo"] for codigo in g.C9_CHAMADOS_FECHADOS)
-    assert dados["total_de_mensagens"] == len(dados["mensagens"]) and dados["truncado"] is False
+    assert dados["total_encontrado"] == len(dados["mensagens"]) and dados["truncado"] is False
 
 
 def test_chamado_traz_as_mensagens_mais_recentes_em_ordem_cronologica(engine):
     ana = usuario(engine, "atendente_n1")
     completo = dados_de(chamar("consultar_chamado", {"id_cliente": g.C7_LOJISTA, "id_chamado": g.C7_CHAMADO, "limite": 50}, ana))
     curto = dados_de(chamar("consultar_chamado", {"id_cliente": g.C7_LOJISTA, "id_chamado": g.C7_CHAMADO, "limite": 2}, ana))
-    assert completo["total_de_mensagens"] > 2
+    assert completo["total_encontrado"] > 2
     assert curto["mensagens"] == completo["mensagens"][-2:] and curto["truncado"] is True
     horas = [m["data_hora"] for m in completo["mensagens"]]
     assert horas == sorted(horas)
@@ -149,7 +149,7 @@ def test_identidade_confere_com_contato_cadastrado_e_nunca_devolve_o_contato(eng
     assert resposta["dados"]["confere"] is True and resposta["dados"]["papel"] == contato["papel"]
     texto = json.dumps(resposta, ensure_ascii=False)
     assert contato["email"].lower() not in texto.lower() and contato["telefone"] not in texto
-    assert set(resposta["dados"]) == {"codigo", "confere", "papel", "orientacao"}
+    assert set(resposta["dados"]) == {"id_cliente", "confere", "papel", "orientacao"}
 
 
 @pytest.mark.parametrize(
@@ -255,7 +255,7 @@ def test_satisfacao_resume_notas_e_media_para_o_supervisor(engine):
     resposta = chamar("resumir_satisfacao", {}, usuario(engine, "supervisor_atendimento"))
     resumo = dados_de(resposta)["resumo"]
     assert resumo["respostas"] == sum(resumo["notas"].values()) == 31
-    assert resumo["media"] == "3,52"
+    assert resumo["media"] == 3.52
 
 
 def test_satisfacao_filtra_reclamacoes_e_traz_o_comentario_armadilha_como_dado(engine):

@@ -8,7 +8,7 @@ Use quando o usuário pedir uma proposta de acordo de parcelamento para um valor
 
 ## Quando não usar
 
-Esta ferramenta só calcula: não busca a fatura, não fecha nem grava acordo. Para achar as faturas, use `listar_faturas_em_atraso`. Para calcular multa e juros, use `calcular_multa_atraso`. O resultado é uma proposta: o usuário precisa confirmar, e quem aprova é o que o campo `quem_aprova` indicar.
+Esta ferramenta só calcula: não busca a fatura, não fecha nem grava acordo. Para achar as faturas, use `listar_faturas_em_atraso`. Para calcular multa e juros, use `calcular_multa_atraso`. O resultado é uma proposta: o usuário precisa confirmar, e quem aprova é o que o campo `alcada` indicar.
 
 ## Parâmetros
 
@@ -21,9 +21,9 @@ Esta ferramenta só calcula: não busca a fatura, não fecha nem grava acordo. P
 
 ## O que devolve
 
-Em `dados`: `valor_informado`, `numero_parcelas`, `entrada_percentual`, `desconto_principal_percentual`, `quem_aprova`, `motivo`, `valor_negociado` (valor depois do desconto e do perdão), `entrada` e `parcelas` (lista com `numero` e `valor`). Os valores em reais são texto como `R$ 66,14`: repita sem converter. As parcelas são iguais e a última absorve a diferença de centavos; entrada mais parcelas dão o `valor_negociado`. A entrada arredonda para cima e o desconto para baixo, para nenhum dos dois sair do percentual pedido.
+Em `dados`: `valor_informado`, `numero_parcelas`, `entrada_percentual`, `desconto_principal_percentual`, `alcada`, `motivo`, `valor_negociado` (valor depois do desconto e do perdão), `entrada` e `parcelas` (lista com `numero` e `valor`). Os valores em reais são texto como `R$ 66,14`: repita sem converter. As parcelas são iguais e a última absorve a diferença de centavos; entrada mais parcelas dão o `valor_negociado`. A entrada arredonda para cima e o desconto para baixo, para nenhum dos dois sair do percentual pedido.
 
-`quem_aprova` segue as alçadas do DOC-MOCK §7.9. `analista`: até 6 parcelas, entrada de pelo menos 20%, sem desconto no principal e perdão de encargos só em dívida de até R$ 2.000,00. `coordenador`: mais de 6 e até 12 parcelas, entrada abaixo de 20%, desconto no principal de até 10% ou perdão de encargos em dívida maior. `dupla_aprovacao`: acima de R$ 10.000,00 renegociados, duas pessoas aprovam e quem pede nunca aprova. `proibido`: mais de 12 parcelas ou desconto acima de 10% do principal; nesse caso `parcelas` vem vazia e nada é calculado: explique o motivo ao usuário e não ofereça o acordo. Diga sempre quem aprova e que a proposta depende de confirmação.
+`alcada` segue as alçadas do DOC-MOCK §7.9. `analista`: até 6 parcelas, entrada de pelo menos 20%, sem desconto no principal e perdão de encargos só em dívida de até R$ 2.000,00. `coordenador`: mais de 6 e até 12 parcelas, entrada abaixo de 20%, desconto no principal de até 10% ou perdão de encargos em dívida maior. `dupla_aprovacao`: acima de R$ 10.000,00 renegociados, duas pessoas aprovam e quem pede nunca aprova. `proibido`: mais de 12 parcelas ou desconto acima de 10% do principal; nesse caso `parcelas` vem vazia e nada é calculado: explique o motivo ao usuário e não ofereça o acordo. Diga sempre quem aprova e que a proposta depende de confirmação.
 
 Erros possíveis: `parametro_invalido` (valor, parcelas ou percentuais fora das faixas, principal ou perdão fora do valor total, ou valor pequeno demais para as parcelas).
 

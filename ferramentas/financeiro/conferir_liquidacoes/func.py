@@ -66,10 +66,10 @@ class ConferirLiquidacoes(Ferramenta):
         dias = dados_sinteticos.agenda_e_liquidacoes_por_dia(pedido.codigo, pedido.data_inicio, pedido.data_fim)
         divergencias = [item for item in map(_divergencia, dias) if item is not None]
         return {
-            "codigo": pedido.codigo,
+            "id_cliente": pedido.codigo,
             "dias_conferidos": len(dias),
             "divergencias": divergencias[: pedido.limite],
-            "total_de_divergencias": len(divergencias),
+            "total_encontrado": len(divergencias),
             "truncado": len(divergencias) > pedido.limite,
             "janela_dias": governanca.janela_dias(usuario),
         }

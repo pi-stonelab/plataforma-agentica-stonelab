@@ -238,6 +238,27 @@ ferramenta nova que devolva `nome_fantasia`, `resumo` de chamado ou texto de men
 Os textos de erro que o modelo vê estão em `ferramentas/agents.md`. Mensagem de erro nunca leva nome de pessoa,
 nome de lojista nem valor de dado.
 
+## Padrão das saídas (`dados`)
+
+Vale para as ferramentas de leitura e cálculo do bloco C e para as novas. O modelo repete o que lê, então o mesmo
+conceito tem o mesmo nome e o mesmo formato em toda ferramenta.
+
+- Código do lojista: `id_cliente` (igual ao parâmetro). `codigo` fica para o código da própria entidade da lista
+  (`CB00001` do chargeback, `CH000061` do chamado, `KB003` do artigo), nunca para o lojista, para os dois não se
+  misturarem na mesma resposta. As ferramentas dos blocos A e B (`consultar_liquidacoes_cliente`,
+  `consultar_transacoes_cliente`, `listar_faturas_em_atraso`, `listar_chamados_cliente`, `consultar_contatos_lojista`)
+  ainda devolvem `codigo` para o lojista; migrar é pergunta em aberto (docs/decisoes.md, C13).
+- Dinheiro: texto em reais, `"R$ 1.842,30"` (`dados_sinteticos.reais`). Nunca centavos para o modelo.
+- Percentual: número com duas casas, em pontos percentuais (`2.99` quer dizer 2,99%), em campo que termina em
+  `_percentual` (`taxa_chargeback_percentual`, `taxa_mensal_percentual`, `roi_percentual`). Nunca texto com `%`.
+  Para escrever "2,99%" na resposta é o modelo que formata. Média de nota também é número com duas casas.
+- Datas: `AAAA-MM-DD` em texto; meses `AAAA-MM`.
+- Listas: `truncado` (verdadeiro se há mais do que veio) e o total real em `total_encontrado` quando a resposta tem uma
+  lista só; com duas listas, `total_de_<lista>` para cada uma (`total_de_chargebacks`, `total_de_casos_pix`).
+  Se o teto de tamanho cortar a lista (`tamanho.py`), vêm também `cortados_por_tamanho` e `aviso_de_tamanho`.
+- Quem aprova um acordo: `alcada`, com os valores de `regras.alcada_do_acordo` (`analista`, `coordenador`,
+  `dupla_aprovacao`, `proibido`), em `calcular_parcelas` e em `listar_acordos`.
+
 ## Como adicionar uma ferramenta de leitura nova
 
 Pelo `BRIEFING.md` (decisão 5), não crie ferramenta sem o Pedro pedir. As de leitura dos cenários 1, 3, 5 e 7 foram

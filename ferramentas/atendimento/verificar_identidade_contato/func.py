@@ -53,7 +53,7 @@ class VerificarIdentidadeContato(Ferramenta):
         resultado = dados_sinteticos.contato_confere(codigo, telefone, email)
         confere = bool(resultado and resultado["confere"])
         return {
-            "codigo": codigo,
+            "id_cliente": codigo,
             "confere": confere,
             "papel": resultado["papel"] if confere else None,
             "orientacao": ORIENTACAO_QUANDO_CONFERE if confere else ORIENTACAO_QUANDO_NAO_CONFERE,

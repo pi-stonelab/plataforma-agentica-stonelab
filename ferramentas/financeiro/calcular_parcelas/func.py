@@ -102,9 +102,9 @@ class CalcularParcelas(Ferramenta):
         dados = {
             "valor_informado": reais(total),
             "numero_parcelas": numero_parcelas,
-            "entrada_percentual": float(entrada_percentual),
-            "desconto_principal_percentual": float(desconto_percentual),
-            "quem_aprova": alcada,
+            "entrada_percentual": round(float(entrada_percentual), 2),
+            "desconto_principal_percentual": round(float(desconto_percentual), 2),
+            "alcada": alcada,
             "motivo": motivo_da_alcada(
                 alcada, principal=principal, negociado=negociado, numero_parcelas=numero_parcelas,
                 entrada=valor_entrada, perdao=perdao, desconto=desconto,

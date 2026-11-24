@@ -180,7 +180,7 @@ def test_conferencia_do_kan_14_caso_5_acha_o_deposito_15_reais_abaixo(engine):
 def test_conferencia_de_lojista_sem_divergencia_devolve_lista_vazia(engine):
     dados = chamar("conferir_liquidacoes", {"id_cliente": g.C4_LOJISTA}, atendente_pme(engine))["dados"]
     assert dados["dias_conferidos"] > 0
-    assert (dados["divergencias"], dados["total_de_divergencias"], dados["truncado"]) == ([], 0, False)
+    assert (dados["divergencias"], dados["total_encontrado"], dados["truncado"]) == ([], 0, False)
 
 
 def test_conferencia_no_mundo_inteiro_acha_so_as_tres_divergencias_plantadas(engine):
@@ -328,7 +328,7 @@ def parcelas(engine, **argumentos):
 
 def test_parcelas_acima_de_dez_mil_pedem_dupla_aprovacao(engine):
     dados = parcelas(engine, valor_total="12663.60", numero_parcelas=6)["dados"]
-    assert dados["quem_aprova"] == "dupla_aprovacao" and "quem pede nunca aprova" in dados["motivo"]
+    assert dados["alcada"] == "dupla_aprovacao" and "quem pede nunca aprova" in dados["motivo"]
     assert dados["entrada"] == "R$ 2.532,72" and len(dados["parcelas"]) == 6
 
 
@@ -337,13 +337,13 @@ def test_perdao_em_divida_acima_de_dois_mil_vai_para_o_coordenador(engine):
         engine, valor_total="2600", valor_principal="2400", perdao_encargos="200",
         numero_parcelas=4,
     )["dados"]
-    assert dados["quem_aprova"] == "coordenador" and "perdoa multa e juros" in dados["motivo"]
+    assert dados["alcada"] == "coordenador" and "perdoa multa e juros" in dados["motivo"]
     assert dados["valor_negociado"] == "R$ 2.400,00"
     pequena = parcelas(
         engine, valor_total="1900", valor_principal="1800", perdao_encargos="100",
         numero_parcelas=4,
     )["dados"]
-    assert pequena["quem_aprova"] == "analista"
+    assert pequena["alcada"] == "analista"
 
 
 @pytest.mark.parametrize(
@@ -375,7 +375,7 @@ def test_quem_aprova_e_sempre_a_regra_do_mock_e_o_motivo_nunca_vem_vazio(
     negociado = total - desconto_centavos
     entrada = -(-negociado * int(entrada_percentual) // 100)  # para cima, como a ferramenta
     esperado = regras.alcada_do_acordo(total, negociado, numero_parcelas, entrada, 0, desconto_centavos)
-    assert dados["quem_aprova"] == esperado
+    assert dados["alcada"] == esperado
     assert dados["motivo"] and not dados["motivo"].endswith(": .")
 
 

@@ -16,7 +16,7 @@ Para ver as parcelas da agenda, use `consultar_agenda_recebiveis`. Esta ferramen
 
 ## O que devolve
 
-Em `dados`: `codigo`, `pode_antecipar`, `motivos_de_recusa` (lista em texto; vazia quando pode), `simulacao` e `aviso`. A `simulacao` (vazia quando não pode) traz `data_credito` (o dia em que o dinheiro cai, AAAA-MM-DD), `taxa_mensal` (texto como `2,99%`), `quantidade_de_parcelas`, `valor_antecipado` (soma das parcelas antecipadas), `desconto` e `valor_liquido` (o que o lojista recebe). As parcelas que já caem no dia do crédito, as retidas e as bloqueadas ficam de fora. O desconto é proporcional aos dias que faltam para cada parcela. Repita os valores sem converter.
+Em `dados`: `id_cliente`, `pode_antecipar`, `motivos_de_recusa` (lista em texto; vazia quando pode), `simulacao` e `aviso`. A `simulacao` (vazia quando não pode) traz `data_credito` (o dia em que o dinheiro cai, AAAA-MM-DD), `taxa_mensal_percentual` (número em percentual com duas casas, como `2.99`), `quantidade_de_parcelas`, `valor_antecipado` (soma das parcelas antecipadas), `desconto` e `valor_liquido` (o que o lojista recebe). As parcelas que já caem no dia do crédito, as retidas e as bloqueadas ficam de fora. O desconto é proporcional aos dias que faltam para cada parcela. Repita os valores sem converter.
 
 Os motivos de recusa possíveis: lojista bloqueado, conta de recebimento em verificação, conta de recebimento inválida (o dinheiro fica retido até a conta ser corrigida pelo N2), fatura vencida há mais de 15 dias ou não há parcelas futuras para antecipar.
 

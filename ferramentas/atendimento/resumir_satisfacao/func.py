@@ -46,7 +46,7 @@ class ResumirSatisfacao(Ferramenta):
         return {
             "resumo": resumo,
             "comentarios": comentarios,
-            "total_de_comentarios": total,
+            "total_encontrado": total,
             "truncado": total > len(comentarios),
         }
 

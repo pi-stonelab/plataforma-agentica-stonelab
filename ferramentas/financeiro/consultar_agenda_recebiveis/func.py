@@ -49,7 +49,7 @@ class ConsultarAgendaRecebiveis(Ferramenta):
             pedido.codigo, pedido.data_inicio, pedido.data_fim, situacao, pedido.limite
         )
         return {
-            "codigo": pedido.codigo,
+            "id_cliente": pedido.codigo,
             "agenda_futura": dados_sinteticos.resumo_da_agenda(pedido.codigo),
             "parcelas": parcelas,
             "total_encontrado": total,

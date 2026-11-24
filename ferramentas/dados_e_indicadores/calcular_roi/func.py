@@ -56,7 +56,7 @@ class CalcularRoi(Ferramenta):
         if custo_total == 0:
             roi = None
         else:
-            roi = (Decimal(ganho_total - custo_total) * 100 / custo_total).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+            roi = (Decimal(ganho_total - custo_total) * 100 / custo_total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if implantacao_centavos == 0:
             payback = 0 if ganho_liquido_mensal >= 0 else None
         elif ganho_liquido_mensal > 0:

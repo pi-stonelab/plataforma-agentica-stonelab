@@ -26,7 +26,7 @@ class ListarContestacoesCliente(Ferramenta):
         chargebacks, total_chargebacks = dados_sinteticos.buscar_chargebacks(pedido.codigo, pedido.limite)
         casos_pix, total_casos_pix = dados_sinteticos.buscar_casos_pix(pedido.codigo, pedido.limite)
         return {
-            "codigo": pedido.codigo,
+            "id_cliente": pedido.codigo,
             "chargebacks": chargebacks,
             "total_de_chargebacks": total_chargebacks,
             "casos_pix": casos_pix,

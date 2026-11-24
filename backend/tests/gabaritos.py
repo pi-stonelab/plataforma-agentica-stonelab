@@ -447,7 +447,7 @@ C4_PARCELA_QUE_JA_CAI_NO_CREDITO_CENTAVOS = 21754
 C4_ANTECIPAVEL_CENTAVOS = 1178246  # R$ 12.000,00 menos R$ 217,54
 C4_SIMULACAO = {
     "data_credito": "2026-10-16",
-    "taxa_mensal": "2,99%",
+    "taxa_mensal_percentual": 2.99,
     "quantidade_de_parcelas": 25,
     "valor_antecipado": "R$ 11.782,46",
     "desconto": "R$ 1.153,48",

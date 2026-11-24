@@ -584,6 +584,22 @@ Aplicadas depois da revisão do bloco C. Ficam para o Pedro confirmar.
   simulação na negociação de acordo, é pergunta para o Pedro (SEM FONTE: o §8.2 não a dá).
 - No código: `mock/regras.py` (`CATEGORIAS_DADO`, `CARGOS`), `ferramentas/financeiro/consultar_saldo_agenda`.
 
+### C12. Padrão dos formatos de saída
+- Decisão: código do lojista sempre `id_cliente` nas ferramentas do bloco C (antes, `codigo` aparecia ao lado do
+  `codigo` do chamado ou do chargeback); percentual sempre número com duas casas em campo `*_percentual` (antes havia
+  texto `"2,99%"`, número `20.0` e `328.6`); `alcada` no lugar de `quem_aprova` (o nome de `listar_acordos` e de
+  `regras.alcada_do_acordo`); `total_encontrado` quando a resposta tem uma lista só e `total_de_<lista>` quando tem duas.
+  A média da satisfação virou número (`3.52`). O padrão está em `ferramentas/CLAUDE.md`.
+- Não mexe no contrato com o front: `frontend/CONTRATO_API.md` não descreve o `dados` de nenhuma ferramenta de dado.
+  O agente de atendimento não lê esses campos por nome (conferido em `agentes/`, só testes de `backend/tests/` os liam).
+
+### C13. Pergunta: migrar `codigo` das ferramentas dos blocos A e B para `id_cliente`?
+- Hoje `consultar_liquidacoes_cliente`, `consultar_transacoes_cliente`, `listar_faturas_em_atraso`,
+  `listar_chamados_cliente` e `consultar_contatos_lojista` devolvem o lojista em `codigo`, e
+  `test_agente_varias_ferramentas.py` lê `"codigo": "M..."` de uma observação do `consultar_cliente` (aí o `codigo` é
+  da própria entidade, que fica). Migrar as cinco é pequeno, mas muda saída que a frente de agentes já viu em
+  avaliações. Fica para o Pedro decidir.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que

@@ -256,12 +256,9 @@ def resumo_da_agenda(codigo):
     }
 
 
-def percentual(pontos_base):
-    """Pontos-base em texto no padrão brasileiro: 299 vira "2,99%". None continua None."""
-    if pontos_base is None:
-        return None
-    inteiro, resto = divmod(pontos_base, 100)
-    return f"{inteiro},{resto:02d}%"
+def taxa_percentual(pontos_base):
+    """Pontos-base em percentual com duas casas, como número: 299 vira 2.99. None continua None."""
+    return None if pontos_base is None else round(pontos_base / 100, 2)
 
 
 def recebiveis_para_antecipacao(codigo):
@@ -273,7 +270,7 @@ def simulacao_de_antecipacao(codigo):
     """Antecipar hoje tudo o que dá (§7.4), ou None se o lojista não existe. Não olha os motivos de recusa:
     quem chama confere `motivos_de_recusa_da_antecipacao` antes.
 
-    {"data_credito", "taxa_mensal", "quantidade_de_parcelas", "valor_antecipado", "desconto", "valor_liquido"}.
+    {"data_credito", "taxa_mensal_percentual", "quantidade_de_parcelas", "valor_antecipado", "desconto", "valor_liquido"}.
     """
     taxa = taxa_de_antecipacao(codigo)
     if taxa is None:
@@ -287,7 +284,7 @@ def simulacao_de_antecipacao(codigo):
         desconto += regras.desconto_da_antecipacao_centavos(item["valor_centavos"], dias, taxa)
     return {
         "data_credito": credito.isoformat(),
-        "taxa_mensal": percentual(taxa),
+        "taxa_mensal_percentual": taxa_percentual(taxa),
         "quantidade_de_parcelas": len(parcelas),
         "valor_antecipado": reais(bruto),
         "desconto": reais(desconto),
@@ -383,18 +380,14 @@ def buscar_casos_pix(codigo, limite):
     return casos, resposta["total"]
 
 
-def _decimal(centesimos):
-    """Centésimos em texto com vírgula: 352 vira "3,52". None continua None."""
-    if centesimos is None:
-        return None
-    inteiro, resto = divmod(centesimos, 100)
-    return f"{inteiro},{resto:02d}"
-
-
 def resumo_satisfacao(data_inicio, data_fim, fila, carteira=None):
-    """Notas CSAT do período: {"respostas", "notas", "media"} ("3,52", ou None sem respostas)."""
+    """Notas CSAT do período: {"respostas", "notas", "media"} (número com duas casas, como 3.52; None sem respostas)."""
     resumo = _ler(consultas.resumo_satisfacao, data_inicio, data_fim, fila, carteira=carteira)
-    return {"respostas": resumo["respostas"], "notas": resumo["notas"], "media": _decimal(resumo["media_centesimos"])}
+    centesimos = resumo["media_centesimos"]
+    return {
+        "respostas": resumo["respostas"], "notas": resumo["notas"],
+        "media": None if centesimos is None else round(centesimos / 100, 2),
+    }
 
 
 def buscar_comentarios_satisfacao(data_inicio, data_fim, fila, nota_maxima, limite, carteira=None):
@@ -494,11 +487,6 @@ def vendas_por_dia(data_inicio, data_fim, limite):
 def chamados_por_fila(data_inicio, data_fim, prioridade):
     """Chamados por fila da base analítica: {"data_corte", "itens"}."""
     return _ler(consultas.chamados_por_fila, data_inicio, data_fim, prioridade)
-
-
-def taxa_percentual(pontos_base):
-    """Pontos-base em percentual com duas casas, como número: 125 vira 1.25. None continua None."""
-    return None if pontos_base is None else round(pontos_base / 100, 2)
 
 
 def _contestacoes(mes_inicio, mes_fim, codigo):

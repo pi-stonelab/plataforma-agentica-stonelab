@@ -19,7 +19,7 @@ Para a lista de depósitos, use `consultar_liquidacoes_cliente`. Para as parcela
 
 ## O que devolve
 
-Em `dados`: `codigo`, `dias_conferidos` (quantos dias tinham agenda ou depósito), `divergencias`, `total_de_divergencias`, `truncado` e `janela_dias`. Cada divergência tem `data`, `agenda` (o que devia cair), `pago` (o que caiu), `diferenca` (pago menos agenda; negativa quando veio menos), `situacao` (`falhou`, `devolvida`, `sem_liquidacao` ou `paga`), `motivo_falha` e `explicacao` (o que aconteceu e o próximo passo). Lista vazia: todos os dias bateram. Valores em reais são texto como `-R$ 15,00`: repita sem converter.
+Em `dados`: `id_cliente`, `dias_conferidos` (quantos dias tinham agenda ou depósito), `divergencias`, `total_encontrado` (quantas divergências existem no período), `truncado` e `janela_dias`. Cada divergência tem `data`, `agenda` (o que devia cair), `pago` (o que caiu), `diferenca` (pago menos agenda; negativa quando veio menos), `situacao` (`falhou`, `devolvida`, `sem_liquidacao` ou `paga`), `motivo_falha` e `explicacao` (o que aconteceu e o próximo passo). Lista vazia: todos os dias bateram. Valores em reais são texto como `-R$ 15,00`: repita sem converter.
 
 Erros possíveis: `parametro_invalido` (id fora do formato, limite fora de 1 a 50 ou data_inicio depois de data_fim), `permissao_negada` (cliente fora da sua carteira, ou período antes da janela do seu cargo) e `nao_encontrado` (só para quem vê todas as carteiras).
 

@@ -20,7 +20,7 @@ Informe pelo menos um dos dois. Tudo o que for informado precisa conferir: telef
 
 ## O que devolve
 
-Em `dados`: `codigo`, `confere` (verdadeiro ou falso), `papel` (o papel do contato que conferiu, como `financeiro`, ou vazio) e `orientacao` (o que fazer agora). Siga a `orientacao`. Se `confere` for falso, não mostre nenhum dado do cliente, não diga qual é o contato certo e, se houver pedido de troca de conta, recomende encaminhar o chamado ao N2 como suspeita de fraude.
+Em `dados`: `id_cliente`, `confere` (verdadeiro ou falso), `papel` (o papel do contato que conferiu, como `financeiro`, ou vazio) e `orientacao` (o que fazer agora). Siga a `orientacao`. Se `confere` for falso, não mostre nenhum dado do cliente, não diga qual é o contato certo e, se houver pedido de troca de conta, recomende encaminhar o chamado ao N2 como suspeita de fraude.
 
 Erros possíveis: `parametro_invalido` (id fora do formato, telefone sem DDD, e-mail inválido ou nenhum dos dois), `permissao_negada` (cliente fora da sua carteira) e `nao_encontrado` (só para quem vê todas as carteiras).
 

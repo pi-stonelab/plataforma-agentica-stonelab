@@ -171,7 +171,7 @@ def test_roi_com_a_conta_feita_a_mao(engine):
     assert dados == {
         "meses": 12, "economia_mensal": "R$ 2.000,00", "custo_mensal": "R$ 300,00",
         "ganho_liquido_mensal": "R$ 1.700,00", "ganho_total": "R$ 24.000,00", "custo_total": "R$ 5.600,00",
-        "roi_percentual": 328.6, "payback_meses": 2, "se_paga": True,
+        "roi_percentual": 328.57, "payback_meses": 2, "se_paga": True,
     }
 
 

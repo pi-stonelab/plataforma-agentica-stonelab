@@ -20,7 +20,7 @@ Para o depósito que caiu (ou falhou) num dia, use `consultar_liquidacoes_client
 
 ## O que devolve
 
-Em `dados`: `codigo`, `agenda_futura`, `parcelas`, `total_encontrado`, `truncado` e `janela_dias`. A `agenda_futura` resume tudo o que ainda vai cair, por situação (`previsto`, `retido`, `bloqueado`, `antecipado`), com `quantidade` e `valor`, sem depender das datas pedidas. Cada parcela tem `codigo` (como `R0000747`), `id_venda`, `numero_parcela`, `data_prevista`, `valor` e `situacao`, da data mais próxima para a mais distante. Valores em reais são texto como `R$ 217,54`: repita sem converter. `retido` quer dizer preso por chargeback ou por falha na liquidação; `bloqueado`, por decisão judicial ou da Stone.
+Em `dados`: `id_cliente`, `agenda_futura`, `parcelas`, `total_encontrado`, `truncado` e `janela_dias`. A `agenda_futura` resume tudo o que ainda vai cair, por situação (`previsto`, `retido`, `bloqueado`, `antecipado`), com `quantidade` e `valor`, sem depender das datas pedidas. Cada parcela tem `codigo` (como `R0000747`), `id_venda`, `numero_parcela`, `data_prevista`, `valor` e `situacao`, da data mais próxima para a mais distante. Valores em reais são texto como `R$ 217,54`: repita sem converter. `retido` quer dizer preso por chargeback ou por falha na liquidação; `bloqueado`, por decisão judicial ou da Stone.
 
 Erros possíveis: `parametro_invalido` (id fora do formato, situação desconhecida, limite fora de 1 a 30 ou data_inicio depois de data_fim), `permissao_negada` (cliente fora da sua carteira, ou período antes da janela do seu cargo) e `nao_encontrado` (só para quem vê todas as carteiras).
 

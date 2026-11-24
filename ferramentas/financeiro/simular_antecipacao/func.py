@@ -32,7 +32,7 @@ class SimularAntecipacao(Ferramenta):
         if simulacao is not None and simulacao["quantidade_de_parcelas"] == 0:
             motivos, simulacao = [SEM_PARCELAS], None
         return {
-            "codigo": codigo,
+            "id_cliente": codigo,
             "pode_antecipar": simulacao is not None,
             "motivos_de_recusa": motivos,
             "simulacao": simulacao,
