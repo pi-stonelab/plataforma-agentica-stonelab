@@ -352,7 +352,7 @@ def test_resultado_nao_ve_a_venda_de_hoje(sessao):
 def test_contestacoes_agregadas_e_do_lojista_saem_separadas(fachada):
     mes, _ = gab.C2_TAXA_DE_CHARGEBACK_DO_MES_DA_VENDA
     do_lojista = fachada.contestacoes_do_lojista_por_mes(gab.C2_LOJISTA, mes, mes)["itens"]
-    assert [(i["mes"], i["taxa_chargeback"]) for i in do_lojista] == [(mes, "20,00%")]
+    assert [(i["mes"], i["taxa_chargeback_percentual"]) for i in do_lojista] == [(mes, 20.0)]
     agregado = fachada.contestacoes_por_mes(mes, mes)["itens"]
     assert len(agregado) == 1 and agregado[0]["quantidade_vendas_cartao"] > do_lojista[0]["quantidade_vendas_cartao"]
 

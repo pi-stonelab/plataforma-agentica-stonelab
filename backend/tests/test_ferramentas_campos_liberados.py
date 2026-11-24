@@ -11,10 +11,13 @@ from ferramentas.base import Ferramenta
 from ferramentas.confirmacoes import FerramentaComConfirmacao
 from mock.regras import CAMPOS_NAO_RESTRITOS, CLASSIFICACAO_CAMPOS
 
-# Ferramenta -> campos que ela pode liberar. Só a escrita em duas fases devolve texto escrito pelo modelo
-# (a prévia), então só ela entra aqui. Leitura nunca libera: o texto dela é de lojista.
+# Ferramenta -> campos que ela pode liberar. Dois casos: a escrita em duas fases (texto escrito pelo modelo,
+# a prévia) e a leitura ou o cálculo que devolve texto escrito pela PLATAFORMA (aviso, orientação, tendência),
+# nunca texto de lojista: o que o lojista escreve (nome fantasia, resumo, comentário) continua sem liberação.
 LIBERACOES_PERMITIDAS = {
     "enviar_email": frozenset({"confirmacao_id", "expira_em", "assunto", "corpo", "id_mensagem"}),
+    "consultar_taxa_contestacao_mensal": frozenset({"tendencia"}),
+    "consultar_taxa_contestacao_cliente": frozenset({"meses_acima_do_limite"}),
 }
 COMO_LIBERAR = "Para liberar um campo novo, edite LIBERACOES_PERMITIDAS em test_ferramentas_campos_liberados.py."
 
@@ -33,10 +36,9 @@ def test_ferramenta_so_libera_os_campos_da_lista_fechada(nome, ferramenta):
 
 
 @pytest.mark.parametrize(("nome", "ferramenta"), FERRAMENTAS, ids=[nome for nome, _ in FERRAMENTAS])
-def test_so_a_escrita_em_duas_fases_pode_liberar_campos(nome, ferramenta):
-    if ferramenta.campos_liberados:
+def test_escrita_que_libera_campos_e_em_duas_fases(nome, ferramenta):
+    if ferramenta.campos_liberados and ferramenta.acesso == "escrita":
         assert isinstance(ferramenta, FerramentaComConfirmacao), f"{nome} não é escrita em duas fases. {COMO_LIBERAR}"
-        assert ferramenta.acesso == "escrita"
 
 
 @pytest.mark.parametrize(("nome", "ferramenta"), FERRAMENTAS, ids=[nome for nome, _ in FERRAMENTAS])

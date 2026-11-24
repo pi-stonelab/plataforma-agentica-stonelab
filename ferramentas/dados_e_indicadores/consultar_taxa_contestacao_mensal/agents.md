@@ -1,14 +1,14 @@
 # consultar_taxa_contestacao_mensal
 
-Mostra, mês a mês, a taxa de chargeback da Stone somando todos os lojistas, e o limite que liga o monitoramento.
+Mostra, mês a mês, a taxa de chargeback da Stone somando todos os lojistas, e se ela está subindo ou caindo.
 
 ## Quando usar
 
-Use quando o coordenador perguntar pela taxa de chargeback da empresa, pela evolução nos últimos meses ou se a taxa passou do limite do monitoramento. Sem meses, valem os últimos 6 até o mês atual.
+Use quando o coordenador perguntar pela taxa de chargeback da empresa ou pela evolução nos últimos meses. Sem meses, valem os últimos 6 até o mês atual. O limite de 1% do monitoramento vale para cada lojista, não para a Stone inteira: não compare esta taxa com ele.
 
 ## Quando não usar
 
-Para os chargebacks de um lojista, use `listar_contestacoes_cliente`. Esta ferramenta não traz dado de nenhum lojista: só totais.
+Para os chargebacks de um lojista, use `listar_contestacoes_cliente`; para saber se um lojista passou do limite, use `consultar_taxa_contestacao_cliente`. Esta ferramenta não traz dado de nenhum lojista: só totais.
 
 ## Parâmetros
 
@@ -19,13 +19,13 @@ O período tem no máximo 24 meses.
 
 ## O que devolve
 
-Em `dados`: `mes_inicio`, `mes_fim`, `data_corte`, `meses` (cada um com `mes`, `quantidade_vendas_cartao`, `quantidade_chargebacks` e `taxa_chargeback`, como `1,25%`) e `limite_de_monitoramento` (como `1,00%`). Diga quais meses passaram do limite. O mês atual vai só até a `data_corte`.
+Em `dados`: `mes_inicio`, `mes_fim`, `data_corte`, `meses` (cada um com `mes`, `quantidade_vendas_cartao`, `quantidade_chargebacks` e `taxa_chargeback_percentual`, número em percentual com duas casas, como `1.25`) e `tendencia` (`subindo`, `caindo` ou `estavel`, do primeiro ao último mês do período; vazia se há menos de dois meses com taxa). O mês atual vai só até a `data_corte`.
 
 Erros possíveis: `parametro_invalido` (mês fora do formato, mes_inicio depois de mes_fim ou mais de 24 meses) e `integracao_indisponivel` (base analítica fora do ar).
 
 ## Para quem mantém
 
-- Área: `dados_e_indicadores` (DOC-MOCK §7.6: taxa de chargeback e o limite que liga o monitoramento).
+- Área: `dados_e_indicadores` (DOC-MOCK §7.6: taxa de chargeback; o limite de 1% do monitoramento é por lojista e fica em `consultar_taxa_contestacao_cliente`).
 - Acesso: leitura.
 - Integração:
   - `bigquery` (ver `integracoes/bigquery/README.md`): tabela `analitica_contestacoes_mensais` do mock, só os totais da Stone (`dados_sinteticos.contestacoes_por_mes`). O recorte por lojista é dado de disputa e não passa por aqui (decisão do bloco A).

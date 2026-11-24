@@ -38,3 +38,17 @@ def meses_entre(inicio, fim):
     ano_inicio, mes_inicio = map(int, inicio.split("-"))
     ano_fim, mes_fim = map(int, fim.split("-"))
     return (ano_fim - ano_inicio) * 12 + mes_fim - mes_inicio + 1
+
+
+def periodo_em_meses(argumentos, meses_padrao, meses_maximos):
+    """(mes_inicio, mes_fim) do pedido, em AAAA-MM; sem meses, os últimos `meses_padrao` até o mês do mock."""
+    fim = argumentos.get("mes_fim", dados_sinteticos.HOJE_DO_MOCK.strftime("%Y-%m"))
+    inicio = argumentos.get("mes_inicio", mes_menos(fim, meses_padrao - 1) if PADRAO_MES.fullmatch(fim) else fim)
+    if not (PADRAO_MES.fullmatch(inicio) and PADRAO_MES.fullmatch(fim)):
+        raise ErroFerramenta("parametro_invalido", "Use o mês no formato AAAA-MM, como 2026-09.")
+    meses = meses_entre(inicio, fim)
+    if meses < 1:
+        raise ErroFerramenta("parametro_invalido", "O mes_inicio deve ser igual ou anterior ao mes_fim.")
+    if meses > meses_maximos:
+        raise ErroFerramenta("parametro_invalido", f"O período pode ter no máximo {meses_maximos} meses.")
+    return inicio, fim

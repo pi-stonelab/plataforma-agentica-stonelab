@@ -1,10 +1,11 @@
 # BigQuery
 
-Base analítica da Stone simulada: cópia agregada dos sistemas, atualizada uma vez por dia, que vai só até ontem (DOC-MOCK §4). Serve para indicadores e relatórios, nunca para o dado de um lojista.
+Base analítica da Stone simulada: cópia agregada dos sistemas, atualizada uma vez por dia, que vai só até ontem (DOC-MOCK §4). Serve para indicadores e relatórios. A única exceção é o recorte de chargeback por lojista (`financeiro/consultar_taxa_contestacao_cliente`), que é dado de disputa e passa pelas portas do lojista.
 
 ## Ferramentas que usam
 
 - `dados_e_indicadores/consultar_taxa_contestacao_mensal` (leitura)
+- `financeiro/consultar_taxa_contestacao_cliente` (leitura)
 - `dados_e_indicadores/resumir_receita_periodo` (leitura)
 - `dados_e_indicadores/resumir_volume_chamados` (leitura)
 

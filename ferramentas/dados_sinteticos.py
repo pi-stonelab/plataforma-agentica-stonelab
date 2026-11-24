@@ -496,6 +496,11 @@ def chamados_por_fila(data_inicio, data_fim, prioridade):
     return _ler(consultas.chamados_por_fila, data_inicio, data_fim, prioridade)
 
 
+def taxa_percentual(pontos_base):
+    """Pontos-base em percentual com duas casas, como número: 125 vira 1.25. None continua None."""
+    return None if pontos_base is None else round(pontos_base / 100, 2)
+
+
 def _contestacoes(mes_inicio, mes_fim, codigo):
     resposta = _ler(consultas.contestacoes_por_mes, mes_inicio, mes_fim, codigo)
     itens = [
@@ -503,7 +508,7 @@ def _contestacoes(mes_inicio, mes_fim, codigo):
             "mes": item["mes"],
             "quantidade_vendas_cartao": item["quantidade_vendas_cartao"],
             "quantidade_chargebacks": item["quantidade_chargebacks"],
-            "taxa_chargeback": percentual(item["taxa_chargeback_pontos_base"]),
+            "taxa_chargeback_percentual": taxa_percentual(item["taxa_chargeback_pontos_base"]),
         }
         for item in resposta["itens"]
     ]
@@ -511,14 +516,25 @@ def _contestacoes(mes_inicio, mes_fim, codigo):
 
 
 def contestacoes_por_mes(mes_inicio, mes_fim):
-    """Chargebacks e taxa ("0,45%") por mês, somando TODOS os lojistas (indicador agregado): {"data_corte", "itens"}."""
+    """Chargebacks e taxa (número em %, como 0.45) por mês, somando TODOS os lojistas (indicador agregado):
+    {"data_corte", "itens"}. O limite de monitoramento é por lojista (§7.6), então não se compara aqui."""
     return _contestacoes(mes_inicio, mes_fim, None)
 
 
 def contestacoes_do_lojista_por_mes(codigo, mes_inicio, mes_fim):
-    """O mesmo de um lojista só. É dado de disputa daquele lojista: a ficha que usa pede a categoria `disputa`
-    e passa pelas portas do lojista (carteira e janela), não `indicador_agregado`."""
-    return _contestacoes(mes_inicio, mes_fim, codigo)
+    """O mesmo de um lojista só, com `acima_do_limite` em cada mês (mais de 1% das vendas no cartão do mês, §7.6).
+
+    É dado de disputa daquele lojista: a ficha que usa pede a categoria `disputa` e passa pelas portas do
+    lojista (carteira e janela), não `indicador_agregado`. A comparação usa as quantidades, sem o
+    arredondamento da taxa.
+    """
+    resposta = _contestacoes(mes_inicio, mes_fim, codigo)
+    for item in resposta["itens"]:
+        item["acima_do_limite"] = (
+            item["quantidade_chargebacks"] * 10000
+            > item["quantidade_vendas_cartao"] * LIMITE_DE_CHARGEBACK_DO_MONITORAMENTO
+        )
+    return resposta
 
 
 def dicionario_de_dados():

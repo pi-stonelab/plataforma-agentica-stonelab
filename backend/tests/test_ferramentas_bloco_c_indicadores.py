@@ -115,15 +115,14 @@ def test_taxa_mensal_traz_os_ultimos_seis_meses_e_o_limite(engine):
     assert resultado(resposta) == ("ok", None)
     dados = resposta["dados"]
     assert [m["mes"] for m in dados["meses"]] == ["2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]
-    assert dados["limite_de_monitoramento"] == "1,00%"
-    assert all(m["taxa_chargeback"].endswith("%") for m in dados["meses"])
+    assert all(isinstance(m["taxa_chargeback_percentual"], float) for m in dados["meses"])
 
 
 def test_taxa_mensal_e_so_o_total_da_stone_e_nao_a_do_lojista_do_cenario_2(engine):
     mes, pontos_do_lojista = g.C2_TAXA_DE_CHARGEBACK_DO_MES_DA_VENDA
     dados = chamar("consultar_taxa_contestacao_mensal", {"mes_inicio": mes, "mes_fim": mes},
                    usuario(engine, "coordenador_financeiro"))["dados"]
-    assert dados["meses"][0]["taxa_chargeback"] != dados_sinteticos.percentual(pontos_do_lojista)
+    assert dados["meses"][0]["taxa_chargeback_percentual"] != dados_sinteticos.taxa_percentual(pontos_do_lojista)
     assert "id_cliente" not in json.dumps(dados) and "M000" not in json.dumps(dados)
 
 
@@ -261,3 +260,48 @@ def test_registro_das_consultas_nao_guarda_valor_nem_nome_de_tabela(engine):
 
 def test_hoje_do_mock_e_o_que_as_datas_padrao_usam():
     assert dados_sinteticos.HOJE_DO_MOCK == date(2026, 10, 15)
+
+
+# --- consultar_taxa_contestacao_cliente (limite de 1% é por lojista, DOC-MOCK §7.6) ---------------------
+
+
+def taxa_do_lojista(engine, cargo, **argumentos):
+    return chamar("consultar_taxa_contestacao_cliente", argumentos, usuario(engine, cargo))
+
+
+def test_taxa_do_lojista_aponta_o_mes_acima_do_limite_do_cenario_2(engine):
+    resposta = taxa_do_lojista(engine, "analista_disputas", id_cliente=g.C2_LOJISTA, mes_inicio="2026-09", mes_fim="2026-09")
+    assert resultado(resposta) == ("ok", None)
+    dados = resposta["dados"]
+    assert dados["limite_de_monitoramento_percentual"] == 1.0 and dados["meses_acima_do_limite"] == ["2026-09"]
+    assert dados["meses"] == [
+        {"mes": "2026-09", "quantidade_vendas_cartao": 5, "quantidade_chargebacks": 1,
+         "taxa_chargeback_percentual": 20.0, "acima_do_limite": True}
+    ]
+
+
+def test_taxa_do_lojista_sem_chargeback_nao_passa_do_limite(engine):
+    dados = taxa_do_lojista(engine, "analista_disputas", id_cliente="M00004")["dados"]
+    assert dados["meses_acima_do_limite"] == [] and not any(mes["acima_do_limite"] for mes in dados["meses"])
+
+
+def test_taxa_do_lojista_respeita_a_carteira_do_n2(engine):
+    n2 = usuario(engine, "especialista_n2")
+    fora = next(c for c in (f"M{n:05d}" for n in range(1, 21)) if dados_sinteticos.carteira_do_lojista(c)["carteira"] not in n2.carteiras)
+    resposta = chamar("consultar_taxa_contestacao_cliente", {"id_cliente": fora}, n2)
+    assert resultado(resposta) == ("erro", "permissao_negada")
+    inexistente = chamar("consultar_taxa_contestacao_cliente", {"id_cliente": "M00099"}, n2)
+    assert resposta == inexistente
+
+
+@pytest.mark.parametrize("cargo", ["atendente_n1", "analista_cobranca", "analista_recebiveis", "analista_ouvidoria"])
+def test_taxa_do_lojista_e_so_de_quem_ve_disputa(engine, cargo):
+    assert resultado(taxa_do_lojista(engine, cargo, id_cliente=g.C2_LOJISTA)) == BLOQUEADA
+
+
+def test_taxa_da_stone_nao_traz_limite_nem_diz_que_passou_dele(engine):
+    dados = chamar("consultar_taxa_contestacao_mensal", {}, usuario(engine, "coordenador_financeiro"))["dados"]
+    texto = json.dumps(dados)
+    assert "limite" not in texto and "acima" not in texto
+    assert dados["tendencia"] in {"subindo", "caindo", "estavel"}
+    assert all(isinstance(mes["taxa_chargeback_percentual"], float) for mes in dados["meses"])

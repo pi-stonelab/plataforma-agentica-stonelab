@@ -174,7 +174,7 @@ def verificar(engine, **contato):
 
 @pytest.mark.parametrize(
     "telefone",
-    ["+55 21 90000-4321", "55 (21) 90000-4321", "0 21 90000-4321", "021900004321", "(21) 90000-4321", "21900004321"],
+    ["+55 21 90000-4321", "55 (21) 90000-4321", "0 21 90000-4321", "0 (21) 90000-4321", "(21) 90000-4321", "21900004321"],
 )
 def test_identidade_confere_telefone_com_55_ou_0_na_frente(engine, telefone):
     dados = verificar(engine, telefone=telefone)["dados"]

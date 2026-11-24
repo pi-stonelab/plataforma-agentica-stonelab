@@ -9,7 +9,7 @@ Escolha pela pergunta, entre as ferramentas da lista abaixo (só aparecem as lib
 - O que já aconteceu (vendas, depósitos) fica nas consultas de transações e de liquidações.
 - O que ainda vai cair, ou por que um valor está retido, fica na agenda de recebíveis.
 - Se os depósitos bateram com a agenda, use a conferência, não a lista de depósitos.
-- Chargeback e devolução de Pix ficam nas contestações; dívida com a Stone, nas faturas e nos acordos.
+- Chargeback e devolução de Pix ficam nas contestações (e se o lojista passou do limite de chargeback, na taxa mensal dele); dívida com a Stone, nas faturas e nos acordos.
 - Os cálculos (multa, parcelas, antecipação) só simulam: não executam nada.
 - Nomes que você não vê na lista não estão liberados para você.
 
@@ -21,12 +21,13 @@ usuário]
 ## Para quem mantém
 
 - Integrações da área: `sql`.
-- Ferramentas (10):
+- Ferramentas (11):
   - `consultar_transacoes_cliente` (leitura)
   - `consultar_liquidacoes_cliente` (leitura)
   - `consultar_agenda_recebiveis` (leitura)
   - `conferir_liquidacoes` (leitura)
   - `listar_contestacoes_cliente` (leitura)
+  - `consultar_taxa_contestacao_cliente` (leitura)
   - `listar_faturas_em_atraso` (leitura)
   - `listar_acordos` (leitura)
   - `calcular_multa_atraso` (cálculo)

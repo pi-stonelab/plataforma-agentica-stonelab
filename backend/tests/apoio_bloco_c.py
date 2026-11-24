@@ -18,6 +18,7 @@ FERRAMENTAS_DO_BLOCO_C = (
     "resumir_receita_periodo",
     "resumir_volume_chamados",
     "consultar_taxa_contestacao_mensal",
+    "consultar_taxa_contestacao_cliente",
     "calcular_roi",
     "buscar_conjuntos_dados",
     "consultar_esquema_conjunto",
