@@ -1,18 +1,14 @@
 """Parcelamento de um acordo em centavos, com a alçada de quem pode aprovar (DOC-MOCK §7.9, `regras.alcada_do_acordo`)."""
 
-from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
 from ferramentas import dados_sinteticos
 from ferramentas.base import ErroFerramenta, Ferramenta
-from ferramentas.dados_sinteticos import reais
+from ferramentas.dados_sinteticos import em_centavos, reais
 
 ENTRADA_PADRAO = Decimal(dados_sinteticos.ENTRADA_MINIMA_ANALISTA_PERCENTUAL)  # em %
 VALOR_MAXIMO = Decimal(1000000)
 PARCELAS_MAXIMAS_PEDIDO = 60  # acima de 12 já é proibido; este teto só barra lista absurda
-
-
-def em_centavos(valor):
-    return int((valor * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
 def percentual_de(centavos, percentual, arredondamento):

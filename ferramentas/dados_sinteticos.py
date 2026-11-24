@@ -8,6 +8,7 @@ converter centavos.
 
 import sqlite3
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 
 from mock import consultas, modelos, regras
 from mock.banco import criar_engine, url_padrao
@@ -73,6 +74,11 @@ def reais(centavos):
         return "-" + reais(-centavos)
     inteiro, resto = divmod(centavos, 100)
     return f"R$ {inteiro:,}".replace(",", ".") + f",{resto:02d}"
+
+
+def em_centavos(valor):
+    """Valor em reais (Decimal) em centavos inteiros, arredondando meio centavo para cima: 330.67 vira 33067."""
+    return int((valor * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
 def buscar_funcionario(id_funcionario):

@@ -3,16 +3,12 @@
 from decimal import ROUND_HALF_UP, Decimal
 
 from ferramentas.base import ErroFerramenta, Ferramenta
-from ferramentas.dados_sinteticos import reais
+from ferramentas.dados_sinteticos import em_centavos, reais
 
 MESES_PADRAO = 12
 MESES_MAXIMOS = 60
 VALOR_MAXIMO = Decimal(10000000)
 HORAS_MAXIMAS_POR_MES = Decimal(10000)
-
-
-def _centavos(valor):
-    return int((valor * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
 class CalcularRoi(Ferramenta):
@@ -47,9 +43,9 @@ class CalcularRoi(Ferramenta):
             raise ErroFerramenta("parametro_invalido", "Os valores em reais devem ficar entre 0 e 10.000.000.")
         if not 1 <= meses <= MESES_MAXIMOS:
             raise ErroFerramenta("parametro_invalido", f"Os meses devem ficar entre 1 e {MESES_MAXIMOS}.")
-        economia_mensal = _centavos(horas * custo_hora)
-        custo_mensal_centavos = _centavos(custo_mensal)
-        implantacao_centavos = _centavos(implantacao)
+        economia_mensal = em_centavos(horas * custo_hora)
+        custo_mensal_centavos = em_centavos(custo_mensal)
+        implantacao_centavos = em_centavos(implantacao)
         ganho_total = economia_mensal * meses
         custo_total = custo_mensal_centavos * meses + implantacao_centavos
         ganho_liquido_mensal = economia_mensal - custo_mensal_centavos

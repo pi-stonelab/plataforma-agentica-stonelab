@@ -423,3 +423,20 @@ def test_chamada_sem_argumento_nao_falha_em_nenhum_dia_da_semana(engine, monkeyp
     assert resultado(chamar("conferir_liquidacoes", {"id_cliente": g.C4_LOJISTA}, recebiveis)) == ("ok", None)
     assert resultado(chamar("consultar_agenda_recebiveis", {"id_cliente": g.C4_LOJISTA}, recebiveis)) == ("ok", None)
     assert resultado(chamar("resumir_volume_chamados", {}, usuario(engine, "supervisor_atendimento"))) == ("ok", None)
+
+
+# --- um helper só para reais em centavos ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(("reais_", "centavos"), [("330.67", 33067), ("0.005", 1), ("0.004", 0), ("12000", 1200000)])
+def test_em_centavos_arredonda_meio_centavo_para_cima(reais_, centavos):
+    assert dados_sinteticos.em_centavos(Decimal(reais_)) == centavos
+
+
+def test_nenhuma_func_define_a_propria_conversao_para_centavos():
+    import ast
+    from pathlib import Path
+
+    for caminho in (Path(__file__).resolve().parents[2] / "ferramentas").glob("*/*/func.py"):
+        nomes = {no.name for no in ast.walk(ast.parse(caminho.read_text(encoding="utf-8"))) if isinstance(no, ast.FunctionDef)}
+        assert not nomes & {"em_centavos", "_centavos", "centavos"}, caminho
