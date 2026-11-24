@@ -5,6 +5,7 @@
 import errno
 import io
 import json
+import sys
 import os
 import stat
 import threading
@@ -81,7 +82,7 @@ def anexar(nome, conteudo, pessoa=ANA_ID):
 
 
 def arquivos_em(pasta):
-    return sorted(str(p.relative_to(pasta)) for p in pasta.rglob("*") if p.is_file())
+    return sorted(p.relative_to(pasta).as_posix() for p in pasta.rglob("*") if p.is_file())
 
 
 # --- guardar o anexo -------------------------------------------------------------------------------------------------
@@ -191,6 +192,8 @@ def test_arquivo_com_mais_de_7_dias_e_apagado_no_proximo_envio_da_pessoa(pasta):
 
 
 def test_link_simbolico_na_pasta_nao_e_listado_nem_aberto(pasta, tmp_path, ana):
+    if sys.platform == "win32":
+        pytest.skip("link simbólico no Windows exige privilégio de administrador")
     anexar("normal.txt", b"ok")
     segredo = tmp_path / "segredo.txt"
     segredo.write_text("conteudo fora da pasta")
@@ -324,6 +327,7 @@ def test_zip_bomb_guardada_e_recusada_na_leitura_sem_estourar_a_memoria(pasta, a
 
 
 def test_pdf_quebrado_vira_erro_de_parametro_sem_detalhe(pasta, ana):
+    pytest.importorskip("pypdf")
     identificador = anexar("quebrado.pdf", b"%PDF-1.4\nlixo")
     resposta = usar(LER, {"anexo_id": identificador}, ana)
     assert resposta["tipo_erro"] == "parametro_invalido" and "lixo" not in json.dumps(resposta)
