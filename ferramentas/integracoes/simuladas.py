@@ -1,7 +1,7 @@
 """Caixa de saída do modo simulado: o que as integrações de escrita "mandariam" se estivessem ligadas de verdade.
 
-Uma caixa por integração (Slack, Telegram, Jira), em memória e só com as últimas `LIMITE` mensagens: serve para a
-demo mostrar o que teria saído (`python -m ferramentas.integracoes simuladas`) e para os testes conferirem.
+Uma caixa por integração (Slack, Telegram, Jira), em memória e só com as últimas `LIMITE` mensagens: serve para os
+testes e a demo conferirem o que teria saído (a caixa vive no processo do back-end).
 O texto já passou pela máscara de texto que sai da plataforma, então não há dado restrito aqui.
 """
 
@@ -45,9 +45,3 @@ def caixa(integracao):
             CAIXAS[integracao] = CaixaDeSaidaSimulada(integracao)
         return CAIXAS[integracao]
 
-
-def tudo():
-    """Tudo o que as integrações simuladas guardaram, por integração, na ordem em que saiu."""
-    with _TRAVA_DAS_CAIXAS:
-        caixas = list(CAIXAS.values())
-    return [{"integracao": c.integracao, **item} for c in sorted(caixas, key=lambda c: c.integracao) for item in c.listar()]

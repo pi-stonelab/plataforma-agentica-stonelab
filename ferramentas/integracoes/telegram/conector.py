@@ -44,8 +44,7 @@ TAMANHO_MAXIMO_DO_TEXTO = 4096  # limite da Bot API por mensagem
 FONTE_REAL = "Telegram"
 FONTE_SIMULADA = "Telegram simulado (modo de demonstração): nada foi enviado ao Telegram de verdade"
 MENSAGEM_TESTE_SIMULADO = (
-    "Modo simulado: os avisos ficam na caixa de saída simulada da plataforma, sem chamar o Telegram"
-    " (python -m ferramentas.integracoes simuladas mostra o que teria saído)."
+    "Modo simulado: os avisos ficam na caixa de saída simulada da plataforma, sem chamar o Telegram."
 )
 MENSAGEM_CHAT_RECUSOU = (
     "O Telegram não aceitou o aviso no chat {apelido}: o chat não existe ou o bot não está nele. Nada foi"
@@ -185,26 +184,6 @@ class ConectorTelegram(Conector):
         linhas = [f"O Telegram aceitou o token do bot @{nome}."]
         linhas += [self._conferir_chat(ambiente, a, c) for a, c in sorted(self.chats(ambiente).items())]
         return " ".join(linhas)
-
-    def descobrir(self, ambiente=os.environ):
-        """Os chats em que o bot recebeu mensagem recentemente (getUpdates): [(título, chat_id)], sem o texto.
-
-        Para quem configura achar o `chat_id` sem abrir a URL com o token no navegador."""
-        if self._ligado(ambiente) == "simulado":
-            return [(rotulo, CHATS_SIMULADOS[apelido]) for apelido, rotulo in ROTULOS_SIMULADOS.items()]
-        url = self._url_do_metodo(ambiente, "getUpdates")
-        dados = self.chamar("testar", lambda: cliente_http.pedir("GET", url).dados)
-        atualizacoes = dados.get("result") if isinstance(dados, dict) and dados.get("ok") is True else None
-        if not isinstance(atualizacoes, list):
-            raise RespostaInvalida("resposta fora do formato")
-        chats = {}
-        for atualizacao in atualizacoes:
-            for chave in ("message", "channel_post", "my_chat_member"):
-                chat = atualizacao.get(chave, {}).get("chat") if isinstance(atualizacao, dict) else None
-                if isinstance(chat, dict) and isinstance(chat.get("id"), int):
-                    titulo = chat.get("title") or chat.get("first_name") or "conversa sem título"
-                    chats[chat["id"]] = str(titulo)[:60]
-        return [(titulo, str(chat_id)) for chat_id, titulo in chats.items()]
 
     def reiniciar(self):
         super().reiniciar()

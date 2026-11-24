@@ -49,10 +49,8 @@ TAMANHO_MAXIMO_DO_TEXTO = 3000  # o Slack recomenda até 4.000 caracteres por me
 FONTE_REAL = "Slack"
 FONTE_SIMULADA = "Slack simulado (modo de demonstração): nada foi publicado no Slack de verdade"
 MENSAGEM_TESTE_SIMULADO = (
-    "Modo simulado: as mensagens ficam na caixa de saída simulada da plataforma, sem chamar o Slack"
-    " (python -m ferramentas.integracoes simuladas mostra o que teria saído)."
+    "Modo simulado: as mensagens ficam na caixa de saída simulada da plataforma, sem chamar o Slack."
 )
-MENSAGEM_DE_TESTE = "Teste da Plataforma Agêntica: a integração com o Slack está funcionando."
 # Erros do Slack ({"ok": false, "error": ...}) e o que cada um quer dizer para quem usa. Nada foi publicado.
 ERROS_DE_CREDENCIAL = frozenset(
     {"invalid_auth", "not_authed", "account_inactive", "token_revoked", "token_expired", "missing_scope",
@@ -212,20 +210,14 @@ class ConectorSlack(Conector):
             return f"#{apelido}: canal não encontrado (confira o ID em SLACK_CANAIS ou convide o bot)."
         return f"#{apelido}: o Slack recusou a consulta."
 
-    def testar(self, ambiente=os.environ, enviar_para=None):
-        """Confere o token e cada canal da lista. Com `enviar_para` (um apelido), publica uma mensagem de teste."""
+    def testar(self, ambiente=os.environ):
+        """Confere o token e cada canal da lista, sem publicar nada."""
         if self._ligado(ambiente) == "simulado":
             return MENSAGEM_TESTE_SIMULADO
         if not self._ler(ambiente, "auth.test")["ok"]:
             raise CredencialRecusada(cliente_http.MENSAGEM)
         linhas = ["O Slack aceitou o token do bot."]
         linhas += [self._conferir_canal(ambiente, a, i) for a, i in sorted(self.canais(ambiente).items())]
-        if enviar_para:
-            apelido = enviar_para.strip().lower()
-            if apelido not in self.canais(ambiente):
-                raise ErroFerramenta("parametro_invalido", f"{apelido} não está em SLACK_CANAIS.")
-            self.publicar(apelido, MENSAGEM_DE_TESTE, ambiente)
-            linhas.append(f"Mensagem de teste publicada em #{apelido}.")
         return " ".join(linhas)
 
     def reiniciar(self):
