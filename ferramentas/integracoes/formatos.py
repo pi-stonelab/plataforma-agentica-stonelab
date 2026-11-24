@@ -351,6 +351,8 @@ def ler_pdf(conteudo, limite_paginas=PAGINAS_PADRAO, limite=CARACTERES_PADRAO):
         raise ArquivoInvalido("O arquivo é grande demais.")
     if not conteudo.startswith(b"%PDF-"):
         raise ArquivoInvalido
+    # [A FAZER (Marcelo e Isabel, back-end): pôr `pypdf` no requirements.txt do back-end; sem ele o PDF anexado volta
+    # como integracao_indisponivel]
     try:
         from pypdf import PdfReader
         from pypdf.errors import PyPdfError

@@ -191,7 +191,12 @@ def inicio_da_janela(usuario):
 
 
 def adicionar_destino(funcao):
-    """Liga um destino (back-end, monitoramento) que recebe cada registro como dict."""
+    """Liga um destino (back-end, monitoramento) que recebe cada registro como dict.
+
+    [A FAZER (Marcelo e Isabel, back-end, KAN-60): chamar esta função uma vez no `lifespan` com uma `gravar_execucao`
+    que grava o registro (só `CAMPOS_REGISTRO`, sem conteúdo) na tabela `execucoes_ferramenta`, com sessão própria; se
+    a gravação falhar, levantar erro, e a ferramenta não responde (O9)]
+    """
     if callable(funcao):
         DESTINOS.append(funcao)
 
