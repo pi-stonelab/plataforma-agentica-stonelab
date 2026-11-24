@@ -728,29 +728,40 @@ def buscar_artigos(
     return {"itens": itens, "total": len(pontuados), "limite": teto}
 
 
-def _so_digitos(texto: str | None) -> str:
-    return "".join(caractere for caractere in texto or "" if caractere.isdigit())
+def normalizar_telefone(texto: str | None) -> str:
+    """Só DDD + número: tira pontuação, o 55 do país e o 0 de discagem (o cadastro guarda 10 ou 11 dígitos)."""
+    digitos = "".join(caractere for caractere in texto or "" if caractere in "0123456789")
+    if digitos.startswith("55") and len(digitos) in (12, 13):
+        return digitos[2:]
+    if digitos.startswith("0") and len(digitos) in (11, 12):
+        return digitos[1:]
+    return digitos
 
 
 def contato_confere(
     origem: Session | Engine, codigo: str, telefone: str | None = None, email: str | None = None
 ) -> dict | None:
-    """Diz se o telefone ou o e-mail informado é de um contato cadastrado do lojista (DOC-MOCK §6.6).
+    """Diz se o contato informado é de um contato cadastrado do lojista (DOC-MOCK §6.6).
 
-    Nunca devolve o contato: só {"confere", "papel"}. Telefone compara só os dígitos; e-mail, sem caixa.
-    None se o lojista não existe.
+    Todo contato informado precisa conferir, e no MESMO contato cadastrado: telefone de um e e-mail de outro
+    não valem (o golpista com número fora do cadastro e e-mail do sócio não passa). Nunca devolve o contato:
+    só {"confere", "papel"}. Telefone compara DDD + número; e-mail, sem caixa. None se o lojista não existe.
     """
     falhas.verificar("cadastro")
-    digitos, endereco = _so_digitos(telefone), (email or "").strip().lower()
+    telefone_informado, email_informado = (telefone or "").strip(), (email or "").strip().lower()
+    numero = normalizar_telefone(telefone_informado)
     with _sessao_de(origem) as sessao:
         if sessao.get(Lojista, codigo) is None:
             return None
+        if not telefone_informado and not email_informado:
+            return {"confere": False, "papel": None}
         contatos = sessao.execute(select(ContatoLojista.papel, ContatoLojista.telefone, ContatoLojista.email)
                                   .where(ContatoLojista.id_lojista == codigo).order_by(ContatoLojista.id))
         for papel, telefone_cadastrado, email_cadastrado in contatos:
-            if (digitos and digitos == _so_digitos(telefone_cadastrado)) or (
-                endereco and endereco == email_cadastrado.lower()
-            ):
+            telefone_confere = not telefone_informado or (
+                bool(numero) and numero == normalizar_telefone(telefone_cadastrado))
+            email_confere = not email_informado or email_informado == email_cadastrado.lower()
+            if telefone_confere and email_confere:
                 return {"confere": True, "papel": papel}
     return {"confere": False, "papel": None}
 

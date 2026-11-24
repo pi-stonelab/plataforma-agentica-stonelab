@@ -161,6 +161,50 @@ def test_identidade_exige_telefone_com_ddd_ou_email_valido(engine, argumentos):
     assert resultado(resposta) == INVALIDO
 
 
+# Contatos de M00001 no mundo do mock: sócio (21) 90000-4321 e financeiro (21) 90000-1873 (dado sintético).
+C1_TELEFONE_DO_SOCIO = "(21) 90000-4321"
+C1_EMAIL_DO_SOCIO = "felipe.barbosa.m00001@lojistas.example"
+C1_EMAIL_DO_FINANCEIRO = "wanda.andrade.m00001@lojistas.example"
+
+
+def verificar(engine, **contato):
+    argumentos = {"id_cliente": "M00001"} | contato
+    return chamar("verificar_identidade_contato", argumentos, usuario(engine, "especialista_n2"))
+
+
+@pytest.mark.parametrize(
+    "telefone",
+    ["+55 21 90000-4321", "55 (21) 90000-4321", "0 21 90000-4321", "021900004321", "(21) 90000-4321", "21900004321"],
+)
+def test_identidade_confere_telefone_com_55_ou_0_na_frente(engine, telefone):
+    dados = verificar(engine, telefone=telefone)["dados"]
+    assert (dados["confere"], dados["papel"]) == (True, "socio")
+
+
+def test_identidade_nao_confere_telefone_de_outro_lojista_nem_com_55_na_frente(engine):
+    assert verificar(engine, telefone="+55 21 90000-6005")["dados"]["confere"] is False  # sócio de M00006
+
+
+def test_identidade_com_telefone_e_email_exige_que_os_dois_conferam(engine):
+    golpista = verificar(engine, telefone=g.C6_TELEFONE_NAO_CADASTRADO, email=C1_EMAIL_DO_SOCIO)["dados"]
+    assert (golpista["confere"], golpista["papel"]) == (False, None) and "suspeita" in golpista["orientacao"]
+    outro_email = verificar(engine, telefone=C1_TELEFONE_DO_SOCIO, email="ninguem@lojistas.example")["dados"]
+    assert outro_email["confere"] is False
+
+
+def test_identidade_com_telefone_e_email_de_contatos_diferentes_nao_confere(engine):
+    assert verificar(engine, telefone=C1_TELEFONE_DO_SOCIO, email=C1_EMAIL_DO_FINANCEIRO)["dados"]["confere"] is False
+
+
+def test_identidade_com_telefone_e_email_do_mesmo_contato_confere(engine):
+    dados = verificar(engine, telefone="+55 21 90000-4321", email=C1_EMAIL_DO_SOCIO.upper())["dados"]
+    assert (dados["confere"], dados["papel"]) == (True, "socio")
+
+
+def test_identidade_recusa_telefone_curto_mesmo_com_55_na_frente(engine):
+    assert resultado(verificar(engine, telefone="+55 1234")) == INVALIDO
+
+
 def test_identidade_nao_registra_o_telefone_informado(engine):
     chamar("verificar_identidade_contato", {"id_cliente": g.C6_LOJISTA, "telefone": g.C6_TELEFONE_NAO_CADASTRADO}, usuario(engine, "especialista_n2"))
     assert "90000-0606" not in json.dumps(governanca.REGISTROS, ensure_ascii=False, default=str)

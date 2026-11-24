@@ -1,4 +1,4 @@
-"""Confere se o telefone ou o e-mail de quem fala é um contato cadastrado do lojista (DOC-MOCK §6.6).
+"""Confere se o telefone e o e-mail de quem fala são de um contato cadastrado do lojista (DOC-MOCK §6.6).
 
 Só responde "confere" ou "não confere" e o que fazer. Nunca devolve o contato cadastrado: quem tenta um
 golpe não pode descobrir o telefone certo perguntando ao agente.
@@ -10,7 +10,7 @@ from ferramentas import dados_sinteticos, lojista
 from ferramentas.base import ErroFerramenta, Ferramenta
 
 PADRAO_EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
-DIGITOS_DO_TELEFONE = (10, 11, 12, 13)  # com DDD; 12 e 13 com o 55 do país
+DIGITOS_DO_TELEFONE = (10, 11)  # DDD + número, depois de tirar o 55 do país e o 0 de discagem
 ORIENTACAO_QUANDO_CONFERE = (
     "O contato está no cadastro. Antes de mostrar dado confidencial ou mudar algo, confirme o CNPJ com a "
     "pessoa e mande o código de confirmação para esse contato. Troca de conta de recebimento é só com o N2."
@@ -44,7 +44,7 @@ class VerificarIdentidadeContato(Ferramenta):
         telefone, email = argumentos.get("telefone"), argumentos.get("email")
         if not telefone and not email:
             raise ErroFerramenta("parametro_invalido", "Informe o telefone ou o e-mail de quem está falando.")
-        if telefone and len(re.sub(r"\D", "", telefone)) not in DIGITOS_DO_TELEFONE:
+        if telefone and len(dados_sinteticos.normalizar_telefone(telefone)) not in DIGITOS_DO_TELEFONE:
             raise ErroFerramenta("parametro_invalido", "O telefone deve ter DDD, como (21) 90000-0606.")
         if email and not PADRAO_EMAIL.fullmatch(email):
             raise ErroFerramenta("parametro_invalido", "O e-mail informado não é um endereço válido.")

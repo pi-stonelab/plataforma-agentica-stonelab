@@ -415,8 +415,13 @@ def buscar_artigos(termo, categoria, limite):
     return resposta["itens"], resposta["total"]
 
 
+def normalizar_telefone(texto):
+    """Só DDD + número (sem pontuação, 55 do país ou 0 de discagem), a forma em que o cadastro é comparado."""
+    return consultas.normalizar_telefone(texto)
+
+
 def contato_confere(codigo, telefone, email):
-    """{"confere", "papel"}: o contato informado é do cadastro do lojista? None se o lojista não existe."""
+    """{"confere", "papel"}: todo contato informado é do MESMO contato cadastrado do lojista? None se o lojista não existe."""
     return _ler(consultas.contato_confere, codigo, telefone, email)
 
 
