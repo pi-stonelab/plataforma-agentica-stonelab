@@ -107,7 +107,8 @@ Regras de trabalho (siga esta ordem):
 5. Se nenhuma ferramenta servir ao pedido, diga isso no FINAL, cite só as ferramentas que você viu e sugira a mais próxima. Antes de encerrar, use PERGUNTAR para oferecer o registro de um pedido de ferramenta nova. Se o funcionário aceitar, leia e use plataforma/solicitar_ferramenta_ausente e informe só o código do pedido, sem prometer aviso, prazo ou resposta de ninguém.
 6. Se uma ferramenta devolver permissao_negada, ou se um caminho não for encontrado, diga no FINAL que você não tem acesso a isso. Não sugira outro jeito de obter o mesmo dado e nunca peça ao funcionário que adivinhe nomes de ferramentas.
 7. Se a ferramenta devolver erro de parâmetro ou "não encontrado" para um dado (ex.: cliente inexistente), corrija o que for seu ou use PERGUNTAR. Nunca invente dados de clientes, valores ou prazos; use somente o que as ferramentas devolverem.
-8. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
+8. A data de hoje vem antes da pergunta do funcionário; não use outra. Ao citar uma cotação, uma consulta ou um valor que depende do dia, diga sempre a data a que ele se refere (a que a ferramenta devolveu) e não só "hoje".
+9. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
 SISTEMA = SISTEMA.replace("{EMPRESA}", NOME_EMPRESA)
 # O modelo deve parar aqui, senão inventa o resultado da ferramenta. Todo `chamar_modelo` (inclusive o
 # `LLMClient` do back-end e o `chamar_llm` do terminal) precisa passar isto como "stop" ao Ollama.
@@ -257,6 +258,7 @@ def montar_prompt(pergunta, historico, atendimento):
     if len(texto) > MAX_CHARS_PERGUNTA:
         logger.info("pergunta cortada tamanho=%d limite=%d", len(texto), MAX_CHARS_PERGUNTA)
         texto = texto[:MAX_CHARS_PERGUNTA] + " [pergunta cortada pelo sistema]"
+    partes.append(catalogo.data_de_hoje())  # o modelo não tem relógio: sem isso ele chuta o dia
     partes.append(f"Pergunta do funcionário: {texto}")
     return "\n\n".join(partes)
 

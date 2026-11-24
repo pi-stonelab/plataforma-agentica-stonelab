@@ -809,6 +809,20 @@ Escolhas do fechamento das ferramentas. Todas são do Pedro confirmar; os testes
   leitura mais as escritas de chamado, é tirar as duas da lista.
 - No código: `agentes/agente_atendimento/agente.py` (`FERRAMENTAS_DO_AGENTE`).
 
+### F3. A data de hoje no prompt e a regra de dizer a data
+- Decisão: o motor põe uma frase com o dia de hoje antes da pergunta de cada turno (`catalogo.data_de_hoje()`, 1 linha
+  em `montar_prompt`), porque o modelo não tem relógio e chutava o dia. No modo simulado: "Hoje é 15/10/2026, 21h
+  (horário de Brasília)." (`HOJE_DO_MOCK` e `AGORA_DO_MOCK`). Se alguma integração com relógio está em modo real
+  (APIs públicas, e-mail, Google ou Microsoft, as mesmas `agora_real` do H17): o dia de verdade em Brasília, mais "Os
+  dados de lojistas são sintéticos e valem para 15/10/2026" quando os dois dias diferem. A frase vai no prompt do
+  turno e não no `SISTEMA` porque o `LLMClient.como_chamar_modelo(sistema=...)` já leva o sistema dentro dele.
+- Regra nova nos dois `SISTEMA` (geral e atendimento): "diga sempre a data a que ele se refere" ao citar cotação,
+  consulta ou valor que depende do dia. A ficha de `consultar_cotacao_moeda` já mandava dizer o dia da cotação.
+- Observação: as APIs públicas são `real` por padrão (CEP e PTAX), então sem `.env` o prompt já diz a data real de
+  Brasília. Para a demo com o dia do mock inteiro, `APIS_PUBLICAS_MODO=simulado`.
+- No código: `ferramentas/catalogo.py` (`data_de_hoje`), `agentes/agente_atendimento/agente.py` (`montar_prompt`,
+  `SISTEMA`), `agentes/agente_geral/agente.py` (`SISTEMA`); testes em `test_agente_data_de_hoje.py`.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que

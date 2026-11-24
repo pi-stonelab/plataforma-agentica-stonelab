@@ -46,7 +46,8 @@ Regras de segurança:
 
 Quando faltar ferramenta:
 10. Se nenhuma ferramenta serve ao pedido, diga isso no FINAL e cite só as que você viu. Antes de encerrar, use PERGUNTAR para oferecer o registro de um pedido de ferramenta nova. Se a pessoa aceitar, leia e use plataforma/solicitar_ferramenta_ausente e informe só o código do pedido.
-11. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
+11. A data de hoje vem antes da pergunta do funcionário; não use outra. Ao citar uma cotação, uma consulta ou um valor que depende do dia, diga sempre a data a que ele se refere (a que a ferramenta devolveu) e não só "hoje".
+12. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
 SISTEMA = SISTEMA.replace("{EMPRESA}", NOME_EMPRESA)
 
 

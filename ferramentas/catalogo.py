@@ -1,10 +1,11 @@
 import importlib
+import os
 import re
 from contextlib import suppress
 from pathlib import Path
 from time import monotonic
 
-from ferramentas import governanca, integracoes
+from ferramentas import dados_sinteticos, governanca, integracoes
 from ferramentas.base import montar_registro, resposta
 
 NOME_ARQUIVO_INSTRUCOES = "agents.md"
@@ -31,6 +32,8 @@ LIMITE_DO_INDICE = 5800
 SECAO_FERRAMENTAS = "Ferramentas liberadas para você"
 FRASE_MAXIMA = 160  # frase inteira da ficha, quando o índice é pequeno (poucas ferramentas no agente)
 FRASE_MINIMA = 30  # abaixo disso a frase cortada não ajuda: o índice lista só `area/nome` e a área mostra as frases
+# Integrações com relógio próprio (`agora_real`): em modo real, "hoje" é o dia de verdade (Brasília).
+INTEGRACOES_COM_RELOGIO = ("apis_publicas", "email_leitura", "google_workspace", "microsoft_365")
 FERRAMENTAS = {}
 
 
@@ -52,6 +55,24 @@ def nomes():
 def nomes_e_areas():
     """Conjunto com os nomes das ferramentas e das áreas (para o agente filtrar o que vai ao log)."""
     return {nome for nome in carregar()} | {f.area for f in carregar().values()}
+
+
+def data_de_hoje(ambiente=os.environ):
+    """Frase com o dia de hoje para o prompt do agente (o motor a põe antes da pergunta).
+
+    Simulado: o "hoje" do mock, 15/10/2026, 21h. Se alguma integração com relógio está em modo real (cotação do
+    Banco Central, Google, Microsoft, e-mail), o dia de verdade em Brasília; os dados de lojista seguem sintéticos
+    e valem para o dia do mock, e a frase diz isso para o modelo não misturar as duas datas."""
+    mock = dados_sinteticos.AGORA_DO_MOCK
+    for nome in INTEGRACOES_COM_RELOGIO:
+        conector = integracoes.conector(nome)
+        if conector.modo(ambiente) == "real":
+            hoje = conector.agora_real()
+            frase = f"Hoje é {hoje:%d/%m/%Y} (horário de Brasília)."
+            if hoje.date() == mock.date():
+                return frase
+            return f"{frase} Os dados de lojistas são sintéticos e valem para {mock:%d/%m/%Y}."
+    return f"Hoje é {mock:%d/%m/%Y}, {mock:%H}h (horário de Brasília)."
 
 
 def _buscar(nome):

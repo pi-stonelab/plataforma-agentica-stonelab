@@ -40,6 +40,9 @@ roda um turno e devolve um `Turno(resposta, tipo, trajetoria, estado, motivo)`.
   mexer em `MAX_CHARS_MD`, `catalogo.LIMITE_DO_INDICE` precisa ficar abaixo dele (`test_catalogo_indice.py` confere). Os prompts mandam escolher nessa
   lista e ler a ficha (`LER: <area>/<ferramenta>`) direto; ler a área é opcional. Os nomes para log vêm de
   `catalogo.nomes_e_areas()` e a lista do agente geral de `catalogo.nomes()`: o agente nunca pega a ferramenta.
+- A data de hoje (`catalogo.data_de_hoje()`) entra no prompt do turno, antes da pergunta (`montar_prompt`): o modelo
+  não tem relógio. Simulado, 15/10/2026 21h; com uma integração com relógio em modo real, o dia de Brasília (F3). Os
+  dois `SISTEMA` mandam dizer a data da cotação ou da consulta.
 - `Turno.tipo`: `"final"`, `"pergunta"` ou `"limite"`. No limite, `motivo` é `"max_passos"`, `"repeticao"`,
   `"tempo"` ou `"modelo_indisponivel"`. Em todos a resposta é uma mensagem fixa, sem conteúdo.
 - Prazo do turno: `SEGUNDOS_POR_TURNO` (300 s). SEM FONTE: o valor não vem de requisito nem de medição, foi
