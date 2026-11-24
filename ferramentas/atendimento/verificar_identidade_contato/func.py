@@ -34,6 +34,7 @@ class VerificarIdentidadeContato(Ferramenta):
     sensibilidade = "pessoal"
     conteudo_terceiros = False
     status = "ativa"
+    campos_liberados = ("orientacao",)  # texto escrito pela plataforma, não pelo lojista
     parametros = {
         "id_cliente": {"tipo": "texto", "obrigatorio": True},
         "telefone": {"tipo": "texto", "obrigatorio": False, "tamanho_maximo": 30},

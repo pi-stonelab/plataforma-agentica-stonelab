@@ -255,8 +255,9 @@ só técnica.
 3. `consultas.py`: incluir no select e no dict devolvido.
 4. `regras.py`: o campo precisa estar em `CLASSIFICACAO_CAMPOS` (restrito, com o tipo de máscara) ou em
    `CAMPOS_NAO_RESTRITOS`. O nome do campo tem de ser único entre as tabelas. Campo de texto fora das duas listas
-   sai como `***` numa ferramenta de lojista. Campo que só UMA ferramenta devolve (o texto da prévia do e-mail) vai em
-   `campos_liberados` da ficha dela, não aqui: `CAMPOS_NAO_RESTRITOS` vale para todas.
+   sai como `***` numa ferramenta de lojista. Campo que só UMA ferramenta devolve (o texto da prévia do e-mail, o `aviso` e a
+   `orientacao` de uma consulta) vai em `campos_liberados` da ficha dela, não aqui: `CAMPOS_NAO_RESTRITOS` vale para
+   todas. A lista fechada de quem libera o quê é `test_ferramentas_campos_liberados.py`.
 5. `ferramentas/dados_sinteticos.py` e a `func.py` que vai devolver o campo, mais o `agents.md` dela.
 6. Suba `VERSAO_DO_ESQUEMA`, rode `python -m mock.exportar` e os testes. O hash do mundo muda; o teste compara duas
    gerações entre si, então só falha se o gerador deixar de ser determinístico.

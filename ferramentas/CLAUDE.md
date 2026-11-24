@@ -340,7 +340,8 @@ Regras que valem para qualquer ferramenta nova em duas fases:
   e da fase 2, em que o e-mail pode ter saído).
 - Nenhum registro é gravado com a trava da fila tomada: os "expirada" são gravados depois de soltá-la, para um
   destino de registro lento (ou que volte à fila) não travar as confirmações.
-- Campo de texto que só a prévia devolve (`assunto`, `corpo`) vai em `campos_liberados` da ficha da ferramenta, e não
+- Campo de texto que só a prévia devolve (`assunto`, `corpo`), ou que só uma consulta escreve (`aviso`, `orientacao`,
+  `explicacao`, datas do período, texto da plataforma e nunca do lojista), vai em `campos_liberados` da ficha da ferramenta, e não
   em `CAMPOS_NAO_RESTRITOS`, que vale para todas. `FerramentaComConfirmacao` já libera `confirmacao_id` e `expira_em`;
   a subclasse soma os seus. O texto liberado continua passando pela máscara de CPF e cartão. A lista de quem pode
   liberar o quê é fechada em `backend/tests/test_ferramentas_campos_liberados.py`: ferramenta nova que libere um

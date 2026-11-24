@@ -250,12 +250,6 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         # dicionário de dados (metadado): descreve o esquema, nunca o dado
         "tabela", "sistema", "descricao_da_tabela", "origem", "colunas", "coluna", "tipo_da_coluna",
         "descricao_da_coluna", "restrita",
-        # saídas das ferramentas de leitura e cálculo do bloco C (texto escrito pela plataforma, nunca pelo lojista)
-        "orientacao", "aviso", "data_inicio", "data_fim", "mdr", "agenda", "pago", "diferenca", "explicacao",
-        "data_credito", "taxa_mensal", "valor_antecipado", "desconto", "destinos", "sistema_dono", "quem_altera",
-        "limite_de_monitoramento", "vendas_por_modalidade", "vendas_total", "modalidades", "filas", "mes_inicio",
-        "mes_fim", "meses", "conjuntos", "nome_do_sistema", "quantidade_de_colunas", "tem_coluna_restrita",
-        "derivados",
         # código do lojista: como o modelo o vê (id_cliente) e como o banco o chama (id_lojista)
         "id_cliente", "id_lojista",
     }

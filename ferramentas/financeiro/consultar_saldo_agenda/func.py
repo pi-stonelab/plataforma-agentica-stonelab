@@ -16,6 +16,7 @@ class ConsultarSaldoAgenda(Ferramenta):
     sensibilidade = "sigilosa"
     conteudo_terceiros = False
     status = "ativa"
+    campos_liberados = ("data_base",)  # texto escrito pela plataforma, não pelo lojista
     parametros = {"id_cliente": {"tipo": "texto", "obrigatorio": True}}
 
     def rodar(self, argumentos, usuario):

@@ -20,6 +20,7 @@ class ConsultarResponsavelConjunto(Ferramenta):
     sensibilidade = "interna"
     conteudo_terceiros = False
     status = "ativa"
+    campos_liberados = ("nome_do_sistema", "orientacao")  # texto escrito pela plataforma, não pelo lojista
     parametros = {"conjunto": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": 60}}
 
     def rodar(self, argumentos, usuario):

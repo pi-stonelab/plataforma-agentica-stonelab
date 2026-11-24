@@ -20,7 +20,7 @@ class ConsultarTaxaContestacaoCliente(Ferramenta):
     sensibilidade = "sigilosa"
     conteudo_terceiros = False
     status = "ativa"
-    campos_liberados = ("meses_acima_do_limite",)
+    campos_liberados = ("mes_fim", "mes_inicio", "meses_acima_do_limite")  # texto escrito pela plataforma, não pelo lojista
     parametros = {
         "id_cliente": {"tipo": "texto", "obrigatorio": True},
         "mes_inicio": {"tipo": "texto", "obrigatorio": False, "tamanho_maximo": 7},

@@ -52,6 +52,7 @@ class ConferirLiquidacoes(Ferramenta):
     sensibilidade = "sigilosa"
     conteudo_terceiros = False
     status = "ativa"
+    campos_liberados = ("agenda", "diferenca", "explicacao", "pago")  # texto escrito pela plataforma, não pelo lojista
     parametros = {
         "id_cliente": {"tipo": "texto", "obrigatorio": True},
         "data_inicio": {"tipo": "data", "obrigatorio": False},

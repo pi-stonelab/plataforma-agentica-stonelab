@@ -19,6 +19,7 @@ class BuscarConjuntosDados(Ferramenta):
     sensibilidade = "interna"
     conteudo_terceiros = False
     status = "ativa"
+    campos_liberados = ("nome_do_sistema",)  # texto escrito pela plataforma, não pelo lojista
     parametros = {
         "termo": {"tipo": "texto", "obrigatorio": False, "tamanho_maximo": 60},
         "sistema": {"tipo": "texto", "obrigatorio": False, "tamanho_maximo": 20},

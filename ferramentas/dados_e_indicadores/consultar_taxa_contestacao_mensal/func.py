@@ -28,7 +28,7 @@ class ConsultarTaxaContestacaoMensal(Ferramenta):
     sensibilidade = "interna"
     conteudo_terceiros = False
     status = "ativa"
-    campos_liberados = ("tendencia",)
+    campos_liberados = ("mes_fim", "mes_inicio", "tendencia")  # texto escrito pela plataforma, não pelo lojista
     parametros = {
         "mes_inicio": {"tipo": "texto", "obrigatorio": False, "tamanho_maximo": 7},
         "mes_fim": {"tipo": "texto", "obrigatorio": False, "tamanho_maximo": 7},

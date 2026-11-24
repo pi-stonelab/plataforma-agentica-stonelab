@@ -23,6 +23,7 @@ class ResumirReceitaPeriodo(Ferramenta):
     sensibilidade = "interna"
     conteudo_terceiros = False
     status = "ativa"
+    campos_liberados = ("aviso", "data_fim", "data_inicio", "mdr")  # texto escrito pela plataforma, não pelo lojista
     parametros = {
         "data_inicio": {"tipo": "data", "obrigatorio": False},
         "data_fim": {"tipo": "data", "obrigatorio": False},

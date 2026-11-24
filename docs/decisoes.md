@@ -600,6 +600,14 @@ Aplicadas depois da revisão do bloco C. Ficam para o Pedro confirmar.
   da própria entidade, que fica). Migrar as cinco é pequeno, mas muda saída que a frente de agentes já viu em
   avaliações. Fica para o Pedro decidir.
 
+### C14. Campos genéricos saem da lista global da máscara
+- Decisão: `aviso`, `orientacao`, `explicacao`, `agenda`, `pago`, `diferenca`, `desconto`, `valor_antecipado`, `mdr`,
+  `data_inicio`, `data_fim`, `mes_inicio`, `mes_fim`, `nome_do_sistema`, `derivados` e outros saíram de
+  `CAMPOS_NAO_RESTRITOS` (valiam para toda ferramenta, e um texto de lojista guardado num campo com esse nome passaria
+  sem virar `***`). Cada um foi para `campos_liberados` da ficha das ferramentas que o devolvem, e a lista fechada
+  de `test_ferramentas_campos_liberados.py` agora cobre também essas fichas (só texto da plataforma).
+- No código: `mock/regras.py` e as 11 fichas.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que

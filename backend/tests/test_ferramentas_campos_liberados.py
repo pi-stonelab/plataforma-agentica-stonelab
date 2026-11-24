@@ -6,7 +6,7 @@ mudar este arquivo, e a mudança passa pela revisão do CODEOWNERS (QA e Produto
 """
 
 import pytest
-from ferramentas import catalogo
+from ferramentas import catalogo, mascara
 from ferramentas.base import Ferramenta
 from ferramentas.confirmacoes import FerramentaComConfirmacao
 from mock.regras import CAMPOS_NAO_RESTRITOS, CLASSIFICACAO_CAMPOS
@@ -16,8 +16,17 @@ from mock.regras import CAMPOS_NAO_RESTRITOS, CLASSIFICACAO_CAMPOS
 # nunca texto de lojista: o que o lojista escreve (nome fantasia, resumo, comentário) continua sem liberação.
 LIBERACOES_PERMITIDAS = {
     "enviar_email": frozenset({"confirmacao_id", "expira_em", "assunto", "corpo", "id_mensagem"}),
-    "consultar_taxa_contestacao_mensal": frozenset({"tendencia"}),
-    "consultar_taxa_contestacao_cliente": frozenset({"meses_acima_do_limite"}),
+    "buscar_conjuntos_dados": frozenset({"nome_do_sistema"}),
+    "conferir_liquidacoes": frozenset({"agenda", "diferenca", "explicacao", "pago"}),
+    "consultar_linhagem_conjunto": frozenset({"derivados"}),
+    "consultar_responsavel_conjunto": frozenset({"nome_do_sistema", "orientacao"}),
+    "consultar_saldo_agenda": frozenset({"data_base"}),
+    "consultar_taxa_contestacao_cliente": frozenset({"mes_fim", "mes_inicio", "meses_acima_do_limite"}),
+    "consultar_taxa_contestacao_mensal": frozenset({"mes_fim", "mes_inicio", "tendencia"}),
+    "resumir_receita_periodo": frozenset({"aviso", "data_fim", "data_inicio", "mdr"}),
+    "resumir_volume_chamados": frozenset({"aviso", "data_fim", "data_inicio"}),
+    "simular_antecipacao": frozenset({"aviso", "data_credito", "desconto", "valor_antecipado"}),
+    "verificar_identidade_contato": frozenset({"orientacao"}),
 }
 COMO_LIBERAR = "Para liberar um campo novo, edite LIBERACOES_PERMITIDAS em test_ferramentas_campos_liberados.py."
 
@@ -63,3 +72,23 @@ def test_a_lista_fechada_so_cita_ferramentas_e_campos_que_existem():
 def test_nomes_de_campos_liberados_sao_texto_simples():
     for nome, ferramenta in FERRAMENTAS:
         assert all(isinstance(campo, str) and campo.isidentifier() for campo in ferramenta.campos_liberados), nome
+
+
+# Campos genéricos que antes valiam para toda ferramenta (aviso, orientacao, pago...) agora só valem na ficha de
+# quem os usa (docs/decisoes.md, C14). Numa ferramenta que lê dado de lojista, o resto continua sendo "***".
+CAMPOS_QUE_ERAM_GLOBAIS = (
+    "orientacao", "aviso", "explicacao", "agenda", "pago", "diferenca", "desconto", "valor_antecipado", "mdr",
+    "data_inicio", "data_fim", "mes_inicio", "mes_fim", "nome_do_sistema", "derivados",
+)
+
+
+@pytest.mark.parametrize("campo", CAMPOS_QUE_ERAM_GLOBAIS)
+def test_campo_generico_nao_vale_mais_para_toda_ferramenta(campo):
+    assert campo not in CAMPOS_NAO_RESTRITOS
+    assert mascara.mascarar({campo: "texto qualquer"}, ("venda",)) == {campo: "***"}
+    assert mascara.mascarar({campo: "texto qualquer"}, ("venda",), (campo,)) == {campo: "texto qualquer"}
+
+
+def test_todo_campo_que_era_global_esta_na_ficha_de_alguma_ferramenta():
+    liberados = set().union(*(set(f.campos_liberados) for _, f in FERRAMENTAS))
+    assert set(CAMPOS_QUE_ERAM_GLOBAIS) <= liberados
