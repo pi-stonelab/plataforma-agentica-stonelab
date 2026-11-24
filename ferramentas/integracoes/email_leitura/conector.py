@@ -25,7 +25,7 @@ import imaplib
 import os
 import re
 import ssl
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from email import policy
@@ -246,18 +246,29 @@ class ConectorEmailLeitura(Conector):
             raise ConfiguracaoInvalida("EMAIL_IMAP_PASTA")
         return int(dados[0]) if dados and dados[0] and dados[0].isdigit() else 0
 
-    def _com_a_caixa(self, config, funcao):
-        """Roda `funcao(caixa)` com a pasta aberta, traduzindo as falhas do `imaplib` sem detalhe."""
-        caixa = self._abrir(config)
+    @contextmanager
+    def _traduzindo_falhas(self):
+        """As falhas do `imaplib` e da rede viram `ConnectionError`, `TimeoutError` ou `RespostaInvalida`, sem detalhe."""
         try:
-            self._examinar(caixa, config)
-            return funcao(caixa)
+            yield
         except imaplib.IMAP4.abort:
             raise ConnectionError("leitura de e-mail indisponível") from None
         except imaplib.IMAP4.error:
             raise RespostaInvalida("resposta fora do formato") from None
         except TimeoutError:
             raise TimeoutError("leitura de e-mail indisponível") from None
+        except ConnectionError:  # já traduzida (pasta errada, resposta inválida): segue como está
+            raise
+        except OSError:  # TLS que caiu no meio, rede inalcançável: sem isto viraria "erro interno"
+            raise ConnectionError("leitura de e-mail indisponível") from None
+
+    def _com_a_caixa(self, config, funcao):
+        """Roda `funcao(caixa)` com a pasta aberta, traduzindo as falhas sem detalhe."""
+        caixa = self._abrir(config)
+        try:
+            with self._traduzindo_falhas():
+                self._examinar(caixa, config)
+                return funcao(caixa)
         finally:
             self._fechar(caixa)
 
@@ -321,7 +332,7 @@ class ConectorEmailLeitura(Conector):
         if modo == "simulado":
             achadas, total = self._caixa_simulada(codigo, desde, ate, filtro, limite)
             return achadas, total, FONTE_SIMULADA
-        validos = [e.lower() for e in enderecos if endereco_valido(e) and e.isascii()]
+        validos = [e.lower() for e in enderecos if endereco_valido(e) and e.isascii() and "\\" not in e]  # vai entre aspas
         if not validos:
             return [], 0, FONTE_REAL
         config = self.configuracao(ambiente)
@@ -338,7 +349,8 @@ class ConectorEmailLeitura(Conector):
         def contar():
             caixa = self._abrir(config)
             try:
-                return self._examinar(caixa, config)
+                with self._traduzindo_falhas():
+                    return self._examinar(caixa, config)
             finally:
                 self._fechar(caixa)
 

@@ -3,15 +3,18 @@
 O cliente é o de verdade (`imaplib` em `ferramentas/integracoes/email_leitura/conector.py`); só o servidor é falso.
 """
 
+import imaplib
 import json
 import logging
 import os
+import ssl
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
 from ferramentas import catalogo, dados_sinteticos, integracoes
 from ferramentas.integracoes.__main__ import principal
+from ferramentas.integracoes.conector import ConfiguracaoInvalida
 from ferramentas.integracoes.email_leitura.conector import (
     CONECTOR as EMAIL_LEITURA,
 )
@@ -173,6 +176,20 @@ def test_senha_errada_vira_integracao_indisponivel_sem_vazar_nada(caixa, ana, mo
 def test_pasta_inexistente_e_configuracao_invalida(caixa, ana, monkeypatch):
     monkeypatch.setenv("EMAIL_IMAP_PASTA", "Arquivo")
     assert buscar(ana)["tipo_erro"] == "integracao_indisponivel"
+
+
+def test_falha_de_rede_no_meio_da_sessao_vira_conexao_indisponivel_e_a_configuracao_passa_como_esta():
+    for falha in (ssl.SSLError("detalhe com host"), OSError("rede"), imaplib.IMAP4.abort("caiu")):
+        with pytest.raises(ConnectionError) as erro, EMAIL_LEITURA._traduzindo_falhas():
+            raise falha
+        assert "detalhe" not in str(erro.value) and "rede" not in str(erro.value)
+    with pytest.raises(ConfiguracaoInvalida), EMAIL_LEITURA._traduzindo_falhas():
+        raise ConfiguracaoInvalida("EMAIL_IMAP_PASTA")
+
+
+def test_endereco_com_barra_invertida_nao_vai_ao_comando_imap(caixa):
+    achadas, total, _ = EMAIL_LEITURA.mensagens("M00001", ["a\\@stonelab.example"], date(2026, 9, 15), date(2026, 10, 15), "", 5)
+    assert (achadas, total) == ([], 0) and caixa.comandos == []
 
 
 def test_falha_simulada_nao_conecta(caixa, ana):
