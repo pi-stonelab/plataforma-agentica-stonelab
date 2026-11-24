@@ -283,3 +283,12 @@ def test_crm_fora_do_ar_responde_integracao_indisponivel(engine):
     ligar("crm")
     resposta = chamar("consultar_chamado", {"id_cliente": g.C9_LOJISTA, "id_chamado": g.C9_CHAMADO_OUVIDORIA}, usuario(engine, "analista_ouvidoria"))
     assert resultado(resposta) == ("erro", "integracao_indisponivel")
+
+
+# --- tamanho das respostas e limites por ferramenta ------------------------------------------------
+
+
+@pytest.mark.parametrize("limite", [0, 11, 50, 51])
+def test_base_de_conhecimento_diz_sempre_o_mesmo_teto_de_limite(engine, limite):
+    resposta = chamar("consultar_base_conhecimento", {"termo": "maquininha", "limite": limite}, usuario(engine, "atendente_n1"))
+    assert resultado(resposta) == INVALIDO and resposta["mensagem"] == "O limite deve ficar entre 1 e 10."

@@ -558,6 +558,22 @@ Aplicadas depois da revisão do bloco C. Ficam para o Pedro confirmar.
   quantidades (`chargebacks * 100 > vendas`), sem o arredondamento da taxa.
 - No código: `financeiro/consultar_taxa_contestacao_cliente`, `dados_sinteticos.contestacoes_do_lojista_por_mes`.
 
+### C10. Respostas grandes: teto do nosso lado e aviso para a frente de agentes
+- Decisão: o agente corta cada resultado e cada leitura em 6000 caracteres (`MAX_CHARS_MD`, em `agentes/`), e um JSON
+  cortado no meio engana o modelo. Do nosso lado: (a) `ferramentas/tamanho.py` limita o que `Ferramenta.executar`
+  devolve a 5000 caracteres, tirando itens do fim da maior lista e marcando `truncado`, `cortados_por_tamanho` e
+  `aviso_de_tamanho` (os totais da ferramenta continuam contando tudo); (b) teto de itens por ferramenta quando cada
+  item é grande: `buscar_conjuntos_dados` 20, `consultar_agenda_recebiveis` 30 e `consultar_base_conhecimento` 10
+  (com 50 as duas primeiras passavam de 6000). A mensagem de limite sempre diz o teto da ferramenta.
+- Achado que mudou um teste: `consultar_transacoes_cliente` com `limite=50` já passava de 6000 caracteres; agora vem
+  com menos linhas, `truncado` verdadeiro e o total real (`test_a08_...`).
+- Aviso para Christopher e Isack (frente 3, não mexemos em `agentes/`): o ÍNDICE que o agente lê também é cortado em
+  6000. Medido em 24/11 com o agente geral: supervisor de atendimento 5832, especialista N2 5706, coordenador financeiro
+  5564 caracteres. Cada ferramenta nova acrescenta cerca de 170 e, com mais duas ou três, o fim do índice some sem
+  aviso. Sugestão: o índice mostrar só as áreas e a pessoa (ou o modelo) abrir a área com `LER`, que já existe
+  (`catalogo.ler("<area>")`), ou subir o teto do índice. Decisão deles.
+- No código: `ferramentas/tamanho.py`, `lojista.limite_pedido` (parâmetro `maximo`), as três fichas.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que

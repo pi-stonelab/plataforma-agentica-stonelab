@@ -57,11 +57,15 @@ def periodo_permitido(usuario, data_inicio, data_fim):
     return data_inicio or inicio_da_janela, data_fim
 
 
-def limite_pedido(argumentos, padrao=LIMITE_PADRAO):
-    """Limite de linhas do pedido (`padrao` se faltar); fora de 1 a LIMITE_LINHAS é parâmetro inválido."""
+def limite_pedido(argumentos, padrao=LIMITE_PADRAO, maximo=governanca.LIMITE_LINHAS):
+    """Limite de linhas do pedido (`padrao` se faltar); fora de 1 a `maximo` é parâmetro inválido.
+
+    `maximo` é o da ferramenta quando cada item é grande (nunca passa de LIMITE_LINHAS): a mensagem de erro
+    sempre diz o teto que vale para ela.
+    """
     limite = argumentos.get("limite", padrao)
-    if not 1 <= limite <= governanca.LIMITE_LINHAS:
-        raise ErroFerramenta("parametro_invalido", "O limite deve ficar entre 1 e 50.")
+    if not 1 <= limite <= min(maximo, governanca.LIMITE_LINHAS):
+        raise ErroFerramenta("parametro_invalido", f"O limite deve ficar entre 1 e {min(maximo, governanca.LIMITE_LINHAS)}.")
     return limite
 
 
@@ -75,7 +79,7 @@ def conferir_ordem_das_datas(data_inicio, data_fim):
 PedidoDoLojista = namedtuple("PedidoDoLojista", "codigo data_inicio data_fim limite")
 
 
-def preparar(usuario, argumentos, *, com_periodo=False, limite_padrao=LIMITE_PADRAO):
+def preparar(usuario, argumentos, *, com_periodo=False, limite_padrao=LIMITE_PADRAO, limite_maximo=governanca.LIMITE_LINHAS):
     """Todas as checagens de uma ferramenta de lojista, sempre na mesma ordem (I7 da crítica B).
 
     1. `limite`; 2. ordem das datas (só `com_periodo`); 3. acesso ao lojista (formato, existência e
@@ -84,7 +88,7 @@ def preparar(usuario, argumentos, *, com_periodo=False, limite_padrao=LIMITE_PAD
     função primeiro: assim não dá para esquecer `exigir_acesso`.
     """
     codigo = argumentos["id_cliente"]
-    limite = limite_pedido(argumentos, limite_padrao)
+    limite = limite_pedido(argumentos, limite_padrao, limite_maximo)
     data_inicio = argumentos.get("data_inicio") if com_periodo else None
     data_fim = argumentos.get("data_fim") if com_periodo else None
     conferir_ordem_das_datas(data_inicio, data_fim)

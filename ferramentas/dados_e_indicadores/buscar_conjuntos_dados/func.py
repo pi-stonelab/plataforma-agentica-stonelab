@@ -4,6 +4,7 @@ from ferramentas import dicionario, lojista
 from ferramentas.base import ErroFerramenta, Ferramenta
 
 LIMITE_PADRAO = 10
+LIMITE_MAXIMO = 20  # com 50 a resposta passa dos 6000 caracteres que o agente lê
 
 
 class BuscarConjuntosDados(Ferramenta):
@@ -31,7 +32,7 @@ class BuscarConjuntosDados(Ferramenta):
         if sistema is not None and sistema not in {tabela["sistema"] for tabela in todos}:
             opcoes = ", ".join(sorted({tabela["sistema"] for tabela in todos}))
             raise ErroFerramenta("parametro_invalido", f"O sistema deve ser um destes: {opcoes}.")
-        limite = lojista.limite_pedido(argumentos, LIMITE_PADRAO)
+        limite = lojista.limite_pedido(argumentos, LIMITE_PADRAO, LIMITE_MAXIMO)
         achados = [
             tabela
             for tabela in todos

@@ -30,9 +30,7 @@ class ConsultarBaseConhecimento(Ferramenta):
         termo = argumentos["termo"]
         if len(termo) < TAMANHO_MINIMO_DO_TERMO:
             raise ErroFerramenta("parametro_invalido", "O termo deve ter pelo menos 3 letras, como maquininha.")
-        limite = lojista.limite_pedido(argumentos, LIMITE_PADRAO)
-        if limite > LIMITE_MAXIMO:
-            raise ErroFerramenta("parametro_invalido", "O limite deve ficar entre 1 e 10.")
+        limite = lojista.limite_pedido(argumentos, LIMITE_PADRAO, LIMITE_MAXIMO)
         artigos, total = dados_sinteticos.buscar_artigos(termo, argumentos.get("categoria"), limite)
         return {"artigos": artigos, "total_encontrado": total, "truncado": total > len(artigos)}
 

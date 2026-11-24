@@ -5,6 +5,7 @@ from datetime import timedelta
 from ferramentas import dados_sinteticos, governanca, lojista
 from ferramentas.base import ErroFerramenta, Ferramenta
 
+LIMITE_MAXIMO = 30  # com 50 parcelas a resposta passa dos 6000 caracteres que o agente lê
 DIAS_PADRAO_DO_PASSADO = 30  # só data_fim no passado: a agenda são os 30 dias que terminam nela
 
 
@@ -43,7 +44,7 @@ class ConsultarAgendaRecebiveis(Ferramenta):
                 "parametro_invalido", "A situacao deve ser previsto, pago, retido, bloqueado ou antecipado."
             )
         padrao = {"data_inicio": _inicio_padrao(argumentos.get("data_fim"))}
-        pedido = lojista.preparar(usuario, padrao | argumentos, com_periodo=True)
+        pedido = lojista.preparar(usuario, padrao | argumentos, com_periodo=True, limite_maximo=LIMITE_MAXIMO)
         parcelas, total = dados_sinteticos.buscar_agenda(
             pedido.codigo, pedido.data_inicio, pedido.data_fim, situacao, pedido.limite
         )

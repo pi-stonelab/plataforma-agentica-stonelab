@@ -51,6 +51,8 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
   (`janela_dias`, `inicio_da_janela`) e registro das chamadas (`registrar`, `adicionar_destino`).
 - `lojista.py`: o que toda ferramenta de dados de lojista repete: formato do código, escopo, janela e limite.
   `preparar` junta tudo na ordem certa.
+- `tamanho.py`: teto de 5000 caracteres no que a ferramenta devolve (o agente corta em 6000). Tira itens do fim da
+  maior lista e marca `truncado`, `cortados_por_tamanho` e `aviso_de_tamanho`. `executar` chama depois da máscara.
 - `mascara.py`: mascara CPF, telefone, e-mail, conta, cartão, nome e texto livre. Função pura.
 - `dados_sinteticos.py`: fachada do mock. Lê o banco por `mock/consultas.py` e devolve dicts.
 - `diretorio.py`: `buscar_usuario(id)` monta o `Usuario` do funcionário pelo diretório do mock, e só se a situação for

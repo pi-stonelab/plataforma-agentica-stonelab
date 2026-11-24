@@ -5,7 +5,7 @@ import json
 from datetime import date
 
 import pytest
-from ferramentas import dados_sinteticos, governanca
+from ferramentas import dados_sinteticos, governanca, tamanho
 from mock import falhas  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
 
 from . import gabaritos as g
@@ -316,3 +316,44 @@ def test_volume_de_chamados_numa_segunda_mostra_a_semana_que_acabou(engine, monk
     monkeypatch.setattr(dados_sinteticos, "HOJE_DO_MOCK", date(2026, 10, 19))  # segunda-feira
     dados = chamar("resumir_volume_chamados", {}, usuario(engine, "supervisor_atendimento"))["dados"]
     assert (dados["data_inicio"], dados["data_fim"]) == ("2026-10-12", "2026-10-18")
+
+
+# --- tamanho das respostas: nada passa dos 6000 caracteres que o agente lê ------------------------------
+
+TETO_DO_AGENTE = 6000  # agentes/agente_atendimento/agente.py::MAX_CHARS_MD (outra frente: só conferimos)
+
+
+def tamanho_da_resposta(resposta):
+    return len(json.dumps(resposta, ensure_ascii=False, default=str))
+
+
+def test_dicionario_com_o_limite_maximo_cabe_no_que_o_agente_le(engine):
+    n1 = usuario(engine, "atendente_n1")
+    resposta = chamar("buscar_conjuntos_dados", {"limite": 20}, n1)
+    assert resultado(resposta) == ("ok", None) and tamanho_da_resposta(resposta) < TETO_DO_AGENTE
+    for limite in (21, 50):
+        recusada = chamar("buscar_conjuntos_dados", {"limite": limite}, n1)
+        assert resultado(recusada) == INVALIDO and recusada["mensagem"] == "O limite deve ficar entre 1 e 20."
+
+
+def test_agenda_com_o_limite_maximo_cabe_no_que_o_agente_le_no_pior_lojista(engine):
+    coordenador = usuario(engine, "coordenador_financeiro")
+    argumentos = {"id_cliente": "M00010", "data_inicio": "2026-01-01", "limite": 30}
+    resposta = chamar("consultar_agenda_recebiveis", argumentos, coordenador)
+    assert resultado(resposta) == ("ok", None) and tamanho_da_resposta(resposta) < TETO_DO_AGENTE
+    recusada = chamar("consultar_agenda_recebiveis", argumentos | {"limite": 31}, coordenador)
+    assert resultado(recusada) == INVALIDO and recusada["mensagem"] == "O limite deve ficar entre 1 e 30."
+
+
+def test_teto_de_caracteres_corta_a_maior_lista_e_avisa(engine, monkeypatch):
+    monkeypatch.setattr(tamanho, "TETO_DE_CARACTERES", 1500)
+    resposta = chamar("buscar_conjuntos_dados", {"limite": 20}, usuario(engine, "atendente_n1"))
+    dados = resposta["dados"]
+    assert resultado(resposta) == ("ok", None) and tamanho_da_resposta(dados) <= 1500
+    assert dados["truncado"] is True and dados["cortados_por_tamanho"] > 0 and "cortada" in dados["aviso_de_tamanho"]
+    assert len(dados["conjuntos"]) + dados["cortados_por_tamanho"] == 20 and dados["total_encontrado"] >= 20
+
+
+def test_teto_de_caracteres_nao_mexe_na_resposta_que_cabe(engine):
+    dados = chamar("buscar_conjuntos_dados", {"limite": 3}, usuario(engine, "atendente_n1"))["dados"]
+    assert "cortados_por_tamanho" not in dados and len(dados["conjuntos"]) == 3

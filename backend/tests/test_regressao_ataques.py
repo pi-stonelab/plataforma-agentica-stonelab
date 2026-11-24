@@ -385,7 +385,9 @@ def test_a08_lista_longa_e_cortada_em_50_com_o_total_real():
         gab.CONSULTAR_TRANSACOES, {"id_cliente": "M00005", "limite": 50}, pessoa("coordenador_financeiro")
     )
     dados = resposta["dados"]
-    assert len(dados["transacoes"]) == gab.LIMITE_DE_LINHAS
+    # Com 50 vendas a resposta passaria dos 5000 caracteres e o agente a cortaria no meio: o teto de tamanho
+    # (`ferramentas/tamanho.py`) tira vendas do fim, avisa e o total continua o real.
+    assert 0 < len(dados["transacoes"]) <= gab.LIMITE_DE_LINHAS
     assert dados["truncado"] is True and dados["total_encontrado"] > gab.LIMITE_DE_LINHAS
 
 

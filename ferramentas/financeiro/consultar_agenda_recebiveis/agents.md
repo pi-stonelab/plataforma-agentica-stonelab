@@ -16,13 +16,13 @@ Para o depósito que caiu (ou falhou) num dia, use `consultar_liquidacoes_client
 - `data_inicio` (data, opcional): primeira data prevista, no formato AAAA-MM-DD. Se faltar, é hoje; se só a `data_fim` for passada e já tiver passado, são os 30 dias que terminam nela. Exemplo: `2026-10-16`.
 - `data_fim` (data, opcional): última data prevista, no formato AAAA-MM-DD. Exemplo: `2026-12-31`.
 - `situacao` (texto, opcional): só as parcelas `previsto`, `pago`, `retido`, `bloqueado` ou `antecipado`. Exemplo: `retido`.
-- `limite` (inteiro, opcional): quantas parcelas trazer, de 1 a 50. Se faltar, vêm 20. Exemplo: `10`.
+- `limite` (inteiro, opcional): quantas parcelas trazer, de 1 a 30. Se faltar, vêm 20. Exemplo: `10`.
 
 ## O que devolve
 
 Em `dados`: `codigo`, `agenda_futura`, `parcelas`, `total_encontrado`, `truncado` e `janela_dias`. A `agenda_futura` resume tudo o que ainda vai cair, por situação (`previsto`, `retido`, `bloqueado`, `antecipado`), com `quantidade` e `valor`, sem depender das datas pedidas. Cada parcela tem `codigo` (como `R0000747`), `id_venda`, `numero_parcela`, `data_prevista`, `valor` e `situacao`, da data mais próxima para a mais distante. Valores em reais são texto como `R$ 217,54`: repita sem converter. `retido` quer dizer preso por chargeback ou por falha na liquidação; `bloqueado`, por decisão judicial ou da Stone.
 
-Erros possíveis: `parametro_invalido` (id fora do formato, situação desconhecida, limite fora de 1 a 50 ou data_inicio depois de data_fim), `permissao_negada` (cliente fora da sua carteira, ou período antes da janela do seu cargo) e `nao_encontrado` (só para quem vê todas as carteiras).
+Erros possíveis: `parametro_invalido` (id fora do formato, situação desconhecida, limite fora de 1 a 30 ou data_inicio depois de data_fim), `permissao_negada` (cliente fora da sua carteira, ou período antes da janela do seu cargo) e `nao_encontrado` (só para quem vê todas as carteiras).
 
 ## Para quem mantém
 

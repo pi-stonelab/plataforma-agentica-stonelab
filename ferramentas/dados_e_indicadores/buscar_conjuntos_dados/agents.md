@@ -14,13 +14,13 @@ Esta ferramenta não lê nenhum dado, só descreve as tabelas. Para o dado de um
 
 - `termo` (texto, opcional): palavra no nome ou na descrição da tabela. Exemplo: `chargeback`.
 - `sistema` (texto, opcional): só as tabelas de um sistema: `cadastro`, `core`, `cobranca`, `disputas`, `crm`, `diretorio` ou `analitica`. Exemplo: `disputas`.
-- `limite` (inteiro, opcional): quantas trazer, de 1 a 50. Se faltar, vêm 10. Exemplo: `5`.
+- `limite` (inteiro, opcional): quantas trazer, de 1 a 20. Se faltar, vêm 10. Exemplo: `5`.
 
 ## O que devolve
 
 Em `dados`: `conjuntos` (cada um com `tabela`, `sistema`, `nome_do_sistema`, `descricao_da_tabela`, `quantidade_de_colunas` e `tem_coluna_restrita`), `total_encontrado` e `truncado`.
 
-Erros possíveis: `parametro_invalido` (sistema desconhecido ou limite fora de 1 a 50).
+Erros possíveis: `parametro_invalido` (sistema desconhecido ou limite fora de 1 a 20).
 
 ## Para quem mantém
 

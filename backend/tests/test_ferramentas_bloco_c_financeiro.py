@@ -370,7 +370,7 @@ def test_conferencia_so_com_data_fim_antiga_conta_30_dias_ate_ela(engine):
 
 
 def test_agenda_so_com_data_fim_no_passado_traz_os_30_dias_ate_ela(engine):
-    argumentos = {"id_cliente": g.C4_LOJISTA, "data_fim": "2026-09-30", "limite": 50}
+    argumentos = {"id_cliente": g.C4_LOJISTA, "data_fim": "2026-09-30", "limite": 30}
     resposta = chamar("consultar_agenda_recebiveis", argumentos, usuario(engine, "analista_recebiveis"))
     assert resultado(resposta) == ("ok", None)
     datas = [parcela["data_prevista"] for parcela in resposta["dados"]["parcelas"]]
@@ -378,7 +378,7 @@ def test_agenda_so_com_data_fim_no_passado_traz_os_30_dias_ate_ela(engine):
 
 
 def test_agenda_so_com_data_fim_no_futuro_continua_comecando_hoje(engine):
-    argumentos = {"id_cliente": g.C4_LOJISTA, "data_fim": "2026-12-31", "limite": 50}
+    argumentos = {"id_cliente": g.C4_LOJISTA, "data_fim": "2026-12-31", "limite": 30}
     datas = [p["data_prevista"] for p in chamar("consultar_agenda_recebiveis", argumentos, atendente_pme(engine))["dados"]["parcelas"]]
     assert datas and min(datas) >= regras.HOJE_DO_MOCK.isoformat()
 
