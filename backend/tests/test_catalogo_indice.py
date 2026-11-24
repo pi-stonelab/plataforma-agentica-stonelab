@@ -50,6 +50,17 @@ def test_do_indice_vai_direto_para_a_ficha_e_a_area_continua_disponivel():
     assert "`consultar_cliente`" in area
 
 
-def test_indice_nao_cresce_sem_controle():
-    maior = max(len(catalogo.ler("", usuario_do_cargo(c), TODAS)) for c in CARGOS)
-    assert maior < 3500
+# O índice vai inteiro para o modelo em todo passo. O agente geral (TODAS) lista tudo o que o cargo pode usar, então
+# o índice cresce com o catálogo; o controle é por ferramenta: frase curta e um custo fixo por linha.
+TAMANHO_MAXIMO_DA_FRASE = 160
+TAMANHO_FIXO_DO_INDICE = 2000  # cabeçalho, áreas, tipos de erro e regras gerais
+TAMANHO_POR_FERRAMENTA = 170  # "- `area/nome`: " + a frase
+
+
+@pytest.mark.parametrize("cargo", CARGOS)
+def test_indice_nao_cresce_sem_controle(cargo):
+    texto = catalogo.ler("", usuario_do_cargo(cargo), TODAS)
+    listadas = ferramentas_do_indice(texto) if SECAO in texto else {}
+    longas = {caminho: len(frase) for caminho, frase in listadas.items() if len(frase) > TAMANHO_MAXIMO_DA_FRASE}
+    assert longas == {}, "Encurte a primeira frase do agents.md destas fichas."
+    assert len(texto) <= TAMANHO_FIXO_DO_INDICE + TAMANHO_POR_FERRAMENTA * len(listadas)

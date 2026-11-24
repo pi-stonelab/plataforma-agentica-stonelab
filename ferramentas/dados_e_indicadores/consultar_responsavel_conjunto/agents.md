@@ -1,29 +1,32 @@
 # consultar_responsavel_conjunto
 
-[preencher: o que faz, em uma frase. Sugestão: quem responde por um conjunto de dados]
+Diz de que sistema é uma tabela de dados, para saber a quem perguntar ou pedir correção.
 
 ## Quando usar
 
-[preencher]
+Use quando o usuário perguntar quem é o dono de um dado ou a quem pedir correção de uma tabela. Pegue o nome exato da tabela com `buscar_conjuntos_dados`.
 
 ## Quando não usar
 
-[preencher: quando outra ferramenta serve melhor, citando qual]
+Esta ferramenta não diz o nome de nenhuma pessoa: o responsável é o sistema dono.
 
 ## Parâmetros
 
-[preencher: um por linha, com o significado e um exemplo]
+- `conjunto` (texto, obrigatório): nome exato da tabela. Exemplo: `faturas`.
 
 ## O que devolve
 
-[preencher: campos de `dados` quando dá certo e os erros possíveis]
+Em `dados`: `tabela`, `sistema`, `nome_do_sistema` e `orientacao`.
+
+Erros possíveis: `nao_encontrado` (tabela que não existe).
 
 ## Para quem mantém
 
 - Área: `dados_e_indicadores`.
 - Acesso: leitura.
 - Integração:
-  - `datahub` (ver `integracoes/datahub/README.md`): [preencher: catálogo simulado de conjuntos de dados (KAN-28)]
-- Permissão: provisória na ficha em func.py [aqui conectamos com Brenno: níveis e áreas oficiais, KAN-62].
+  - `datahub` (ver `integracoes/datahub/README.md`): dicionário do mock, via `ferramentas/dicionario.py`.
+- Permissão: categoria `metadado` (todo cargo com área).
+- Regra: o responsável é o sistema dono da tabela; o mock não tem um time nomeado por sistema (decisão sem fonte, `docs/decisoes.md`).
 - Conteúdo de terceiros na saída: não.
-- Situação: esqueleto em func.py, sem lógica.
+- Situação: ativa.

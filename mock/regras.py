@@ -42,7 +42,8 @@ CATEGORIAS_DADO = (
     "contato",
     "conta_recebimento",
     "venda",
-    "agenda_recebiveis",
+    "agenda_recebiveis",  # as parcelas e a simulação de antecipação (inclui o saldo)
+    "saldo_agenda",  # só o saldo da agenda por situação, sem parcelas (cobrança, DOC-MOCK §8.2)
     "liquidacao",
     "cobranca",
     "chamado",
@@ -89,6 +90,7 @@ _DADOS_DO_ATENDIMENTO = frozenset(
         "conta_recebimento",
         "venda",
         "agenda_recebiveis",
+        "saldo_agenda",
         "liquidacao",
         "cobranca",
         "chamado",
@@ -147,7 +149,7 @@ CARGOS: dict[str, RegraCargo] = {
         # para identificar o lojista e ligar (telefone chega mascarado na Sprint 2).
         _regra(
             "analista_cobranca", "financeiro", "Colaborador", "N1", ESCOPO_TODAS,
-            None, {"cadastral", "contato", "cobranca", "agenda_recebiveis"} | _COMUNS_COM_AREA,
+            None, {"cadastral", "contato", "cobranca", "saldo_agenda"} | _COMUNS_COM_AREA,
         ),
         # "Vendas, chargebacks e casos de Pix" (§8.2).
         _regra(
@@ -157,12 +159,12 @@ CARGOS: dict[str, RegraCargo] = {
         # "Agenda, liquidações e antecipações". Sem conta de recebimento (segregação §8.1).
         _regra(
             "analista_recebiveis", "financeiro", "Colaborador", "N1", ESCOPO_TODAS,
-            None, {"cadastral", "agenda_recebiveis", "liquidacao"} | _COMUNS_COM_AREA,
+            None, {"cadastral", "agenda_recebiveis", "saldo_agenda", "liquidacao"} | _COMUNS_COM_AREA,
         ),
         # "Tudo do Financeiro": a união dos quatro analistas, menos o que é do atendimento.
         _regra(
             "coordenador_financeiro", "financeiro", "Supervisor", "N2", ESCOPO_TODAS, None,
-            {"cadastral", "contato", "venda", "agenda_recebiveis", "liquidacao", "cobranca", "disputa"}
+            {"cadastral", "contato", "venda", "agenda_recebiveis", "saldo_agenda", "liquidacao", "cobranca", "disputa"}
             | _COMUNS_COM_AREA,
         ),
         # Na Sprint 2 não há ferramenta de dado para os dois cargos transversais.
@@ -369,17 +371,18 @@ def desconto_da_antecipacao_centavos(valor_centavos: int, dias_antecipados: int,
     return _arredondar_divisao(valor_centavos * taxa_pontos_base * dias_antecipados, 10000 * 30)
 
 
-# Os quatro motivos de recusa do §7.4, na ordem em que a ferramenta explica, com o texto para a pessoa.
+# Os motivos de recusa da antecipação, na ordem em que a ferramenta explica, com o texto para a pessoa. Os quatro
+# do §7.4 mais a conta inválida: o §7.3 diz que com ela o dinheiro fica retido, então nada sai (docs/decisoes.md, C7).
 ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = {
     "recebivel_retido_ou_bloqueado": "a parcela está retida ou bloqueada",
     "lojista_bloqueado": "o lojista está bloqueado",
     "conta_em_verificacao": "a conta de recebimento está em verificação",
+    "conta_invalida": "a conta de recebimento está inválida e o dinheiro fica retido",
     "fatura_vencida_ha_mais_de_15_dias": "há fatura vencida há mais de 15 dias",
 }
 MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = tuple(ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO)
 
-# Alçadas do §7.9. ferramentas/financeiro/calcular_parcelas ainda tem as suas (sem o perdão de encargos e sem a
-# dupla aprovação): pendência do bloco C.
+# Alçadas do §7.9. `calcular_parcelas` usa estas, pela fachada (docs/decisoes.md, C15).
 ENTRADA_MINIMA_ANALISTA_PERCENTUAL = 20
 PARCELAS_MAXIMAS_ANALISTA = 6
 PARCELAS_MAXIMAS_COORDENADOR = 12

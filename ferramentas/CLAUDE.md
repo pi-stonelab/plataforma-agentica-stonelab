@@ -1,15 +1,26 @@
 # ferramentas/ (frente 4: Pedro)
 
 Catálogo das ações que o agente pode pedir, a regra de quem pode usar cada uma e a ligação com os dados da Stone
-simulada (`mock/`). Hoje são 43 ferramentas em 8 áreas. Dezenove estão ativas. As outras 24 são esqueletos: o
+simulada (`mock/`). Hoje são 51 ferramentas em 8 áreas. Trinta e três estão ativas. As outras 18 são esqueletos: o
 `func.py` existe, mas `rodar` só devolve `ferramenta_inativa` ("ainda sem lógica").
 
-Ativas: `consultar_cliente`, `consultar_transacoes_cliente`, `calcular_multa_atraso`, `consultar_endereco_cep`,
-`solicitar_ferramenta_ausente`, `consultar_liquidacoes_cliente`, `listar_chamados_cliente`,
-`consultar_historico_contato`, `listar_faturas_em_atraso`, `calcular_parcelas`, `consultar_contatos_lojista`,
-`consultar_cotacao_moeda`, `enviar_email` (escrita em duas fases, ver "Escrita em duas fases") e, do bloco E1,
-`consultar_chamado_jira`, `abrir_chamado_jira`, `comentar_chamado_jira`, `enviar_mensagem_slack`,
-`enviar_aviso_telegram` e `buscar_emails` (as quatro de escrita também em duas fases). Ferramenta ativa cuja
+Ativas:
+- atendimento: `consultar_cliente`, `buscar_clientes`, `consultar_contatos_lojista`, `listar_chamados_cliente`,
+  `consultar_chamado`, `consultar_historico_contato`, `consultar_base_conhecimento`, `verificar_identidade_contato` e
+  `resumir_satisfacao`;
+- financeiro: `consultar_transacoes_cliente`, `consultar_liquidacoes_cliente`, `consultar_agenda_recebiveis`,
+  `consultar_saldo_agenda`, `conferir_liquidacoes`, `listar_contestacoes_cliente`,
+  `consultar_taxa_contestacao_cliente`, `listar_faturas_em_atraso`, `listar_acordos`, `calcular_multa_atraso`,
+  `calcular_parcelas` e `simular_antecipacao`;
+- dados_e_indicadores: `resumir_receita_periodo`, `resumir_volume_chamados`, `consultar_taxa_contestacao_mensal`,
+  `calcular_roi` e as quatro do dicionário (`buscar_conjuntos_dados`, `consultar_esquema_conjunto`,
+  `consultar_responsavel_conjunto`, `consultar_linhagem_conjunto`);
+- consultas públicas e plataforma: `consultar_endereco_cep`, `consultar_cotacao_moeda` e `solicitar_ferramenta_ausente`;
+- comunicação e chamados internos: `enviar_email`, `enviar_mensagem_slack`, `enviar_aviso_telegram`, `abrir_chamado_jira` e
+  `comentar_chamado_jira` (escrita em duas fases, ver "Escrita em duas fases"), `consultar_chamado_jira` e `buscar_emails`.
+
+Regras comuns: `lojista.py` (código, escopo, janela e período de quem lê dado de um lojista), `indicadores.py` (período
+até ontem e meses AAAA-MM da base analítica) e `dicionario.py` (leitura do dicionário de dados). Ferramenta ativa cuja
 integração está desligada ou mal configurada no .env some do índice que o modelo lê e aparece `inativa` na tela.
 Jira, Slack, Telegram e a leitura de e-mail começam desligados (sem token não há conector ligado) e só alcançam
 destinos da lista do .env (`integracoes/README.md`).
@@ -44,6 +55,8 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
   (`janela_dias`, `inicio_da_janela`) e registro das chamadas (`registrar`, `adicionar_destino`).
 - `lojista.py`: o que toda ferramenta de dados de lojista repete: formato do código, escopo, janela e limite.
   `preparar` junta tudo na ordem certa.
+- `tamanho.py`: teto de 5000 caracteres no que a ferramenta devolve (o agente corta em 6000). Tira itens do fim da
+  maior lista e marca `truncado`, `cortados_por_tamanho` e `aviso_de_tamanho`. `executar` chama depois da máscara.
 - `mascara.py`: mascara CPF, telefone, e-mail, conta, cartão, nome e texto livre. Função pura.
 - `dados_sinteticos.py`: fachada do mock. Lê o banco por `mock/consultas.py` e devolve dicts.
 - `diretorio.py`: `buscar_usuario(id)` monta o `Usuario` do funcionário pelo diretório do mock, e só se a situação for
@@ -230,6 +243,27 @@ ferramenta nova que devolva `nome_fantasia`, `resumo` de chamado ou texto de men
 Os textos de erro que o modelo vê estão em `ferramentas/agents.md`. Mensagem de erro nunca leva nome de pessoa,
 nome de lojista nem valor de dado.
 
+## Padrão das saídas (`dados`)
+
+Vale para as ferramentas de leitura e cálculo do bloco C e para as novas. O modelo repete o que lê, então o mesmo
+conceito tem o mesmo nome e o mesmo formato em toda ferramenta.
+
+- Código do lojista: `id_cliente` (igual ao parâmetro). `codigo` fica para o código da própria entidade da lista
+  (`CB00001` do chargeback, `CH000061` do chamado, `KB003` do artigo), nunca para o lojista, para os dois não se
+  misturarem na mesma resposta. As ferramentas dos blocos A e B (`consultar_liquidacoes_cliente`,
+  `consultar_transacoes_cliente`, `listar_faturas_em_atraso`, `listar_chamados_cliente`, `consultar_contatos_lojista`)
+  ainda devolvem `codigo` para o lojista; migrar é pergunta em aberto (docs/decisoes.md, C13).
+- Dinheiro: texto em reais, `"R$ 1.842,30"` (`dados_sinteticos.reais`). Nunca centavos para o modelo.
+- Percentual: número com duas casas, em pontos percentuais (`2.99` quer dizer 2,99%), em campo que termina em
+  `_percentual` (`taxa_chargeback_percentual`, `taxa_mensal_percentual`, `roi_percentual`). Nunca texto com `%`.
+  Para escrever "2,99%" na resposta é o modelo que formata. Média de nota também é número com duas casas.
+- Datas: `AAAA-MM-DD` em texto; meses `AAAA-MM`.
+- Listas: `truncado` (verdadeiro se há mais do que veio) e o total real em `total_encontrado` quando a resposta tem uma
+  lista só; com duas listas, `total_de_<lista>` para cada uma (`total_de_chargebacks`, `total_de_casos_pix`).
+  Se o teto de tamanho cortar a lista (`tamanho.py`), vêm também `cortados_por_tamanho` e `aviso_de_tamanho`.
+- Quem aprova um acordo: `alcada`, com os valores de `regras.alcada_do_acordo` (`analista`, `coordenador`,
+  `dupla_aprovacao`, `proibido`), em `calcular_parcelas` e em `listar_acordos`.
+
 ## Como adicionar uma ferramenta de leitura nova
 
 Pelo `BRIEFING.md` (decisão 5), não crie ferramenta sem o Pedro pedir. As de leitura dos cenários 1, 3, 5 e 7 foram
@@ -315,7 +349,8 @@ Regras que valem para qualquer ferramenta nova em duas fases:
   e da fase 2, em que o e-mail pode ter saído).
 - Nenhum registro é gravado com a trava da fila tomada: os "expirada" são gravados depois de soltá-la, para um
   destino de registro lento (ou que volte à fila) não travar as confirmações.
-- Campo de texto que só a prévia devolve (`assunto`, `corpo`) vai em `campos_liberados` da ficha da ferramenta, e não
+- Campo de texto que só a prévia devolve (`assunto`, `corpo`), ou que só uma consulta escreve (`aviso`, `orientacao`,
+  `explicacao`, datas do período, texto da plataforma e nunca do lojista), vai em `campos_liberados` da ficha da ferramenta, e não
   em `CAMPOS_NAO_RESTRITOS`, que vale para todas. `FerramentaComConfirmacao` já libera `confirmacao_id` e `expira_em`;
   a subclasse soma os seus. O texto liberado continua passando pela máscara de CPF e cartão. A lista de quem pode
   liberar o quê é fechada em `backend/tests/test_ferramentas_campos_liberados.py`: ferramenta nova que libere um

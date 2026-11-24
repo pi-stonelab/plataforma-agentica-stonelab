@@ -113,7 +113,7 @@ def test_cenario_3_faturas_encargos_e_acordo_em_4_parcelas(engine):
         cobranca,
     )["dados"]
     assert acordo["valor_informado"] == acordo["valor_negociado"] == "R$ 330,67"
-    assert acordo["quem_aprova"] == "analista" and acordo["numero_parcelas"] == 4
+    assert acordo["alcada"] == "analista" and acordo["numero_parcelas"] == 4
     valores = [em_centavos(p["valor"]) for p in acordo["parcelas"]]
     assert len(valores) == 4
     assert em_centavos(acordo["entrada"]) + sum(valores) == 33067  # a soma bate com o total
@@ -124,7 +124,7 @@ def test_cenario_3_variante_b_10_parcelas_sobe_para_o_coordenador(engine):
     acordo = chamar("calcular_parcelas", {"valor_total": 330.67, "numero_parcelas": 10}, cobranca)[
         "dados"
     ]
-    assert acordo["quem_aprova"] == "coordenador" and len(acordo["parcelas"]) == 10
+    assert acordo["alcada"] == "coordenador" and len(acordo["parcelas"]) == 10
     assert "6 parcelas" in acordo["motivo"]
 
 
@@ -198,7 +198,7 @@ def test_quem_aprova_nas_fronteiras(engine, parcelas, entrada, desconto, esperad
     )
     assert resultado(resposta) == ("ok", None)
     dados = resposta["dados"]
-    assert dados["quem_aprova"] == esperado and dados["motivo"]
+    assert dados["alcada"] == esperado and dados["motivo"]
     if esperado == "proibido":
         assert dados["parcelas"] == [] and "entrada" not in dados  # nada é calculado
     else:
@@ -212,7 +212,7 @@ def test_padrao_sem_entrada_nem_desconto_pedidos_e_20_por_cento_sem_desconto(eng
         usuario(engine, "analista_cobranca"),
     )["dados"]
     assert (dados["entrada_percentual"], dados["desconto_principal_percentual"]) == (20.0, 0.0)
-    assert dados["entrada"] == "R$ 200,00" and dados["quem_aprova"] == "analista"
+    assert dados["entrada"] == "R$ 200,00" and dados["alcada"] == "analista"
     assert [p["valor"] for p in dados["parcelas"]] == ["R$ 200,00"] * 4
 
 

@@ -2,7 +2,7 @@ import time
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from ferramentas import governanca, mascara
+from ferramentas import governanca, mascara, tamanho
 
 TIPOS_ERRO = (
     "parametro_invalido",
@@ -192,6 +192,7 @@ class Ferramenta:
                 agiu = self.age_ao_executar
             dados = produzido = self.rodar_com_contexto(argumentos_validos, usuario, contexto)
             dados = mascara.mascarar(dados, self.categorias_dados, self.campos_liberados)  # uma vez, antes do embrulho
+            dados = tamanho.limitar(dados)
             resultado = resposta("ok", dados, self.mensagem_de_sucesso)
             if self.conteudo_terceiros:
                 resultado = resposta("ok", {"conteudo_de_terceiros": dados}, MENSAGEM_TERCEIROS)

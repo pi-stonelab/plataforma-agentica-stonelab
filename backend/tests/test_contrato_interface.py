@@ -78,7 +78,7 @@ def test_liberada_e_motivo_seguem_a_governanca_o_status_e_a_integracao_para_cada
 
 def test_motivo_e_uma_frase_simples_e_nunca_o_texto_tecnico(mundo):
     por_nome = {f["nome"]: f for f in catalogo.listar_fichas(pessoa(mundo, "atendente_n1"))}
-    assert por_nome["consultar_saldo_conta"]["motivo"] == "Seu cargo não tem o nível que esta ferramenta pede."
+    assert por_nome["consultar_taxa_contestacao_mensal"]["motivo"] == "Seu cargo não tem o nível que esta ferramenta pede."
     assert (por_nome["consultar_cliente"]["liberada"], por_nome["consultar_cliente"]["motivo"]) == (True, None)
     sem_perfil = catalogo.listar_fichas(None)  # auditor e admin não usam ferramentas de dados
     assert {(f["liberada"], f["motivo"]) for f in sem_perfil} == {(False, "Seu perfil não usa ferramentas de dados.")}
@@ -104,7 +104,7 @@ def test_descricao_sem_marcador_e_a_planejada_mostra_a_frase_sugerida(mundo):
     assert por_nome[ENVIAR]["descricao"] == (
         "Prepara um e-mail para um contato do lojista; ele só sai depois que você confirma."
     )
-    assert por_nome["resumir_receita_periodo"]["descricao"] == "Receita total de um período."
+    assert por_nome["ler_planilha"]["descricao"] == "Lê um intervalo de uma planilha."  # planejada (bloco E2)
 
 
 def test_status_efetivo_planejada_ativa_e_ativa_com_integracao_desligada(mundo, monkeypatch):

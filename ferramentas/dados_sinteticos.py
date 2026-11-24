@@ -8,6 +8,7 @@ converter centavos.
 
 import sqlite3
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 
 from mock import consultas, modelos, regras
 from mock.banco import criar_engine, url_padrao
@@ -68,9 +69,16 @@ def _ler(consulta, *argumentos, **opcoes):
 
 
 def reais(centavos):
-    """Centavos inteiros em texto no padrão brasileiro: 184230 vira "R$ 1.842,30"."""
+    """Centavos inteiros em texto no padrão brasileiro: 184230 vira "R$ 1.842,30" e -1500 vira "-R$ 15,00"."""
+    if centavos < 0:
+        return "-" + reais(-centavos)
     inteiro, resto = divmod(centavos, 100)
     return f"R$ {inteiro:,}".replace(",", ".") + f",{resto:02d}"
+
+
+def em_centavos(valor):
+    """Valor em reais (Decimal) em centavos inteiros, arredondando meio centavo para cima: 330.67 vira 33067."""
+    return int((valor * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
 def buscar_funcionario(id_funcionario):
@@ -254,12 +262,9 @@ def resumo_da_agenda(codigo):
     }
 
 
-def percentual(pontos_base):
-    """Pontos-base em texto no padrão brasileiro: 299 vira "2,99%". None continua None."""
-    if pontos_base is None:
-        return None
-    inteiro, resto = divmod(pontos_base, 100)
-    return f"{inteiro},{resto:02d}%"
+def taxa_percentual(pontos_base):
+    """Pontos-base em percentual com duas casas, como número: 299 vira 2.99. None continua None."""
+    return None if pontos_base is None else round(pontos_base / 100, 2)
 
 
 def recebiveis_para_antecipacao(codigo):
@@ -271,7 +276,7 @@ def simulacao_de_antecipacao(codigo):
     """Antecipar hoje tudo o que dá (§7.4), ou None se o lojista não existe. Não olha os motivos de recusa:
     quem chama confere `motivos_de_recusa_da_antecipacao` antes.
 
-    {"data_credito", "taxa_mensal", "quantidade_de_parcelas", "valor_antecipado", "desconto", "valor_liquido"}.
+    {"data_credito", "taxa_mensal_percentual", "quantidade_de_parcelas", "valor_antecipado", "desconto", "valor_liquido"}.
     """
     taxa = taxa_de_antecipacao(codigo)
     if taxa is None:
@@ -285,7 +290,7 @@ def simulacao_de_antecipacao(codigo):
         desconto += regras.desconto_da_antecipacao_centavos(item["valor_centavos"], dias, taxa)
     return {
         "data_credito": credito.isoformat(),
-        "taxa_mensal": percentual(taxa),
+        "taxa_mensal_percentual": taxa_percentual(taxa),
         "quantidade_de_parcelas": len(parcelas),
         "valor_antecipado": reais(bruto),
         "desconto": reais(desconto),
@@ -381,18 +386,14 @@ def buscar_casos_pix(codigo, limite):
     return casos, resposta["total"]
 
 
-def _decimal(centesimos):
-    """Centésimos em texto com vírgula: 352 vira "3,52". None continua None."""
-    if centesimos is None:
-        return None
-    inteiro, resto = divmod(centesimos, 100)
-    return f"{inteiro},{resto:02d}"
-
-
 def resumo_satisfacao(data_inicio, data_fim, fila, carteira=None):
-    """Notas CSAT do período: {"respostas", "notas", "media"} ("3,52", ou None sem respostas)."""
+    """Notas CSAT do período: {"respostas", "notas", "media"} (número com duas casas, como 3.52; None sem respostas)."""
     resumo = _ler(consultas.resumo_satisfacao, data_inicio, data_fim, fila, carteira=carteira)
-    return {"respostas": resumo["respostas"], "notas": resumo["notas"], "media": _decimal(resumo["media_centesimos"])}
+    centesimos = resumo["media_centesimos"]
+    return {
+        "respostas": resumo["respostas"], "notas": resumo["notas"],
+        "media": None if centesimos is None else round(centesimos / 100, 2),
+    }
 
 
 def buscar_comentarios_satisfacao(data_inicio, data_fim, fila, nota_maxima, limite, carteira=None):
@@ -413,8 +414,13 @@ def buscar_artigos(termo, categoria, limite):
     return resposta["itens"], resposta["total"]
 
 
+def normalizar_telefone(texto):
+    """Só DDD + número (sem pontuação, 55 do país ou 0 de discagem), a forma em que o cadastro é comparado."""
+    return consultas.normalizar_telefone(texto)
+
+
 def contato_confere(codigo, telefone, email):
-    """{"confere", "papel"}: o contato informado é do cadastro do lojista? None se o lojista não existe."""
+    """{"confere", "papel"}: todo contato informado é do MESMO contato cadastrado do lojista? None se o lojista não existe."""
     return _ler(consultas.contato_confere, codigo, telefone, email)
 
 
@@ -496,7 +502,7 @@ def _contestacoes(mes_inicio, mes_fim, codigo):
             "mes": item["mes"],
             "quantidade_vendas_cartao": item["quantidade_vendas_cartao"],
             "quantidade_chargebacks": item["quantidade_chargebacks"],
-            "taxa_chargeback": percentual(item["taxa_chargeback_pontos_base"]),
+            "taxa_chargeback_percentual": taxa_percentual(item["taxa_chargeback_pontos_base"]),
         }
         for item in resposta["itens"]
     ]
@@ -504,16 +510,62 @@ def _contestacoes(mes_inicio, mes_fim, codigo):
 
 
 def contestacoes_por_mes(mes_inicio, mes_fim):
-    """Chargebacks e taxa ("0,45%") por mês, somando TODOS os lojistas (indicador agregado): {"data_corte", "itens"}."""
+    """Chargebacks e taxa (número em %, como 0.45) por mês, somando TODOS os lojistas (indicador agregado):
+    {"data_corte", "itens"}. O limite de monitoramento é por lojista (§7.6), então não se compara aqui."""
     return _contestacoes(mes_inicio, mes_fim, None)
 
 
 def contestacoes_do_lojista_por_mes(codigo, mes_inicio, mes_fim):
-    """O mesmo de um lojista só. É dado de disputa daquele lojista: a ficha que usa pede a categoria `disputa`
-    e passa pelas portas do lojista (carteira e janela), não `indicador_agregado`."""
-    return _contestacoes(mes_inicio, mes_fim, codigo)
+    """O mesmo de um lojista só, com `acima_do_limite` em cada mês (mais de 1% das vendas no cartão do mês, §7.6).
+
+    É dado de disputa daquele lojista: a ficha que usa pede a categoria `disputa` e passa pelas portas do
+    lojista (carteira e janela), não `indicador_agregado`. A comparação usa as quantidades, sem o
+    arredondamento da taxa.
+    """
+    resposta = _contestacoes(mes_inicio, mes_fim, codigo)
+    for item in resposta["itens"]:
+        item["acima_do_limite"] = (
+            item["quantidade_chargebacks"] * 10000
+            > item["quantidade_vendas_cartao"] * LIMITE_DE_CHARGEBACK_DO_MONITORAMENTO
+        )
+    return resposta
 
 
 def dicionario_de_dados():
     """Tabelas e colunas do mock com o sistema dono e a sensibilidade (não lê dado nenhum)."""
     return consultas.dicionario_de_dados()
+
+
+# ---------------------------------------------------------------------------------------------
+# Leituras do bloco C. Listas fechadas que as func.py validam e leituras que só elas usam.
+# ---------------------------------------------------------------------------------------------
+
+FILAS = regras.FILAS
+PRIORIDADES = modelos.PRIORIDADES
+SITUACOES_RECEBIVEL = modelos.SITUACOES_RECEBIVEL
+SITUACOES_ACORDO = modelos.SITUACOES_ACORDO
+DESCRICAO_DOS_SISTEMAS = consultas.DESCRICAO_DOS_SISTEMAS
+LIMITE_DE_CHARGEBACK_DO_MONITORAMENTO = regras.CHARGEBACK_QUE_LIGA_O_MONITORAMENTO_PONTOS_BASE  # pontos-base
+PERDAO_DE_ENCARGOS_DO_ANALISTA_ATE_CENTAVOS = regras.PERDAO_DE_ENCARGOS_DO_ANALISTA_ATE_CENTAVOS
+PARCELAS_MAXIMAS_ANALISTA = regras.PARCELAS_MAXIMAS_ANALISTA
+PARCELAS_MAXIMAS_COORDENADOR = regras.PARCELAS_MAXIMAS_COORDENADOR
+ENTRADA_MINIMA_ANALISTA_PERCENTUAL = regras.ENTRADA_MINIMA_ANALISTA_PERCENTUAL
+DESCONTO_MAXIMO_COORDENADOR_PERCENTUAL = regras.DESCONTO_MAXIMO_COORDENADOR_PERCENTUAL
+LIMITE_DA_DUPLA_APROVACAO_CENTAVOS = regras.LIMITE_DA_DUPLA_APROVACAO_CENTAVOS
+
+
+def buscar_lojistas_por_nome(termo, carteiras, limite):
+    """Lojistas com o termo no nome fantasia, só nas `carteiras` (None = todas): (lista, total)."""
+    resposta = _ler(consultas.buscar_lojistas_por_nome, termo, carteiras, limite)
+    return resposta["itens"], resposta["total"]
+
+
+def agenda_e_liquidacoes_por_dia(codigo, data_inicio, data_fim):
+    """Por dia até ontem: agenda do dia e quanto a liquidação pagou, em centavos (para a conferência calcular)."""
+    return _ler(consultas.agenda_e_liquidacoes_por_dia, codigo, data_inicio, data_fim)
+
+
+def ultimas_interacoes(codigo, id_chamado, limite):
+    """As mensagens mais recentes do chamado, em ordem cronológica: (lista, total do chamado)."""
+    resposta = _ler(consultas.ultimas_interacoes, codigo, id_chamado, limite)
+    return resposta["itens"], resposta["total"]

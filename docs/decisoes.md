@@ -434,7 +434,7 @@ Escolhas sem fonte no DOC-MOCK, tomadas para a fase 2 (plano `plano-ferramentas-
 - Decisão: `regras.alcada_do_acordo` aplica o §7.9 (dupla aprovação acima de R$ 10.000; coordenador para desconto no
   principal, mais de 6 parcelas, entrada abaixo de 20% ou perdão de encargos em dívida acima de R$ 2.000; acima de 12
   parcelas ou de 10% de desconto sobre o principal, proibido).
-  `calcular_parcelas` ainda tem as suas constantes, com os mesmos valores (pergunta aberta 7).
+  `calcular_parcelas` usa estas, pela fachada, desde o bloco C (C15); antes tinha as suas constantes.
 - No código: `mock/regras.py`, `acordos.alcada`.
 
 ### A7. Base analítica agregada
@@ -533,6 +533,128 @@ Tomadas pelo orquestrador; sem fonte, para o Pedro e o Brenno validarem.
 - Decisão: o cliente HTTP não segue redirecionamento em escrita, e um 2xx de escrita com corpo ilegível vira "pode
   ter saído" (`EfeitoIncerto`): o servidor já recebeu o pedido, e repetir poderia duplicar a ação.
 
+## Decisões do bloco C: leitura e cálculo sobre o mock (23/11, C1 a C6)
+
+Tomadas pelo orquestrador ao implementar as ferramentas de leitura e cálculo, sem fonte que as decida. Ficam para o
+Pedro confirmar.
+
+### C1. `consultar_saldo_conta` sai do catálogo
+- Decisão: a ficha planejada foi removida. A Conta Stone não existe no mock, e o saldo que o DOC-MOCK cita é o da
+  agenda de recebíveis, que `consultar_agenda_recebiveis` mostra.
+- No código: a pasta `ferramentas/financeiro/consultar_saldo_conta/` deixou de existir.
+
+### C2. Nomes `*_ticket` viram `*_chamado`
+- Decisão: `consultar_ticket` virou `consultar_chamado` e `resumir_volume_tickets` virou `resumir_volume_chamados`,
+  o vocabulário do mock e de `listar_chamados_cliente`. As três de escrita são renomeadas pelo bloco D.
+- Efeito fora da pasta: o front do professor cita `consultar_ticket` e `listar_tickets_cliente` no seed
+  (`frontend/CONTRATO_API.md`); vale avisar pelo Jira.
+
+### C3. Quem alcança os indicadores
+- Decisão: `resumir_receita_periodo` é do financeiro (N1 em diante); `consultar_taxa_contestacao_mensal` só do
+  coordenador financeiro (N2 do financeiro); `resumir_volume_chamados` do N2 do atendimento (supervisor e
+  especialista N2). O DOC-MOCK §8.2 diz que o supervisor "vê os indicadores do time"; o especialista N2 entra porque
+  a ficha decide por nível, não por cargo.
+- No código: as fichas e `gabaritos.FERRAMENTAS_DO_CARGO`.
+
+### C4. Responsável por um conjunto de dados
+- Decisão: o responsável é o sistema dono da tabela (`cadastro`, `core`, `cobranca`, `disputas`, `crm`,
+  `diretorio`, `analitica`). O mock não tem um time nomeado por sistema, e a ferramenta nunca devolve nome de pessoa.
+- No código: `consultar_responsavel_conjunto`, `ferramentas/dicionario.py`.
+
+### C5. Fórmula do ROI
+- Decisão: ROI simples no horizonte pedido (12 meses se faltar): (ganho total menos custo total) dividido pelo custo
+  total, com o custo de implantação somado ao custo. O payback são os meses inteiros, arredondados para cima, para o
+  ganho líquido mensal pagar a implantação. Sem desconto do dinheiro no tempo. Fonte da necessidade: "Gerir: controlar
+  custos, retorno de investimento" da proposta da Stone e a KAN-16; a fórmula é nossa.
+- No código: `ferramentas/dados_e_indicadores/calcular_roi/func.py`.
+
+### C6. Períodos padrão das ferramentas de indicadores
+- Decisão: sem datas, o relatório vale os últimos 7 dias até ontem; o volume de chamados, de segunda-feira da semana
+  do hoje do mock até ontem; a taxa de chargeback, os últimos 6 meses até o mês atual. Teto de 92 dias e de 24 meses.
+- No código: `ferramentas/indicadores.py` e as três fichas.
+
+## Correções do bloco C depois da revisão (24/11, C7 a C14)
+
+Aplicadas depois da revisão do bloco C. Ficam para o Pedro confirmar.
+
+### C7. Antecipação recusada também com a conta de recebimento inválida
+- Decisão: `simular_antecipacao` recusa (`pode_antecipar` falso, com motivo) quando a conta de recebimento é
+  `invalida`. O §7.4 lista quatro recusas e não cita esta; o §7.3 diz que com a conta inválida a liquidação falha e o
+  dinheiro fica retido, então não faz sentido simular um dinheiro que não sai.
+- Conferido contra o cenário 1 (M00001, a única com conta inválida): o DOC-MOCK §9 espera cruzar cadastro, liquidação e
+  chamado e passar para o N2. Nenhum cenário espera simular antecipação para a M00001, e os cenários de antecipação
+  (M00004 e M00003) não mudam.
+- No código: `regras.ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO`, `consultas.motivos_de_recusa_da_antecipacao`.
+
+### C8. Verificação de identidade: tudo o que for informado precisa conferir
+- Decisão: telefone e e-mail informados juntos precisam ser do MESMO contato cadastrado (cenário 6, §6.6: número fora
+  do cadastro com o e-mail do sócio não passa). O telefone é comparado como DDD + número, sem `+55`, `0` de discagem
+  ou pontuação, dos dois lados.
+- No código: `consultas.normalizar_telefone`, `consultas.contato_confere`.
+
+### C9. O limite de 1% de chargeback é por lojista
+- Decisão: `consultar_taxa_contestacao_mensal` (agregado da Stone) mostra só a taxa e a tendência. Quem compara com o
+  limite do §7.6 é a nova `consultar_taxa_contestacao_cliente` (categoria `disputa`, escopo de carteira), pelas
+  quantidades (`chargebacks * 100 > vendas`), sem o arredondamento da taxa.
+- No código: `financeiro/consultar_taxa_contestacao_cliente`, `dados_sinteticos.contestacoes_do_lojista_por_mes`.
+
+### C10. Respostas grandes: teto do nosso lado e aviso para a frente de agentes
+- Decisão: o agente corta cada resultado e cada leitura em 6000 caracteres (`MAX_CHARS_MD`, em `agentes/`), e um JSON
+  cortado no meio engana o modelo. Do nosso lado: (a) `ferramentas/tamanho.py` limita o que `Ferramenta.executar`
+  devolve a 5000 caracteres, tirando itens do fim da maior lista e marcando `truncado`, `cortados_por_tamanho` e
+  `aviso_de_tamanho` (os totais da ferramenta continuam contando tudo); (b) teto de itens por ferramenta quando cada
+  item é grande: `buscar_conjuntos_dados` 20, `consultar_agenda_recebiveis` 30 e `consultar_base_conhecimento` 10
+  (com 50 as duas primeiras passavam de 6000). A mensagem de limite sempre diz o teto da ferramenta.
+- Achado que mudou um teste: `consultar_transacoes_cliente` com `limite=50` já passava de 6000 caracteres; agora vem
+  com menos linhas, `truncado` verdadeiro e o total real (`test_a08_...`).
+- Aviso para Christopher e Isack (frente 3, não mexemos em `agentes/`): o ÍNDICE que o agente lê também é cortado em
+  6000. Medido em 24/11 com o agente geral: supervisor de atendimento 5832, especialista N2 5706, coordenador financeiro
+  5564 caracteres. Cada ferramenta nova acrescenta cerca de 170 e, com mais duas ou três, o fim do índice some sem
+  aviso. Sugestão: o índice mostrar só as áreas e a pessoa (ou o modelo) abrir a área com `LER`, que já existe
+  (`catalogo.ler("<area>")`), ou subir o teto do índice. Decisão deles.
+- No código: `ferramentas/tamanho.py`, `lojista.limite_pedido` (parâmetro `maximo`), as três fichas.
+
+### C11. A cobrança vê só o saldo da agenda
+- Decisão: o §8.2 diz que a cobrança vê "só faturas, pagamentos, acordos e o saldo da agenda". Nasce a categoria
+  `saldo_agenda` e a ferramenta `consultar_saldo_agenda` (só o resumo por situação, sem parcelas). A cobrança troca
+  `agenda_recebiveis` por `saldo_agenda` e perde `consultar_agenda_recebiveis` e `simular_antecipacao` (o §8.2 dá a
+  simulação ao atendimento, ao analista de recebíveis e ao coordenador). Quem tem `agenda_recebiveis` tem também
+  `saldo_agenda`.
+- Efeito: `analista_cobranca` não alcança mais a agenda parcela a parcela nem a simulação. Se a cobrança precisar da
+  simulação na negociação de acordo, é pergunta para o Pedro (SEM FONTE: o §8.2 não a dá).
+- No código: `mock/regras.py` (`CATEGORIAS_DADO`, `CARGOS`), `ferramentas/financeiro/consultar_saldo_agenda`.
+
+### C12. Padrão dos formatos de saída
+- Decisão: código do lojista sempre `id_cliente` nas ferramentas do bloco C (antes, `codigo` aparecia ao lado do
+  `codigo` do chamado ou do chargeback); percentual sempre número com duas casas em campo `*_percentual` (antes havia
+  texto `"2,99%"`, número `20.0` e `328.6`); `alcada` no lugar de `quem_aprova` (o nome de `listar_acordos` e de
+  `regras.alcada_do_acordo`); `total_encontrado` quando a resposta tem uma lista só e `total_de_<lista>` quando tem duas.
+  A média da satisfação virou número (`3.52`). O padrão está em `ferramentas/CLAUDE.md`.
+- Não mexe no contrato com o front: `frontend/CONTRATO_API.md` não descreve o `dados` de nenhuma ferramenta de dado.
+  O agente de atendimento não lê esses campos por nome (conferido em `agentes/`, só testes de `backend/tests/` os liam).
+
+### C13. Pergunta: migrar `codigo` das ferramentas dos blocos A e B para `id_cliente`?
+- Hoje `consultar_liquidacoes_cliente`, `consultar_transacoes_cliente`, `listar_faturas_em_atraso`,
+  `listar_chamados_cliente` e `consultar_contatos_lojista` devolvem o lojista em `codigo`, e
+  `test_agente_varias_ferramentas.py` lê `"codigo": "M..."` de uma observação do `consultar_cliente` (aí o `codigo` é
+  da própria entidade, que fica). Migrar as cinco é pequeno, mas muda saída que a frente de agentes já viu em
+  avaliações. Fica para o Pedro decidir.
+
+### C14. Campos genéricos saem da lista global da máscara
+- Decisão: `aviso`, `orientacao`, `explicacao`, `agenda`, `pago`, `diferenca`, `desconto`, `valor_antecipado`, `mdr`,
+  `data_inicio`, `data_fim`, `mes_inicio`, `mes_fim`, `nome_do_sistema`, `derivados` e outros saíram de
+  `CAMPOS_NAO_RESTRITOS` (valiam para toda ferramenta, e um texto de lojista guardado num campo com esse nome passaria
+  sem virar `***`). Cada um foi para `campos_liberados` da ficha das ferramentas que o devolvem, e a lista fechada
+  de `test_ferramentas_campos_liberados.py` agora cobre também essas fichas (só texto da plataforma).
+- No código: `mock/regras.py` e as 11 fichas.
+
+### C15. Alçadas num lugar só e contagem de ferramentas
+- Decisão: `calcular_parcelas` já usava `regras.alcada_do_acordo` (inclui `dupla_aprovacao` e o perdão de encargos). Os
+  textos antigos (V1, A6, pergunta 7, o comentário em `mock/regras.py` e a primeira frase do `agents.md` da
+  ferramenta) diziam o contrário e foram corrigidos. Contagem hoje: 51 ferramentas, 33 ativas e 18 esqueletos
+  (`ferramentas/CLAUDE.md` e `ferramentas/agents.md`). O `CLAUDE.md` da raiz (do Marcelo) ainda diz "43 ferramentas, 11
+  ativas": não é nosso, vale avisar no Jira.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que
@@ -541,8 +663,9 @@ o código faz hoje e o que falta decidir.
 
 - V1. Alçadas e escrita (E15 a E20). A KAN-69 quer alçada testável. Sem escrita na Sprint 2, os casos N3, N6 e N7 valem
   "por construção" (a ferramenta não existe). A proposta P-1 (calcular quem aprova) foi atendida: `calcular_parcelas`
-  devolve `analista`, `coordenador` ou `proibido`. As alçadas moram em `ferramentas/financeiro/calcular_parcelas/func.py`,
-  não em `mock/regras.py`. O Pedro não registrou aprovação da P-1 (SEM FONTE).
+  devolve `alcada` (`analista`, `coordenador`, `dupla_aprovacao` ou `proibido`). As alçadas moram em
+  `mock/regras.py::alcada_do_acordo` (a ferramenta só explica a decisão em `motivo`; C15). O Pedro não registrou
+  aprovação da P-1 (SEM FONTE).
 - V2. Dado restrito completo para o N2. Adiado (O2). A demo deve avisar que o N2 também vê mascarado.
 - V3. "3 níveis da KAN-33" (E9). Superado pela regra por cargo (O1). O caso E9 vale como "cargo desconhecido é negado".
 - V4. Replicar e onboarding guiado. Fora da Sprint 2 (O6). Não há `REPLICAR` em `Acao`.
@@ -579,7 +702,7 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
 2. A entrada de 20% está dentro das parcelas ou vem antes? Hoje `calcular_parcelas` cobra a entrada à parte: do valor
    negociado tira a entrada e divide o resto em N parcelas. O DOC-MOCK §7.9 não diz qual é o certo (L2 da pesquisa),
    e o gabarito do cenário 3 depende disso.
-3. Quem aprova entrada abaixo de 20%? O código manda para o coordenador (`quem_aprova`). O DOC-MOCK só diz que o analista
+3. Quem aprova entrada abaixo de 20%? O código manda para o coordenador (`alcada`). O DOC-MOCK só diz que o analista
    exige 20% no mínimo. SEM FONTE sobre o aprovador da exceção.
 4. E-mail e telefone digitados em texto livre são mascarados? Hoje não. A máscara de texto livre só cobre sequências de
    11 dígitos (CPF) e de 13 a 19 dígitos (cartão); 12 dígitos ou mais de 19 viram `***`. O DOC-MOCK §8.3 só pede
@@ -587,8 +710,8 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
 5. `id_cliente` ou `codigo_lojista`? Decidido em H6: continua `id_cliente` para o modelo.
 6. Formato da máscara do nome do sócio. Hoje: inicial de cada parte e `***` (`J*** S***`). O DOC-MOCK §8.3 não define
    (SEM FONTE).
-7. Alçadas em `mock/regras.py`. Já existem lá (A6), mas `calcular_parcelas` ainda tem as suas, com os mesmos valores.
-   Trocar a ferramenta para as do mock deixa as regras num lugar só.
+7. Alçadas em `mock/regras.py`. Resolvida no bloco C (C15): `calcular_parcelas` usa `regras.alcada_do_acordo` pela
+   fachada, com `dupla_aprovacao` e o perdão de encargos, e as regras ficam num lugar só.
 8. Escopo por chamados atribuídos. O DOC-MOCK §3.2 fala em carteira, fila e chamados atribuídos; o código só usa as
    carteiras do time (L11 da pesquisa).
 9. Reativar um agente pausado. `Plataforma.deprecar` existe; não existe método que reative. Nenhuma fonte diz se pode.
@@ -598,3 +721,14 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
     em `governanca.py`) e nos cards (KAN-34, trava 8). SEM FONTE.
 12. Preço simulado por token e limite mensal por pessoa (Sprint 3). A regra vem da KAN-16; os números não.
 13. O prazo de 120 s por turno do agente vale? Foi escolhido para a demo e ainda não foi medido com o modelo real.
+14. Fatura com exatamente 15 dias de atraso bloqueia a antecipação? O §7.4 diz "fatura vencida há mais de 15 dias" (o
+    código usa isso: com 15 dias ainda antecipa, com 16 recusa) e a régua do §7.5 diz "15 dias: antecipação
+    bloqueada". As duas frases discordam no dia 15. Não mudamos: `test_fatura_com_15_dias_exatos_...` fixa o
+    comportamento atual. Se o Pedro escolher o §7.5, é trocar `<` por `<=` em `mock/consultas.py::
+    motivos_de_recusa_da_antecipacao` e o teste.
+15. Risco de oráculo em `verificar_identidade_contato`. A ferramenta responde só "confere" ou "não confere", mas quem
+    tem acesso ao agente pode chutar números de telefone ou e-mails de um lojista e ver qual confere, até achar um
+    contato cadastrado (e a resposta `confere` libera o resto do atendimento). Mitigações que não fizemos: limite de
+    tentativas por pessoa e por lojista (o registro já guarda quem chamou, sem o contato), alerta ao Monitoramento
+    depois de N falhas seguidas e confirmação do CNPJ junto (§6.6 já pede o CNPJ e o código no contato). O registro
+    nunca guarda o telefone nem o e-mail informados. Decisão e dono: Pedro com o Brenno (segurança) e o Enrico (alertas).

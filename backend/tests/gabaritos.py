@@ -64,6 +64,27 @@ COMENTAR_JIRA = "comentar_chamado_jira"
 ENVIAR_SLACK = "enviar_mensagem_slack"
 ENVIAR_TELEGRAM = "enviar_aviso_telegram"
 BUSCAR_EMAILS = "buscar_emails"
+# Bloco C: leitura e cálculo sobre a fase 2 do mock.
+CONSULTAR_BASE_CONHECIMENTO = "consultar_base_conhecimento"
+CONSULTAR_CHAMADO = "consultar_chamado"
+VERIFICAR_IDENTIDADE = "verificar_identidade_contato"
+BUSCAR_CLIENTES = "buscar_clientes"
+RESUMIR_SATISFACAO = "resumir_satisfacao"
+CONSULTAR_AGENDA = "consultar_agenda_recebiveis"
+CONSULTAR_SALDO_AGENDA = "consultar_saldo_agenda"
+SIMULAR_ANTECIPACAO = "simular_antecipacao"
+CONFERIR_LIQUIDACOES = "conferir_liquidacoes"
+LISTAR_CONTESTACOES = "listar_contestacoes_cliente"
+LISTAR_ACORDOS = "listar_acordos"
+RESUMIR_RECEITA = "resumir_receita_periodo"
+RESUMIR_VOLUME_CHAMADOS = "resumir_volume_chamados"
+CONSULTAR_TAXA_CONTESTACAO = "consultar_taxa_contestacao_mensal"
+CONSULTAR_TAXA_CONTESTACAO_CLIENTE = "consultar_taxa_contestacao_cliente"
+CALCULAR_ROI = "calcular_roi"
+BUSCAR_CONJUNTOS = "buscar_conjuntos_dados"
+CONSULTAR_ESQUEMA = "consultar_esquema_conjunto"
+CONSULTAR_RESPONSAVEL = "consultar_responsavel_conjunto"
+CONSULTAR_LINHAGEM = "consultar_linhagem_conjunto"
 
 # Caminho que o modelo escreve em LER (área/ferramenta). A área de cada uma é a pasta no catálogo.
 CAMINHO = {
@@ -142,7 +163,7 @@ C1_SEQUENCIA = (
     (LISTAR_CHAMADOS, {"id_cliente": C1_LOJISTA}),
 )
 C1_ETAPAS = 8  # 1 índice + 3 fichas + 3 usos + 1 FINAL
-C1_NAO_USA = (CONSULTAR_CONTATOS, "consultar_saldo_conta") + NAO_USAM_NOS_CENARIOS
+C1_NAO_USA = (CONSULTAR_CONTATOS,) + NAO_USAM_NOS_CENARIOS
 # A resposta final precisa trazer (regex, sem diferenciar maiúsculas) e não pode trazer.
 C1_DEVE_CONTER = (
     r"R\$ 1\.842,30",
@@ -296,20 +317,43 @@ _ATENDIMENTO = {
     CONSULTAR_COTACAO,
     SOLICITAR_AUSENTE,
     ENVIAR_EMAIL,
+    CONSULTAR_CHAMADO,
+    VERIFICAR_IDENTIDADE,
+    CONSULTAR_AGENDA,
+    CONSULTAR_SALDO_AGENDA,
+    SIMULAR_ANTECIPACAO,
+    CONFERIR_LIQUIDACOES,
 }
-_COMUNS = {CONSULTAR_CLIENTE, CALCULAR_MULTA, CALCULAR_PARCELAS, CONSULTAR_CEP, CONSULTAR_COTACAO, SOLICITAR_AUSENTE}
+# Comuns a todo cargo com área: cadastro, cálculos, consultas públicas, a base de conhecimento e a busca por nome.
+_COMUNS = {
+    CONSULTAR_CLIENTE, CALCULAR_MULTA, CALCULAR_PARCELAS, CONSULTAR_CEP, CONSULTAR_COTACAO, SOLICITAR_AUSENTE,
+    CONSULTAR_BASE_CONHECIMENTO, BUSCAR_CLIENTES,
+    # dicionário de dados (metadado) e o cálculo de retorno de um agente
+    CALCULAR_ROI, BUSCAR_CONJUNTOS, CONSULTAR_ESQUEMA, CONSULTAR_RESPONSAVEL, CONSULTAR_LINHAGEM,
+}
+_ATENDIMENTO |= _COMUNS
 # O que o agente geral (que lista todas as ferramentas do catálogo) deixa cada cargo alcançar.
 FERRAMENTAS_DO_CARGO = {
     "atendente_n1": _ATENDIMENTO,
-    "especialista_n2": _ATENDIMENTO,
-    "supervisor_atendimento": _ATENDIMENTO,
+    "especialista_n2": _ATENDIMENTO | {LISTAR_CONTESTACOES, CONSULTAR_TAXA_CONTESTACAO_CLIENTE, RESUMIR_VOLUME_CHAMADOS},
+    "supervisor_atendimento": _ATENDIMENTO
+    | {RESUMIR_SATISFACAO, LISTAR_CONTESTACOES, CONSULTAR_TAXA_CONTESTACAO_CLIENTE, RESUMIR_VOLUME_CHAMADOS},
     "analista_ouvidoria": _COMUNS
-    | {CONSULTAR_CONTATOS, CONSULTAR_HISTORICO, LISTAR_CHAMADOS, ENVIAR_EMAIL},
-    "analista_cobranca": _COMUNS | {CONSULTAR_CONTATOS, LISTAR_FATURAS, ENVIAR_EMAIL},
-    "analista_disputas": _COMUNS | {CONSULTAR_TRANSACOES},
-    "analista_recebiveis": _COMUNS | {CONSULTAR_LIQUIDACOES},
+    | {CONSULTAR_CONTATOS, CONSULTAR_HISTORICO, LISTAR_CHAMADOS, ENVIAR_EMAIL, CONSULTAR_CHAMADO, VERIFICAR_IDENTIDADE,
+       RESUMIR_SATISFACAO},
+    "analista_cobranca": _COMUNS
+    | {CONSULTAR_CONTATOS, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE, CONSULTAR_SALDO_AGENDA, LISTAR_ACORDOS,
+       RESUMIR_RECEITA},  # §8.2: da agenda, só o saldo (sem parcelas e sem antecipação)
+    "analista_disputas": _COMUNS
+    | {CONSULTAR_TRANSACOES, LISTAR_CONTESTACOES, CONSULTAR_TAXA_CONTESTACAO_CLIENTE, RESUMIR_RECEITA},
+    "analista_recebiveis": _COMUNS
+    | {CONSULTAR_LIQUIDACOES, CONSULTAR_AGENDA, CONSULTAR_SALDO_AGENDA, SIMULAR_ANTECIPACAO, CONFERIR_LIQUIDACOES,
+       RESUMIR_RECEITA},
     "coordenador_financeiro": _COMUNS
-    | {CONSULTAR_CONTATOS, CONSULTAR_LIQUIDACOES, CONSULTAR_TRANSACOES, LISTAR_FATURAS, ENVIAR_EMAIL},
+    | {CONSULTAR_CONTATOS, CONSULTAR_LIQUIDACOES, CONSULTAR_TRANSACOES, LISTAR_FATURAS, ENVIAR_EMAIL, VERIFICAR_IDENTIDADE,
+       CONSULTAR_AGENDA, CONSULTAR_SALDO_AGENDA, SIMULAR_ANTECIPACAO, CONFERIR_LIQUIDACOES, LISTAR_CONTESTACOES,
+       LISTAR_ACORDOS,
+       RESUMIR_RECEITA, CONSULTAR_TAXA_CONTESTACAO, CONSULTAR_TAXA_CONTESTACAO_CLIENTE},
     "auditor_compliance": set(),  # sem ferramenta de dado na Sprint 2 (O5)
     "admin_plataforma": set(),
 }
@@ -428,7 +472,7 @@ C4_PARCELA_QUE_JA_CAI_NO_CREDITO_CENTAVOS = 21754
 C4_ANTECIPAVEL_CENTAVOS = 1178246  # R$ 12.000,00 menos R$ 217,54
 C4_SIMULACAO = {
     "data_credito": "2026-10-16",
-    "taxa_mensal": "2,99%",
+    "taxa_mensal_percentual": 2.99,
     "quantidade_de_parcelas": 25,
     "valor_antecipado": "R$ 11.782,46",
     "desconto": "R$ 1.153,48",

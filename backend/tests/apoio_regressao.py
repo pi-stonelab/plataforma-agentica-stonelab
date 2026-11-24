@@ -177,7 +177,7 @@ def _final_c3(prompt: str) -> str:
     faturas = dados_com(prompt, "faturas")["faturas"]
     saldo = next(f for f in faturas if f["tipo"] == "saldo_negativo")
     encargos = dados_com(prompt, "multa")
-    acordo = dados_com(prompt, "quem_aprova")
+    acordo = dados_com(prompt, "alcada")
     parcelas = ", ".join(p["valor"] for p in acordo["parcelas"])
     texto = (
         f"O saldo negativo de {saldo['valor']} está vencido há {saldo['dias_em_atraso']} dias. "
@@ -186,7 +186,7 @@ def _final_c3(prompt: str) -> str:
         f"Proposta de acordo em {acordo['numero_parcelas']} parcelas, com entrada de {acordo['entrada']} "
         f"e parcelas de {parcelas}. É só uma proposta: você precisa confirmar antes de qualquer envio."
     )
-    if acordo["quem_aprova"] == "coordenador":
+    if acordo["alcada"] == "coordenador":
         texto += (
             f" Com {acordo['numero_parcelas']} parcelas passa do limite de {gab.C3_LIMITE_DO_ANALISTA} "
             "parcelas do analista e depende do coordenador."

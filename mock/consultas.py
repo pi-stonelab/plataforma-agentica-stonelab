@@ -435,7 +435,7 @@ def motivos_de_recusa_da_antecipacao(origem: Session | Engine, codigo: str) -> l
     """Motivos do lojista que recusam qualquer antecipação (DOC-MOCK §7.4), na ordem de
     `regras.MOTIVOS_DE_RECUSA_DA_ANTECIPACAO`. Lista vazia: pode antecipar. None: lojista não existe.
 
-    O quarto motivo do §7.4 (parcela retida ou bloqueada) vale parcela por parcela: essas parcelas ficam
+    O motivo "parcela retida ou bloqueada" (§7.4) vale parcela por parcela: essas parcelas ficam
     fora de `recebiveis_para_antecipacao` em vez de recusar tudo.
     """
     falhas.verificar("cadastro")
@@ -453,6 +453,8 @@ def motivos_de_recusa_da_antecipacao(origem: Session | Engine, codigo: str) -> l
         motivos.append("lojista_bloqueado")
     if conta == "em_verificacao":
         motivos.append("conta_em_verificacao")
+    if conta == "invalida":
+        motivos.append("conta_invalida")  # §7.3: a liquidação falha e o dinheiro fica retido
     if vencida_ha_muito:
         motivos.append("fatura_vencida_ha_mais_de_15_dias")
     return motivos
@@ -728,29 +730,40 @@ def buscar_artigos(
     return {"itens": itens, "total": len(pontuados), "limite": teto}
 
 
-def _so_digitos(texto: str | None) -> str:
-    return "".join(caractere for caractere in texto or "" if caractere.isdigit())
+def normalizar_telefone(texto: str | None) -> str:
+    """Só DDD + número: tira pontuação, o 55 do país e o 0 de discagem (o cadastro guarda 10 ou 11 dígitos)."""
+    digitos = "".join(caractere for caractere in texto or "" if caractere in "0123456789")
+    if digitos.startswith("55") and len(digitos) in (12, 13):
+        return digitos[2:]
+    if digitos.startswith("0") and len(digitos) in (11, 12):
+        return digitos[1:]
+    return digitos
 
 
 def contato_confere(
     origem: Session | Engine, codigo: str, telefone: str | None = None, email: str | None = None
 ) -> dict | None:
-    """Diz se o telefone ou o e-mail informado é de um contato cadastrado do lojista (DOC-MOCK §6.6).
+    """Diz se o contato informado é de um contato cadastrado do lojista (DOC-MOCK §6.6).
 
-    Nunca devolve o contato: só {"confere", "papel"}. Telefone compara só os dígitos; e-mail, sem caixa.
-    None se o lojista não existe.
+    Todo contato informado precisa conferir, e no MESMO contato cadastrado: telefone de um e e-mail de outro
+    não valem (o golpista com número fora do cadastro e e-mail do sócio não passa). Nunca devolve o contato:
+    só {"confere", "papel"}. Telefone compara DDD + número; e-mail, sem caixa. None se o lojista não existe.
     """
     falhas.verificar("cadastro")
-    digitos, endereco = _so_digitos(telefone), (email or "").strip().lower()
+    telefone_informado, email_informado = (telefone or "").strip(), (email or "").strip().lower()
+    numero = normalizar_telefone(telefone_informado)
     with _sessao_de(origem) as sessao:
         if sessao.get(Lojista, codigo) is None:
             return None
+        if not telefone_informado and not email_informado:
+            return {"confere": False, "papel": None}
         contatos = sessao.execute(select(ContatoLojista.papel, ContatoLojista.telefone, ContatoLojista.email)
                                   .where(ContatoLojista.id_lojista == codigo).order_by(ContatoLojista.id))
         for papel, telefone_cadastrado, email_cadastrado in contatos:
-            if (digitos and digitos == _so_digitos(telefone_cadastrado)) or (
-                endereco and endereco == email_cadastrado.lower()
-            ):
+            telefone_confere = not telefone_informado or (
+                bool(numero) and numero == normalizar_telefone(telefone_cadastrado))
+            email_confere = not email_informado or email_informado == email_cadastrado.lower()
+            if telefone_confere and email_confere:
                 return {"confere": True, "papel": papel}
     return {"confere": False, "papel": None}
 
@@ -964,3 +977,120 @@ def dicionario_de_dados() -> list[dict]:
             "colunas": colunas,
         })
     return tabelas
+
+
+# ---------------------------------------------------------------------------------------------
+# Leituras do bloco C (ferramentas de leitura e cálculo)
+# ---------------------------------------------------------------------------------------------
+
+# DOC-MOCK §4: cada dado tem um único sistema dono; só o dono altera, os outros apenas leem.
+DESCRICAO_DOS_SISTEMAS = {
+    "cadastro": "Cadastro de lojistas",
+    "core": "Core de pagamentos",
+    "cobranca": "Cobrança",
+    "disputas": "Disputas",
+    "crm": "CRM de atendimento",
+    "diretorio": "Diretório de funcionários",
+    "analitica": "Base analítica",
+}
+
+
+def buscar_lojistas_por_nome(
+    origem: Session | Engine,
+    termo: str,
+    carteiras: tuple[str, ...] | None = None,
+    limite: int | None = None,
+) -> dict:
+    """Lojistas cujo nome fantasia contém o termo, sem diferenciar maiúscula nem acento, só nas `carteiras`
+    (None = todas). Ordem alfabética.
+
+    A comparação sem acento é feita em Python (o SQLite não tira acento e o Postgres pediria a extensão
+    unaccent): lê só código, nome, cidade, UF, situação e carteira do escopo. Serve até alguns milhares de
+    lojistas por carteira; acima disso, trocar por uma coluna de nome normalizado com índice.
+    """
+    falhas.verificar("cadastro")
+    procurado = _sem_acento_minusculo(termo).strip()
+    consulta = select(
+        Lojista.codigo, Lojista.nome_fantasia, Lojista.cidade, Lojista.uf, Lojista.situacao, Lojista.carteira
+    ).order_by(Lojista.nome_fantasia, Lojista.codigo)
+    if carteiras is not None:
+        consulta = consulta.where(Lojista.carteira.in_(carteiras))
+    with _sessao_de(origem) as sessao:
+        achados = [
+            dict(linha._mapping)
+            for linha in sessao.execute(consulta)
+            if procurado and procurado in _sem_acento_minusculo(linha.nome_fantasia)
+        ]
+    teto = _limite_efetivo(limite)
+    return {"itens": achados[:teto], "total": len(achados), "limite": teto}
+
+
+def agenda_e_liquidacoes_por_dia(
+    origem: Session | Engine, codigo: str, data_inicio: date, data_fim: date
+) -> list[dict]:
+    """Por dia já passado (até ontem), o que a agenda mandava pagar e o que a liquidação pagou, em centavos.
+
+    Agenda do dia: as parcelas com `data_prevista` no dia, menos as antecipadas (já pagas antes). Pago: a soma
+    das liquidações `paga` do dia. `falhou`/`devolvida` dizem se alguma liquidação do dia não chegou, com o
+    motivo. Só entram dias com agenda ou com liquidação. Da data mais recente para a mais antiga.
+    """
+    falhas.verificar("core")
+    fim = min(data_fim, regras.HOJE_DO_MOCK - timedelta(days=1))
+    dias: dict[date, dict] = {}
+
+    def dia(chave: date) -> dict:
+        return dias.setdefault(chave, {
+            "dia": chave, "agenda_centavos": 0, "pago_centavos": 0, "falhou": False, "devolvida": False,
+            "motivo_falha": None,
+        })
+
+    with _sessao_de(origem) as sessao:
+        agenda = sessao.execute(
+            select(Recebivel.data_prevista, func.sum(Recebivel.valor_parcela_centavos))
+            .where(
+                Recebivel.id_lojista == codigo,
+                Recebivel.situacao != "antecipado",
+                Recebivel.data_prevista >= data_inicio,
+                Recebivel.data_prevista <= fim,
+            )
+            .group_by(Recebivel.data_prevista)
+        )
+        for data_prevista, soma in agenda:
+            dia(data_prevista)["agenda_centavos"] = int(soma)
+        liquidacoes = sessao.execute(
+            select(Liquidacao.data, Liquidacao.valor_total_centavos, Liquidacao.situacao, Liquidacao.motivo_falha)
+            .where(Liquidacao.id_lojista == codigo, Liquidacao.data >= data_inicio, Liquidacao.data <= fim)
+            .order_by(Liquidacao.id)
+        )
+        for data, valor, situacao, motivo_falha in liquidacoes:
+            item = dia(data)
+            if situacao == "paga":
+                item["pago_centavos"] += valor
+            else:
+                item["falhou" if situacao == "falhou" else "devolvida"] = True
+                item["motivo_falha"] = item["motivo_falha"] or motivo_falha
+    return [item | {"dia": _iso(item["dia"])} for _, item in sorted(dias.items(), reverse=True)]
+
+
+def ultimas_interacoes(
+    origem: Session | Engine, codigo_lojista: str, codigo_chamado: str, limite: int | None = None
+) -> dict:
+    """As `limite` interações mais recentes de um chamado DO LOJISTA, devolvidas em ordem cronológica.
+
+    Mesmo join de `buscar_interacoes` (o chamado tem de ser do lojista informado); muda só qual ponta da
+    conversa entra quando há mais mensagens do que o limite.
+    """
+    falhas.verificar("crm")
+    consulta = (
+        select(Interacao.id, Interacao.autor, Interacao.canal, Interacao.data_hora, Interacao.texto)
+        .join(Chamado, Interacao.id_chamado == Chamado.codigo)
+        .where(Chamado.codigo == codigo_chamado, Chamado.id_lojista == codigo_lojista)
+        .order_by(Interacao.data_hora.desc(), Interacao.id.desc())
+    )
+
+    def formatar(linha) -> dict:
+        return dict(linha._mapping) | {"data_hora": _iso(linha.data_hora)}
+
+    with _sessao_de(origem) as sessao:
+        resposta = _lista(sessao, consulta, limite, formatar)
+    return resposta | {"itens": resposta["itens"][::-1]}

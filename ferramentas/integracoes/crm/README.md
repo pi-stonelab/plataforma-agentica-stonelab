@@ -1,15 +1,18 @@
 # CRM
 
-[preencher: o que é este sistema e para que a plataforma o usa]
+CRM de atendimento da Stone simulada: lojistas, contatos, chamados e suas mensagens, pesquisas de satisfação e artigos de ajuda.
 
 ## Ferramentas que usam
 
 - `atendimento/consultar_cliente` (leitura)
 - `atendimento/buscar_clientes` (leitura)
 - `atendimento/listar_chamados_cliente` (leitura)
-- `atendimento/consultar_ticket` (leitura)
+- `atendimento/consultar_chamado` (leitura)
 - `atendimento/consultar_historico_contato` (leitura)
 - `atendimento/consultar_contatos_lojista` (leitura)
+- `atendimento/consultar_base_conhecimento` (leitura)
+- `atendimento/resumir_satisfacao` (leitura)
+- `atendimento/verificar_identidade_contato` (leitura)
 - `atendimento/abrir_ticket` (escrita)
 - `atendimento/atualizar_status_ticket` (escrita)
 - `atendimento/adicionar_nota_ticket` (escrita)
