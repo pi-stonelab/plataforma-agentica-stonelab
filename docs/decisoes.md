@@ -929,3 +929,40 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
     tentativas por pessoa e por lojista (o registro já guarda quem chamou, sem o contato), alerta ao Monitoramento
     depois de N falhas seguidas e confirmação do CNPJ junto (§6.6 já pede o CNPJ e o código no contato). O registro
     nunca guarda o telefone nem o e-mail informados. Decisão e dono: Pedro com o Brenno (segurança) e o Enrico (alertas).
+
+## Perguntas H da rodada de achados (24/11): decisão de negócio que o código não tomou sozinho
+
+Cada uma tem o que o código faz hoje. Nenhuma está na fonte; quem decide está entre parênteses.
+
+- H1. Janela da soma de acordos. A alçada do acordo soma os acordos do mesmo lojista abertos nos últimos 30 dias. O
+  número 30 é nosso (Milene).
+- H2. Validade do acordo pendente. Um acordo que ninguém aprova expira em 7 dias e as faturas ficam livres (Milene).
+- H3. Falha "recusa do banco" na liquidação. Foi inventada para dar o caso de reprocessar com motivo de recusa (U4); a
+  M00015 tem a liquidação recusada. Não está no DOC-MOCK (Pedro e o professor).
+- H4. Quem registrou o pedido de antecipação não o executa (segregação). O mock não guarda o canal de origem do pedido
+  (dev 7), então o código só confere o `id_solicitante` do chamado (Milene e Brenno).
+- H5. O coordenador financeiro não executa antecipação: o §8.2 dá isso só ao N2 de atendimento e o cargo não tem a
+  categoria `chamado` (Milene).
+- H6. "Contato verificado" não é gravado em lugar nenhum; por isso só `suspeita_fraude` bloqueia a resposta ao lojista
+  num chamado (Brenno).
+- H7. U12: o financeiro (cobrança, disputas e recebíveis) não lê chamados, pois o §8.2 não permite. Se for preciso, a
+  mudança é em `mock/regras.py` e é do Pedro com a Milene.
+- H8. U20, segunda metade: listar o argumento que falhou na mensagem de erro conflita com os ataques de resposta
+  uniforme (a07 e a21). Pergunta para o Brenno e o Enrico.
+- H9. Dev 8: antecipação acima de R$ 10 mil com dupla aprovação (Milene). Hoje só o N2 executa, uma pessoa só.
+- H10. Dev 14: a identidade da pessoa na plataforma é `Funcionario.id` (F0001...). Premissa; o back-end pode ter outro id
+  (Marcelo e Isabel).
+- H11. Dev 15: anexos do chat são por pessoa, não por conversa (Marcelo e Larissa).
+- H12. Dev 22: o coordenador aprova o acordo que ele mesmo pediu quando está na alçada dele (AC0004). A segregação do
+  §8.1 diz o contrário para outros casos (Milene).
+- H13. O DOC-MOCK fala em 15 funcionários e há só um coordenador financeiro; sem segundo aprovador, o acordo fora da
+  alçada dele fica parado até `retirar_acordo` ou a expiração.
+- H14. `registrar_defesa_chargeback` é só de Disputas (analista e coordenador); o N2 e o supervisor de atendimento só
+  leem as contestações. Ampliar é decisão da Milene.
+- H15. `listar_meus_chamados` fica fora do agente de atendimento até o Christopher e o Isack decidirem (KAN-55).
+- H16. Dev 23: validar o domínio da conta conectada e o tenant da Microsoft dependem de um app real e são itens do `.env`
+  do Pedro.
+
+Sugestões de ferramenta só registradas, sem código (precisam de decisão de negócio): `alterar_conta_recebimento` (N2,
+§6.6), `reatribuir_chamado`, `isentar_tarifa` com alçada, `contestar_devolucao_pix`, reter e liberar valor, e prévia em
+lote da régua de cobrança.

@@ -359,3 +359,40 @@ documentos da pesquisa. O Pedro confere cada um antes.
    > A tela de conectores precisa do botão "Conectar conta" por serviço, e o chat, do botão de anexar e do link de
    > download do arquivo que o agente entrega (marcadores `[A FAZER (Larissa...)]`). As escritas novas usam a
    > confirmação em duas etapas.
+
+## Mensagens da rodada de achados (24/11)
+
+Nada foi enviado. Textos curtos para o Pedro colar.
+
+### Para a Larissa e o professor (interface)
+
+Oi. Duas coisas do contrato (`frontend/CONTRATO_API.md`) que o código de ferramentas já exige:
+
+1. U5: o cartão de confirmação precisa aceitar uma lista `confirmacoes[]` por turno. O agente pode montar mais de uma
+   prévia no mesmo turno (por exemplo, abrir chamado e registrar nota). Se o contrato aceitar só uma, o agente deve
+   encerrar o turno depois da primeira prévia (Christopher e Isack ajustam o prompt).
+2. U6: faltam no contrato as telas do E2 (conectar conta Google e Microsoft, anexar arquivo no chat e baixar o arquivo
+   que o agente entrega). Onde o §6.3 diz "as 41 ferramentas", o catálogo tem hoje 59. No §6.2, `entregar_arquivo` é
+   a exceção: é escrita sem confirmação em duas fases, porque só gera um arquivo para a própria pessoa.
+
+### Para o Marcelo e a Isabel (back-end)
+
+As tabelas do mock mudaram (esquema 6: chave de idempotência, expiração de acordo, retirada). O back-end deve passar o id
+da confirmação como chave (já é feito pelo `confirmacoes.confirmar`) e tratar `EfeitoIncerto` como "pode ter gravado:
+confira antes de repetir". Perguntas H10 e H11 em `docs/decisoes.md` são suas.
+
+### Para o Brenno
+
+H4, H6 e H8 em `docs/decisoes.md` pedem a sua opinião: segregação de quem registra e executa antecipação, "contato
+verificado" e a mensagem de erro que cita o argumento.
+
+### Para o Enrico
+
+A suíte passa com as duas falhas conhecidas (e-mails `@stonelab.dev` em `frontend/`). Há testes novos de idempotência,
+alçada, chargeback e fila. A mensagem de limite excedido continua uniforme de propósito (H8).
+
+### Para o Christopher e o Isack
+
+`listar_meus_chamados` é candidata ao agente de atendimento (hoje fora, em `CANDIDATAS_AO_AGENTE`). As prévias novas
+(`retirar_acordo`, `registrar_defesa_chargeback`) são de outros papéis e ficam fora. Decidam sobre U5 (uma prévia por
+turno).
