@@ -6,7 +6,9 @@ Runtime dos agentes. Roda no mesmo processo do back-end. O agente só pede ferra
 ## Arquivos
 
 - `agente_atendimento/agente.py`: o motor (`rodar_turno`, `Turno`, `Atendimento`, `Rodada`) e a configuração
-  do agente de atendimento (`AGENTE_ID`, `FERRAMENTAS_DO_AGENTE`, `SISTEMA`). Não importa `mock/`, SQLAlchemy,
+  do agente de atendimento (`AGENTE_ID`, `FERRAMENTAS_DO_AGENTE`, `SISTEMA`). A lista tem 33 das 56 ferramentas do
+  catálogo (decisão F2; o agente geral tem todas) e `test_agente_atendimento_ferramentas.py` obriga cada ferramenta nova
+  a entrar nela ou a ter motivo para ficar de fora. Não importa `mock/`, SQLAlchemy,
   `requests` nem `dotenv` (tem teste); só `ferramentas/`.
 - `agente_geral/agente.py`: o agente padrão do chat. Só configuração, sobre o mesmo motor. Veja o README dele.
 - `terminal.py`: modo terminal dos dois agentes, com o diretório de funcionários e a chamada direta ao
@@ -14,8 +16,8 @@ Runtime dos agentes. Roda no mesmo processo do back-end. O agente só pede ferra
   `ferramentas.dados_sinteticos`. Veja "Modo terminal".
 - `avaliacao.py`: mede quantas vezes o agente escolhe as ferramentas certas (cenários fixos, modelo real).
   Veja "Avaliação do uso de ferramentas".
-- Testes: `backend/tests/test_agente_*.py` (motor, geral, terminal), `test_agentes_avaliacao.py` e
-  `test_agente_varias_ferramentas.py`, com os apoios em `backend/tests/apoio_agente.py`.
+- Testes: `backend/tests/test_agente_*.py` (motor, geral, terminal, lista de ferramentas, data de hoje),
+  `test_agentes_avaliacao.py`, `test_catalogo_indice.py` e `test_agente_varias_ferramentas.py`, com os apoios em `backend/tests/apoio_agente.py`.
 
 ## Como o motor funciona
 

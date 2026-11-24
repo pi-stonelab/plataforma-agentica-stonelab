@@ -57,7 +57,8 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
 
 - `base.py`: classe `Ferramenta` (a ficha e o método `executar`), os 7 tipos de erro, `ErroFerramenta`, `resposta`.
 - `catalogo.py`: acha as ferramentas (`carregar`, `nomes`), monta o texto que o agente lê (`ler`), diz quais estão
-  liberadas (`ferramentas_liberadas`) e executa (`executar`). É a única porta de entrada das ferramentas.
+  liberadas (`ferramentas_liberadas`) e executa (`executar`). É a única porta de entrada das ferramentas. Também mede e
+  encurta o índice (`_indice`, ver "O índice que o modelo lê") e diz o dia de hoje para o prompt (`data_de_hoje`).
   `listar_fichas(usuario)` devolve o catálogo no formato `Ferramenta` do contrato do front (§4.10).
 - `governanca.py`: quem pode usar (`motivo_bloqueio`), escopo de lojista (`lojista_no_escopo`), janela de dias
   (`janela_dias`, `inicio_da_janela`) e registro das chamadas (`registrar`, `adicionar_destino`).
@@ -144,6 +145,21 @@ O agente chama `catalogo.executar(nome, argumentos, usuario, ferramentas_do_agen
 `Ferramenta.executar` nunca levanta erro para quem chamou. Sempre devolve
 `{status, dados, mensagem, tipo_erro}`.
 
+## O índice que o modelo lê
+
+`catalogo.ler("")` devolve a raiz: as áreas liberadas (só o nome e a quantidade de ferramentas), uma linha
+`area/nome: primeira frase` por ferramenta liberada, os tipos de erro e as regras gerais. O motor corta cada leitura em
+6000 caracteres (`MAX_CHARS_MD`) e o índice vai inteiro em todo passo, então `catalogo._indice` mede o texto e divide o
+espaço que sobra (`LIMITE_DO_INDICE`, 5800) entre as frases: frase inteira (até 160) quando são poucas ferramentas;
+cortada na última palavra, com `…`, até um mínimo de 30 caracteres; só `area/nome` se nem assim couber. `LER: <area>`
+mostra as frases inteiras. Medido em 24/11 com todas as integrações ligadas: de 5560 a 5720 caracteres nos 8 cargos com
+ferramenta, com frases de uns 40 caracteres no cargo de 50 ferramentas. Sem o `.env`, 16 ferramentas somem (as de
+integração desligada) e o índice fica menor. Consequência para quem escreve ficha: o começo da primeira frase é o que
+sobrevive ao corte. Decisão F1; testes em `test_catalogo_indice.py`.
+
+A data de hoje do prompt vem de `catalogo.data_de_hoje()`: no simulado, 15/10/2026 21h (`AGORA_DO_MOCK`); se uma integração
+com relógio (APIs públicas, e-mail, Google, Microsoft) está em modo real, o dia de verdade em Brasília (F3).
+
 ## Governança por cargo (O1)
 
 A regra de dados é por cargo, não por N1/N2. Cada cargo tem uma `RegraCargo` em `mock/regras.py` com: área, perfil
@@ -189,9 +205,11 @@ Cargo desconhecido, auditor e admin geram usuário inválido, e todas as ferrame
   `consultar_historico_contato`, que mascara o texto antes de cortar em 500 caracteres, para o corte não deixar
   um número pela metade.
 - A máscara de cada campo vem de `mock/regras.py`: `CLASSIFICACAO_CAMPOS` (campo restrito e o tipo da máscara)
-  e `CAMPOS_NAO_RESTRITOS` (campos liberados). A chave é o NOME DO CAMPO que a consulta devolve.
+  e `CAMPOS_NAO_RESTRITOS` (campos liberados para toda ferramenta). A chave é o NOME DO CAMPO que a consulta devolve.
+  Campo de texto que só uma ferramenta devolve (aviso, orientação, título de evento, nome de arquivo) vai em
+  `campos_liberados` da ficha dela, não na lista global (C14 e F5).
 - Numa ferramenta que lê dado de lojista, texto em campo que não está em nenhuma das duas listas sai como `***`.
-  Se um campo novo aparecer como `***`, é isso: falta registrar o campo em `mock/regras.py`.
+  Se um campo novo aparecer como `***`, é isso: falta registrar o campo em `mock/regras.py` ou na ficha.
 - CPF e cartão escritos no meio de qualquer texto também são mascarados (`_texto_livre`). O texto é normalizado
   antes (dígitos de outros alfabetos, caracteres invisíveis). Sequência de 11 dígitos vira CPF mascarado
   (`***.456.789-**`), de 13 a 19 vira cartão (`**** **** **** 1111`), 12 ou mais de 19 viram `***`.
