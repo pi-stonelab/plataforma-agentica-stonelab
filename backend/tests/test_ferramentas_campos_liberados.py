@@ -21,6 +21,7 @@ LIBERACOES_PERMITIDAS = {
     "comentar_chamado_jira": CONFIRMACAO,
     "enviar_mensagem_slack": CONFIRMACAO,
     "enviar_aviso_telegram": CONFIRMACAO | {"chat"},
+    "buscar_emails": frozenset({"data_inicio", "data_fim"}),
     "buscar_conjuntos_dados": frozenset({"nome_do_sistema"}),
     "conferir_liquidacoes": frozenset({"agenda", "diferenca", "explicacao", "pago"}),
     "consultar_linhagem_conjunto": frozenset({"derivados"}),

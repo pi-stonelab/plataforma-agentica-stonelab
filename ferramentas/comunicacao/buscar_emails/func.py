@@ -52,6 +52,7 @@ class BuscarEmails(Ferramenta):
     nivel_minimo = "N1"
     areas_permitidas = ("atendimento", "financeiro")
     categorias_dados = ("contato", "interacao")
+    campos_liberados = ("data_inicio", "data_fim")
     sensibilidade = "pessoal"
     conteudo_terceiros = True
     status = "ativa"

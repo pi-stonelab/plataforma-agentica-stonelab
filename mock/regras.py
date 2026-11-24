@@ -259,7 +259,7 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "id_cliente", "id_lojista",
         # integrações externas: a chave de um chamado interno do Jira, a origem da resposta (real ou modo de
         # demonstração) e o período de uma busca
-        "chave_jira", "fonte", "data_inicio", "data_fim",
+        "chave_jira", "fonte",
     }
 )
 

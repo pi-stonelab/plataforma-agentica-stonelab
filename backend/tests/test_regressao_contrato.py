@@ -213,7 +213,7 @@ def nomes_vistos_pelo_cargo(usuario):
     for area in sorted({f.area for f in FERRAMENTAS.values()}):
         textos.append(catalogo.ler(area, usuario, lista))
     visiveis = {n for n in FERRAMENTAS if catalogo.ler(f"{FERRAMENTAS[n].area}/{n}", usuario, lista) != gab.MENSAGEM_CAMINHO_NAO_LIBERADO}
-    return {n for n in FERRAMENTAS if any(n in texto for texto in textos)} | visiveis
+    return {n for n in FERRAMENTAS if any(re.search(rf"\b{n}\b", texto) for texto in textos)} | visiveis
 
 
 def test_ha_um_caso_de_acesso_ao_agente_geral_para_cada_um_dos_10_cargos():
