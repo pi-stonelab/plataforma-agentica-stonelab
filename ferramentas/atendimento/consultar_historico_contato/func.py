@@ -8,6 +8,7 @@ LIMITE_PADRAO = 10
 
 class ConsultarHistoricoContato(Ferramenta):
     nome = "consultar_historico_contato"
+    descricao_para_pessoa = "Devolve as mensagens trocadas num chamado de um cliente (lojista), em ordem cronológica."
     area = "atendimento"
     acesso = "leitura"
     integracoes = ("crm",)

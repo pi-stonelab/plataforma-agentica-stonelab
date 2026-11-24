@@ -115,8 +115,10 @@ class FerramentaComConfirmacao(Ferramenta):
     campos_so_da_interface = ()
     sai_da_plataforma = False  # True: o texto vai para fora (Slack, Telegram, Jira, e-mail), e o cartão avisa
 
-    def aviso_da_previa(self):
-        """O aviso do cartão e do agente: demonstração (integração simulada) e/ou texto que sai. None se nenhum."""
+    def aviso_da_previa(self, conteudo=None):
+        """O aviso do cartão e do agente: demonstração (integração simulada) e/ou texto que sai. None se nenhum.
+
+        `conteudo` é o que `montar` devolveu: a ferramenta com integrações alternativas o usa para olhar só a que vai agir."""
         from ferramentas.integracoes import registro  # aqui dentro: `integracoes` importa `base`
 
         avisos = []
@@ -211,7 +213,7 @@ def _guardar(ferramenta, usuario, contexto, conteudo, previa):
                 conteudo=conteudo,
                 previa=mascara.mascarar(previa, ferramenta.categorias_dados, ferramenta.campos_liberados),
                 expira_em=agora() + VALIDADE,
-                aviso=ferramenta.aviso_da_previa(),
+                aviso=ferramenta.aviso_da_previa(conteudo),
             )
             PEDIDOS[pedido.confirmacao_id] = pedido
     finally:

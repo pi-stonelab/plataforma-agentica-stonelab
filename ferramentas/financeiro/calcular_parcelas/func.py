@@ -51,6 +51,7 @@ def motivo_da_alcada(alcada, *, principal, negociado, numero_parcelas, entrada, 
 
 class CalcularParcelas(Ferramenta):
     nome = "calcular_parcelas"
+    descricao_para_pessoa = "Divide um valor em parcelas, com entrada, e diz quem aprova o acordo: analista, coordenador, dupla aprovação ou ninguém."
     area = "financeiro"
     acesso = "calculo"
     integracoes = ()

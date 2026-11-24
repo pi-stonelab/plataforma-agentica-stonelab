@@ -112,6 +112,8 @@ INTEGRACOES_EM_DEMONSTRACAO = {
     "TELEGRAM_MODO": "simulado",
     "TELEGRAM_CHATS": "plantao:-1001234567890",
     "EMAIL_LEITURA_MODO": "simulado",
+    "GOOGLE_MODO": "simulado",
+    "ANEXOS_MODO": "simulado",
 }
 
 

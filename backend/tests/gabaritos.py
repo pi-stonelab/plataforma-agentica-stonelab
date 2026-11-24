@@ -85,6 +85,15 @@ BUSCAR_CONJUNTOS = "buscar_conjuntos_dados"
 CONSULTAR_ESQUEMA = "consultar_esquema_conjunto"
 CONSULTAR_RESPONSAVEL = "consultar_responsavel_conjunto"
 CONSULTAR_LINHAGEM = "consultar_linhagem_conjunto"
+LISTAR_EVENTOS = "listar_eventos_agenda"
+CRIAR_EVENTO = "criar_evento_agenda"
+BUSCAR_ARQUIVOS = "buscar_arquivos"
+LER_PLANILHA = "ler_planilha"
+ADICIONAR_LINHA = "adicionar_linha_planilha"
+CRIAR_PLANILHA = "criar_planilha"
+LER_DOCUMENTO = "ler_documento"
+LER_ANEXO = "ler_arquivo_anexado"
+ENTREGAR_ARQUIVO = "entregar_arquivo"
 
 # Caminho que o modelo escreve em LER (área/ferramenta). A área de cada uma é a pasta no catálogo.
 CAMINHO = {
@@ -119,7 +128,9 @@ ESCRITAS_NO_MOCK = (
     ABRIR_CHAMADO, ADICIONAR_NOTA, ATUALIZAR_CHAMADO, REGISTRAR_PEDIDO_ANTECIPACAO, EXECUTAR_ANTECIPACAO,
     REPROCESSAR_LIQUIDACAO, REGISTRAR_ACORDO, APROVAR_ACORDO,
 )
-FERRAMENTAS_COM_CONFIRMACAO = (ENVIAR_EMAIL, *FERRAMENTAS_DE_ENVIO, ABRIR_JIRA, COMENTAR_JIRA, *ESCRITAS_NO_MOCK)
+FERRAMENTAS_COM_CONFIRMACAO = (
+    ENVIAR_EMAIL, *FERRAMENTAS_DE_ENVIO, ABRIR_JIRA, COMENTAR_JIRA, *ESCRITAS_NO_MOCK, CRIAR_EVENTO,
+)  # criar_planilha e adicionar_linha_planilha já estão em NUNCA_EXECUTAM
 NAO_USAM_NOS_CENARIOS = NUNCA_EXECUTAM + FERRAMENTAS_COM_CONFIRMACAO
 # Argumentos que só o sistema pode definir (KAN-69 A-21); a lista da governança é conferida contra esta.
 PARAMETROS_RESERVADOS = (
@@ -382,11 +393,31 @@ FERRAMENTAS_DO_CARGO = {
     "auditor_compliance": set(),  # sem ferramenta de dado na Sprint 2 (O5)
     "admin_plataforma": set(),
 }
-# Ativas, mas com a integração desligada na suíte (Jira, Slack, Telegram e leitura de e-mail sem credencial).
-DESLIGADAS_NA_SUITE = (CONSULTAR_JIRA, ABRIR_JIRA, COMENTAR_JIRA, ENVIAR_SLACK, ENVIAR_TELEGRAM, BUSCAR_EMAILS)
+ESCRITORIO = (
+    LISTAR_EVENTOS,
+    CRIAR_EVENTO,
+    BUSCAR_ARQUIVOS,
+    LER_PLANILHA,
+    ADICIONAR_LINHA,
+    CRIAR_PLANILHA,
+    LER_DOCUMENTO,
+    LER_ANEXO,
+    ENTREGAR_ARQUIVO,
+)
+# Ativas, mas com a integração desligada na suíte (Jira, Slack, Telegram, e-mail, Google, Microsoft e anexos).
+DESLIGADAS_NA_SUITE = (
+    CONSULTAR_JIRA,
+    ABRIR_JIRA,
+    COMENTAR_JIRA,
+    ENVIAR_SLACK,
+    ENVIAR_TELEGRAM,
+    BUSCAR_EMAILS,
+    *ESCRITORIO,
+)
 # O que cada cargo ganha quando essas integrações estão ligadas (decisão E1: Jira, Slack e Telegram para todo
-# cargo com área; a leitura de e-mail pede as categorias contato e interação, só o atendimento e a ouvidoria).
-_INTERNAS = {CONSULTAR_JIRA, ABRIR_JIRA, COMENTAR_JIRA, ENVIAR_SLACK, ENVIAR_TELEGRAM}
+# cargo com área; a leitura de e-mail pede as categorias contato e interação, só o atendimento e a ouvidoria;
+# agenda, planilhas, documentos e anexos pedem categorias comuns, então todo cargo com área, decisão G1).
+_INTERNAS = {CONSULTAR_JIRA, ABRIR_JIRA, COMENTAR_JIRA, ENVIAR_SLACK, ENVIAR_TELEGRAM} | set(ESCRITORIO)
 EXTERNAS_DO_CARGO = {
     "atendente_n1": _INTERNAS | {BUSCAR_EMAILS},
     "especialista_n2": _INTERNAS | {BUSCAR_EMAILS},

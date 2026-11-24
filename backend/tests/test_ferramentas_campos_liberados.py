@@ -32,6 +32,7 @@ LIBERACOES_PERMITIDAS = {
     "registrar_acordo": CONFIRMACAO | {"encargos", "valor_da_parcela", "aprovacao"},
     "aprovar_acordo": CONFIRMACAO | {"id_acordo", "decisao"},
     "buscar_emails": frozenset({"data_inicio", "data_fim"}),
+    "listar_eventos_agenda": frozenset({"data_inicio", "data_fim"}),
     "buscar_conjuntos_dados": frozenset({"nome_do_sistema"}),
     "conferir_liquidacoes": frozenset({"agenda", "diferenca", "explicacao", "pago"}),
     "consultar_linhagem_conjunto": frozenset({"derivados"}),
@@ -43,6 +44,10 @@ LIBERACOES_PERMITIDAS = {
     "resumir_volume_chamados": frozenset({"aviso", "data_fim", "data_inicio"}),
     "simular_antecipacao": frozenset({"aviso", "data_credito", "desconto", "valor_antecipado"}),
     "verificar_identidade_contato": frozenset({"orientacao"}),
+    # Agenda e planilhas da conta Google ou Microsoft (bloco E2): a prévia mostra o que vai ser criado ou gravado.
+    "criar_evento_agenda": CONFIRMACAO | {"servico", "quando", "convidados"},
+    "adicionar_linha_planilha": CONFIRMACAO | {"servico", "planilha", "valores", "linhas_adicionadas"},
+    "criar_planilha": CONFIRMACAO | {"servico"},
 }
 COMO_LIBERAR = "Para liberar um campo novo, edite LIBERACOES_PERMITIDAS em test_ferramentas_campos_liberados.py."
 

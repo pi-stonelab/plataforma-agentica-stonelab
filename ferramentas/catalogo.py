@@ -52,12 +52,13 @@ def _buscar(nome):
 
 
 def _integracao_desligada(ferramenta):
-    """O conector da primeira integração da ficha que está desligada ou mal configurada no .env, ou None."""
-    for nome in ferramenta.integracoes:
-        conector = integracoes.conector(nome)
-        if not conector.configurado():
-            return conector
-    return None
+    """O conector da integração da ficha que está desligada ou mal configurada no .env, ou None.
+
+    Integrações alternativas (Google OU Microsoft): só conta como desligada quando todas estão; devolve a primeira."""
+    desligadas = [c for c in (integracoes.conector(n) for n in ferramenta.integracoes) if not c.configurado()]
+    if ferramenta.integracoes_alternativas and len(desligadas) < len(ferramenta.integracoes):
+        return None
+    return desligadas[0] if desligadas else None
 
 
 def _camada_bloqueio(nome, usuario, ferramentas_do_agente):

@@ -392,9 +392,13 @@ def test_a08_lista_longa_e_cortada_em_50_com_o_total_real():
 
 
 @pytest.mark.parametrize("cargo", gab.CARGOS)
-def test_a08_nenhum_cargo_alcanca_ferramenta_de_arquivo_ou_planilha_e_envio_so_com_confirmacao(cargo):
+def test_a08_arquivo_e_planilha_so_com_confirmacao_e_envio_so_com_confirmacao(cargo, monkeypatch):
+    monkeypatch.setenv("GOOGLE_MODO", "simulado")
+    monkeypatch.setenv("ANEXOS_MODO", "simulado")
     liberadas = set(catalogo.ferramentas_liberadas(pessoa(cargo), geral.FERRAMENTAS_DO_AGENTE))
-    assert not liberadas & set(gab.FERRAMENTAS_DE_EXPORTACAO)
+    escrita_de_arquivo = {gab.CRIAR_PLANILHA, gab.ADICIONAR_LINHA}
+    assert liberadas & escrita_de_arquivo <= set(governanca.ESCRITA_COM_CONFIRMACAO)
+    assert liberadas & {gab.ENTREGAR_ARQUIVO} <= set(governanca.ESCRITA_SEM_CONFIRMACAO)
     assert liberadas & set(gab.FERRAMENTAS_DE_ENVIO) <= set(governanca.ESCRITA_COM_CONFIRMACAO)
 
 

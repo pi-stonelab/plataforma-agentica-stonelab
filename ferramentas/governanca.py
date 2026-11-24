@@ -31,7 +31,7 @@ PARAMETROS_RESERVADOS = (
     "ferramentas_do_agente",
     "contexto",
 )
-ESCRITA_SEM_CONFIRMACAO = ("solicitar_ferramenta_ausente",)
+ESCRITA_SEM_CONFIRMACAO = ("solicitar_ferramenta_ausente", "entregar_arquivo")
 # Escrita em duas fases (ferramentas/confirmacoes.py): o agente só monta a prévia; quem pediu confirma.
 ESCRITA_COM_CONFIRMACAO = (
     "enviar_email",
@@ -47,6 +47,9 @@ ESCRITA_COM_CONFIRMACAO = (
     "reprocessar_liquidacao",
     "registrar_acordo",
     "aprovar_acordo",
+    "criar_evento_agenda",
+    "adicionar_linha_planilha",
+    "criar_planilha",
 )
 ESCRITAS_LIBERADAS = ESCRITA_SEM_CONFIRMACAO + ESCRITA_COM_CONFIRMACAO
 LIMITE_LINHAS = regras.LIMITE_MAXIMO

@@ -410,7 +410,7 @@ def test_comando_estado_lista_todas_as_integracoes():
     apis = next(linha for linha in linhas if linha.startswith("apis_publicas"))
     assert apis.endswith("sem chamadas ainda")
     assert any("- viacep" in linha for linha in linhas) and any("- ptax" in linha for linha in linhas)
-    assert any("Ainda não implementada" in linha for linha in linhas)  # jira, slack...
+    assert not any("Ainda não implementada" in linha for linha in linhas)  # todas já têm conector
 
 
 def test_comando_testar_exige_modo_terminal_e_chama_o_servico():

@@ -3,17 +3,22 @@
 - HTTPS obrigatório fora do localhost (`http://` só em localhost, 127.0.0.1 e ::1, para os servidores de teste).
 - URL sem usuário, senha, parâmetro ou fragmento no .env: a URL base é fixa, e o modelo nunca escolhe destino.
   O caminho de cada pedido é montado por `montar_url`, que codifica cada pedaço e não deixa sair da base.
-- Redirecionamento só para o mesmo esquema, host e porta, no máximo `REDIRECIONAMENTOS` vezes.
+- Redirecionamento só para o mesmo esquema, host e porta, no máximo `REDIRECIONAMENTOS` vezes. Exceção pedida
+  por quem chama (`seguir_para`, uma lista de domínios): download de arquivo que a API entrega por um endereço
+  temporário de outro domínio (Microsoft Graph). O destino precisa ser HTTPS e estar na lista, e o cabeçalho
+  `Authorization` não vai junto (o endereço temporário já traz a permissão dentro dele).
 - Prazo total do pedido (`tempo_limite`), não só por leitura: um servidor que goteja bytes não segura a chamada.
 - Resposta acima de `LIMITE_DE_BYTES`, JSON inválido e 5xx viram `ConnectionError`; tempo esgotado vira
   `TimeoutError`; 401 e 403 viram `CredencialRecusada`; 429 vira `LimiteDePedidos` com os segundos de espera
   (`Retry-After`, ou `parameters.retry_after` do Telegram). Esses dois não contam no disjuntor (`conector.chamar`).
+  A `CredencialRecusada` guarda o `status` e o JSON da recusa (`dados`) só para o conector separar "token vencido"
+  (401), "falta permissão" e "limite de pedidos" (o Google responde 403 também para limite); nunca vão a mensagem.
   As mensagens são genéricas: nada de URL ou conteúdo.
 - Pedido que muda algo (POST, PUT, PATCH, DELETE) e cai depois de enviado (sem resposta, conexão cortada,
   500, 502 ou 504) vira `base.EfeitoIncerto`: a ação pode ter acontecido, e quem chamou não repete sozinho. O
   mesmo vale quando o servidor respondeu, mas não dá para ler o resultado (2xx com corpo quebrado ou grande
   demais) ou mandou redirecionar: ele recebeu o pedido, e não sabemos o que fez.
-- 2xx devolve o JSON lido; 404 volta a quem chamou (costuma ser "não encontrado"); os outros 4xx são pedido
+- 2xx devolve o JSON lido (ou os bytes, com `bruto=True`, para baixar arquivo); 404 volta a quem chamou (costuma ser "não encontrado"); os outros 4xx são pedido
   errado: `PedidoRecusado` (um `ErroFerramenta("parametro_invalido")`), que não conta no disjuntor. O corpo da
   recusa fica em `PedidoRecusado.dados`, para o conector entender o motivo; nunca vai na mensagem.
 - Os loggers do httpx e do httpcore ficam em WARNING: no nível INFO eles escrevem a URL inteira, com token
@@ -134,9 +139,14 @@ def _mesma_origem(a, b):
     return (pa.scheme, pa.hostname, pa.port) == (pb.scheme, pb.hostname, pb.port)
 
 
-def montar_url(base, *segmentos):
-    """`base` + cada segmento codificado (`/`, `?`, `#` e `..` não escapam). Sai da base: `ValueError`."""
-    pedacos = [quote(str(segmento), safe="") for segmento in segmentos]
+def montar_url(base, *segmentos, seguros=""):
+    """`base` + cada segmento codificado (`/`, `?`, `#` e `..` não escapam). Sai da base: `ValueError`.
+
+    `seguros`: caracteres que ficam sem codificar, para a sintaxe de caminho de algumas APIs (os dois-pontos de
+    `root:/arquivo.xlsx:/content` do Graph). Nunca passe `/`, `?` ou `#` aqui."""
+    if any(caractere in seguros for caractere in "/?#"):
+        raise ValueError("caractere seguro inválido")
+    pedacos = [quote(str(segmento), safe=seguros) for segmento in segmentos]
     if any(pedaco in ("", ".", "..") for pedaco in pedacos):
         raise ValueError("segmento de caminho inválido")
     url = "/".join([base.rstrip("/"), *pedacos])
@@ -170,8 +180,18 @@ def _json(corpo, obrigatorio):
         return None
 
 
-def _seguir(cliente, pedido, limite_de_bytes, prazo):
-    """Manda o pedido e segue redirecionamentos da mesma origem. Devolve (status, corpo em bytes, Retry-After).
+def _destino_de_redirecionamento_permitido(origem, destino, seguir_para):
+    """Mesma origem, ou HTTPS num domínio de `seguir_para` (igual ou subdomínio). Nunca outro caso."""
+    if _mesma_origem(origem, destino):
+        return True
+    if not _url_permitida(str(destino)):
+        return False
+    host = (destino.host or "").lower()
+    return any(host == dominio or host.endswith("." + dominio) for dominio in seguir_para)
+
+
+def _seguir(cliente, pedido, limite_de_bytes, prazo, seguir_para=()):
+    """Manda o pedido e segue redirecionamentos permitidos. Devolve (status, corpo em bytes, Retry-After).
 
     Escrita não segue redirecionamento: o servidor já recebeu o pedido, e repetir poderia duplicar a ação.
     """
@@ -187,8 +207,10 @@ def _seguir(cliente, pedido, limite_de_bytes, prazo):
             destino = resposta.next_request
         finally:
             resposta.close()
-        if destino is None or not _mesma_origem(pedido.url, destino.url):
+        if destino is None or not _destino_de_redirecionamento_permitido(pedido.url, destino.url, seguir_para):
             raise ConnectionError(MENSAGEM)
+        if not _mesma_origem(pedido.url, destino.url):
+            destino.headers.pop("authorization", None)  # o httpx já tira; aqui fica garantido
         pedido = destino
     raise ConnectionError(MENSAGEM)
 
@@ -204,17 +226,28 @@ def pedir(
     *,
     parametros=None,
     corpo=None,
+    formulario=None,
+    conteudo=None,
     cabecalhos=None,
     tempo_limite=None,
     limite_de_bytes=LIMITE_DE_BYTES,
+    bruto=False,
+    seguir_para=(),
+    repetivel=False,
 ):
-    """Faz o pedido e devolve `RespostaHttp`. Ver as regras no topo do arquivo. Sem `tempo_limite`: `TEMPO_LIMITE`."""
+    """Faz o pedido e devolve `RespostaHttp`. Ver as regras no topo do arquivo. Sem `tempo_limite`: `TEMPO_LIMITE`.
+
+    O envio é um só: `corpo` (JSON), `formulario` (application/x-www-form-urlencoded, o formato do endereço de
+    token do OAuth) ou `conteudo` (bytes, com o `Content-Type` em `cabecalhos`). `bruto=True` devolve os bytes.
+    `repetivel=True` marca o POST que pode ser refeito sem efeito duplicado (renovar e revogar token): vale como leitura."""
+    if sum(item is not None for item in (corpo, formulario, conteudo)) > 1:
+        raise ValueError("um tipo de corpo por pedido")
     tempo_limite = TEMPO_LIMITE if tempo_limite is None else tempo_limite
     if not _url_permitida(url):
         raise ConnectionError(MENSAGEM)
-    so_le = metodo.upper() in METODOS_QUE_SO_LEEM
+    so_le = repetivel or metodo.upper() in METODOS_QUE_SO_LEEM
     todos_os_cabecalhos = {
-        "Accept": "application/json",
+        "Accept": "*/*" if bruto else "application/json",
         "User-Agent": IDENTIFICACAO_DO_CLIENTE,
         **(cabecalhos or {}),
     }
@@ -224,9 +257,10 @@ def pedir(
         # trust_env só fora do localhost: proxy do sistema nunca intercepta o servidor de teste local.
         with httpx.Client(timeout=tempo_limite, follow_redirects=False, trust_env=not local) as cliente:
             pedido = cliente.build_request(
-                metodo, url, params=parametros, json=corpo, headers=todos_os_cabecalhos
+                metodo, url, params=parametros, json=corpo, data=formulario, content=conteudo,
+                headers=todos_os_cabecalhos,
             )
-            status, conteudo, espera = _seguir(cliente, pedido, limite_de_bytes, prazo)
+            status, resposta_em_bytes, espera = _seguir(cliente, pedido, limite_de_bytes, prazo, tuple(seguir_para))
     except httpx.HTTPError as erro:
         if not so_le and not _antes_de_enviar(erro):
             raise EfeitoIncerto() from None
@@ -241,20 +275,24 @@ def pedir(
         if not so_le:
             raise EfeitoIncerto() from None
         raise
-    return _interpretar(status, conteudo, so_le, espera)
+    return _interpretar(status, resposta_em_bytes, so_le, espera, bruto)
 
 
-def _interpretar(status, conteudo, so_le, espera=None):
+def _interpretar(status, conteudo, so_le, espera=None, bruto=False):
     if status == 429:
         raise LimiteDePedidos(MENSAGEM, segundos_de_espera(espera, _json(conteudo, obrigatorio=False)))
     if status in (401, 403):
-        raise CredencialRecusada(MENSAGEM)
+        recusa = CredencialRecusada(MENSAGEM)
+        recusa.status, recusa.dados = status, _json(conteudo, obrigatorio=False)
+        raise recusa
     if not so_le and status in STATUS_INCERTOS:
         raise EfeitoIncerto()
     if status >= 500 or status < 200 or 300 <= status < 400:
         raise ConnectionError(MENSAGEM)
     if 400 <= status < 500 and status != 404:
         raise PedidoRecusado(status, _json(conteudo, obrigatorio=False))
+    if bruto and status < 300:
+        return RespostaHttp(status, conteudo)
     try:
         dados = _json(conteudo, obrigatorio=status < 300)
     except RespostaInvalida:

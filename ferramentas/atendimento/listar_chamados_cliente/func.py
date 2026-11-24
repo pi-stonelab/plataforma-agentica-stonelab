@@ -6,6 +6,7 @@ from ferramentas.base import Ferramenta
 
 class ListarChamadosCliente(Ferramenta):
     nome = "listar_chamados_cliente"
+    descricao_para_pessoa = "Lista os chamados de um cliente (lojista), do mais recente para o mais antigo, com categoria, prioridade, situação e há quantos dias estão abertos."
     area = "atendimento"
     acesso = "leitura"
     integracoes = ("crm",)

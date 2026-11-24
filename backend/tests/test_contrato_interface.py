@@ -9,6 +9,7 @@ import re
 
 import pytest
 from ferramentas import catalogo, confirmacoes, dados_sinteticos, governanca
+from ferramentas.base import Ferramenta
 
 from .apoio_ferramentas import (
     FUNCIONARIO_DO_CARGO,
@@ -95,7 +96,38 @@ def test_ferramenta_com_integracao_desligada_diz_o_porque_na_tela(mundo, monkeyp
     assert ".env" not in ficha["motivo"]
 
 
-def test_descricao_sem_marcador_e_a_planejada_mostra_a_frase_sugerida(mundo):
+PLANEJADA = "ferramenta_planejada_de_teste"
+
+
+class FerramentaPlanejadaDeTeste(Ferramenta):
+    nome = PLANEJADA
+    area = "atendimento"
+    acesso = "leitura"
+    integracoes = ()
+    nivel_minimo = "N1"
+    areas_permitidas = ("todas",)
+    categorias_dados = ("cadastral",)
+    sensibilidade = "interna"
+    conteudo_terceiros = False
+    status = "planejada"
+    parametros = {}  # noqa: RUF012
+
+
+@pytest.fixture
+def com_uma_planejada(monkeypatch, tmp_path):
+    """O catálogo de hoje não tem ficha planejada (as 56 têm lógica); este esqueleto de teste mantém a regra coberta."""
+    pasta = tmp_path / "atendimento" / PLANEJADA
+    pasta.mkdir(parents=True)
+    (pasta / "agents.md").write_text(
+        f"# {PLANEJADA}\n\n[preencher: o que faz, em uma frase. Sugestão: lê um intervalo de uma planilha]\n",
+        encoding="utf-8",
+    )
+    fichas = {**catalogo.carregar(), PLANEJADA: FerramentaPlanejadaDeTeste()}
+    monkeypatch.setattr(catalogo, "RAIZ", tmp_path)
+    monkeypatch.setattr(catalogo, "carregar", lambda: fichas)
+
+
+def test_descricao_sem_marcador_e_a_planejada_mostra_a_frase_sugerida(mundo, com_uma_planejada):
     por_nome = {f["nome"]: f for f in catalogo.listar_fichas(pessoa(mundo, "atendente_n1"))}
     for ficha in por_nome.values():
         assert "[" not in ficha["descricao"] and "preencher" not in ficha["descricao"], ficha["nome"]
@@ -104,13 +136,13 @@ def test_descricao_sem_marcador_e_a_planejada_mostra_a_frase_sugerida(mundo):
     assert por_nome[ENVIAR]["descricao"] == (
         "Prepara um e-mail para um contato do lojista; ele só sai depois que você confirma."
     )
-    assert por_nome["ler_planilha"]["descricao"] == "Lê um intervalo de uma planilha."  # planejada (bloco E2)
+    assert por_nome[PLANEJADA]["descricao"] == "Lê um intervalo de uma planilha."
 
 
-def test_status_efetivo_planejada_ativa_e_ativa_com_integracao_desligada(mundo, monkeypatch):
+def test_status_efetivo_planejada_ativa_e_ativa_com_integracao_desligada(mundo, monkeypatch, com_uma_planejada):
     ana = pessoa(mundo, "atendente_n1")
     por_nome = {f["nome"]: f for f in catalogo.listar_fichas(ana)}
-    assert por_nome["criar_evento_agenda"]["status"] == "planejada"
+    assert por_nome[PLANEJADA]["status"] == "planejada"
     assert por_nome["abrir_chamado_jira"]["status"] == "inativa"  # ativa, mas a suíte deixa o Jira desligado
     assert por_nome["consultar_cliente"]["status"] == "ativa"
     assert por_nome[ENVIAR]["status"] == "ativa"  # a suíte liga o SMTP local
