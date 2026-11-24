@@ -735,10 +735,9 @@ contra o serviço de verdade (sem conta nem app registrado): ver o comando `test
 
 ### G5. Conteúdo de terceiros e campos que o modo estrito deixa passar
 - Decisão: o que volta de agenda, planilha, documento e anexo é conteúdo de terceiros (dado, nunca instrução) e vai em
-  `dados["conteudo_de_terceiros"]`. Campos novos de formato fechado entram em `CAMPOS_NAO_RESTRITOS` (`titulo`, `inicio`,
-  `fim`, `local`, `aba`, `intervalo`, `linhas`, `colunas`, `modificado_em`, `arquivo`, `abas`, `formato`, `tamanho`,
-  `paginas`, `aviso_de_corte`, `anexos`) e identificadores em `FORMATO_DE_IDENTIFICADORES` (`id_arquivo`, `link`,
-  `anexo_id`, `arquivo_id`). `campos_liberados` só em escrita em duas fases, travado em `LIBERACOES_PERMITIDAS`.
+  `dados["conteudo_de_terceiros"]`. Os identificadores ficam em `FORMATO_DE_IDENTIFICADORES` (`id_arquivo`, `link`, `anexo_id`, `arquivo_id`). Os campos de
+  texto (`titulo`, `inicio`, `fim`, `local`, `aba`, `intervalo`, `linhas`, `modificado_em`, `arquivo`, `abas`, `formato`,
+  `tamanho`, `aviso_de_corte`, `anexos`) entraram primeiro em `CAMPOS_NAO_RESTRITOS` e foram para as fichas em F5.
 - Motivo: a lista de campos classificados continua fechada; o texto livre é mascarado (CPF, cartão, e-mail, telefone).
 
 ### G6. Convidados de evento só de domínio permitido
@@ -840,6 +839,18 @@ Escolhas do fechamento das ferramentas. Todas são do Pedro confirmar; os testes
   modelo roteirizado atinge o gabarito (`test_agentes_avaliacao.py`). Os padrões do cenário da cotação não fixam o
   valor, porque as APIs públicas são reais por padrão; só exigem a moeda, o valor em reais e uma data.
 - No código: `agentes/avaliacao.py` (`Cenario.previas`, `Resultado.previas_certas`, `limpar_previas`).
+
+### F5. Campos do bloco E2 saem da lista global da máscara
+- Decisão: `titulo`, `inicio`, `fim`, `local`, `aba`, `intervalo`, `linhas`, `modificado_em`, `arquivo`, `abas`,
+  `formato`, `tamanho`, `aviso_de_corte` e `anexos` saíram de `CAMPOS_NAO_RESTRITOS` (como em C14) e foram para o
+  `campos_liberados` das fichas de `documentos_e_agenda` que os devolvem. Antes, uma ferramenta de lojista que
+  devolvesse um campo com esse nome (um `titulo` de chamado, um `local`) deixava o texto passar sem virar `***`. Agora só
+  as nove fichas de agenda, planilha, documento e anexo o liberam, e o texto continua passando pela máscara de CPF e
+  cartão. Números (`tamanho` em bytes, `paginas`) nunca foram mascarados e não precisam de liberação.
+- `LIBERACOES_PERMITIDAS` (em `test_ferramentas_campos_liberados.py`) ganhou as nove fichas. A regra "escrita que libera
+  campo é em duas fases" ganhou uma exceção escrita no teste: `entregar_arquivo` (G4), que só gera um arquivo para a
+  própria pessoa baixar, e libera `arquivo` e `formato`.
+- No código: `mock/regras.py` e as fichas em `ferramentas/documentos_e_agenda/*/func.py`.
 
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 

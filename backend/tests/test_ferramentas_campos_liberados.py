@@ -32,7 +32,6 @@ LIBERACOES_PERMITIDAS = {
     "registrar_acordo": CONFIRMACAO | {"encargos", "valor_da_parcela", "aprovacao"},
     "aprovar_acordo": CONFIRMACAO | {"id_acordo", "decisao"},
     "buscar_emails": frozenset({"data_inicio", "data_fim"}),
-    "listar_eventos_agenda": frozenset({"data_inicio", "data_fim"}),
     "buscar_conjuntos_dados": frozenset({"nome_do_sistema"}),
     "conferir_liquidacoes": frozenset({"agenda", "diferenca", "explicacao", "pago"}),
     "consultar_linhagem_conjunto": frozenset({"derivados"}),
@@ -44,10 +43,18 @@ LIBERACOES_PERMITIDAS = {
     "resumir_volume_chamados": frozenset({"aviso", "data_fim", "data_inicio"}),
     "simular_antecipacao": frozenset({"aviso", "data_credito", "desconto", "valor_antecipado"}),
     "verificar_identidade_contato": frozenset({"orientacao"}),
-    # Agenda e planilhas da conta Google ou Microsoft (bloco E2): a prévia mostra o que vai ser criado ou gravado.
-    "criar_evento_agenda": CONFIRMACAO | {"servico", "quando", "convidados"},
-    "adicionar_linha_planilha": CONFIRMACAO | {"servico", "planilha", "valores", "linhas_adicionadas"},
-    "criar_planilha": CONFIRMACAO | {"servico"},
+    # Agenda, planilhas, documentos e anexos da conta da própria pessoa (bloco E2, decisão F5): título, horários, local,
+    # linhas e nome de arquivo são texto dela (ou de quem a convidou), que passa pela máscara de CPF e cartão e só
+    # nestas fichas deixa de virar "***". Antes valiam para toda ferramenta, na lista global de mock/regras.py.
+    "listar_eventos_agenda": frozenset({"data_inicio", "data_fim", "titulo", "inicio", "fim", "local"}),
+    "criar_evento_agenda": CONFIRMACAO | {"servico", "quando", "convidados", "titulo", "inicio", "fim", "local"},
+    "buscar_arquivos": frozenset({"titulo", "modificado_em"}),
+    "ler_planilha": frozenset({"titulo", "aba", "intervalo", "linhas"}),
+    "adicionar_linha_planilha": CONFIRMACAO | {"servico", "planilha", "valores", "linhas_adicionadas", "aba"},
+    "criar_planilha": CONFIRMACAO | {"servico", "titulo", "tamanho", "linhas"},
+    "ler_documento": frozenset({"titulo"}),
+    "ler_arquivo_anexado": frozenset({"arquivo", "aba", "abas", "linhas", "aviso_de_corte", "anexos"}),
+    "entregar_arquivo": frozenset({"arquivo", "formato"}),
 }
 COMO_LIBERAR = "Para liberar um campo novo, edite LIBERACOES_PERMITIDAS em test_ferramentas_campos_liberados.py."
 
@@ -65,9 +72,14 @@ def test_ferramenta_so_libera_os_campos_da_lista_fechada(nome, ferramenta):
     assert liberados <= permitidos, f"{nome} libera {sorted(liberados - permitidos)}. {COMO_LIBERAR}"
 
 
+# Escrita que não é em duas fases e mesmo assim libera campo: `entregar_arquivo` só gera, para a própria pessoa baixar,
+# um arquivo que ela mesma pediu (G4); o nome já sai limpo pela plataforma e nada sai da plataforma.
+SEM_CONFIRMACAO_QUE_PODE_LIBERAR = frozenset({"entregar_arquivo"})
+
+
 @pytest.mark.parametrize(("nome", "ferramenta"), FERRAMENTAS, ids=[nome for nome, _ in FERRAMENTAS])
 def test_escrita_que_libera_campos_e_em_duas_fases(nome, ferramenta):
-    if ferramenta.campos_liberados and ferramenta.acesso == "escrita":
+    if ferramenta.campos_liberados and ferramenta.acesso == "escrita" and nome not in SEM_CONFIRMACAO_QUE_PODE_LIBERAR:
         assert isinstance(ferramenta, FerramentaComConfirmacao), f"{nome} não é escrita em duas fases. {COMO_LIBERAR}"
 
 
@@ -100,6 +112,9 @@ def test_nomes_de_campos_liberados_sao_texto_simples():
 CAMPOS_QUE_ERAM_GLOBAIS = (
     "orientacao", "aviso", "explicacao", "agenda", "pago", "diferenca", "desconto", "valor_antecipado", "mdr",
     "data_inicio", "data_fim", "mes_inicio", "mes_fim", "nome_do_sistema", "derivados",
+    # agenda, planilhas, documentos e anexos (F5)
+    "titulo", "inicio", "fim", "local", "aba", "intervalo", "linhas", "modificado_em", "arquivo", "abas", "formato",
+    "tamanho", "aviso_de_corte", "anexos",
 )
 
 

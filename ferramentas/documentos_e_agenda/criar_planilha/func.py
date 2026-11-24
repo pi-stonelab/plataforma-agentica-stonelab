@@ -20,6 +20,7 @@ class CriarPlanilha(EscritaDeEscritorio):
     nome = "criar_planilha"
     area = "documentos_e_agenda"
     categorias_dados = ("documento_de_trabalho",)
+    campos_liberados = (*EscritaDeEscritorio.campos_liberados, "titulo", "tamanho", "linhas")
     status = "ativa"
     titulo = "Criar planilha"
     descricao_para_pessoa = "Prepara uma planilha nova (Google ou Microsoft); ela só é criada depois que você confirma."

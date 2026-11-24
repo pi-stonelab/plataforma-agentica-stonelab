@@ -225,7 +225,9 @@ FORMATO_DE_IDENTIFICADORES = {
 # Campos que as consultas devolvem e que não são restritos (público, interno ou confidencial).
 # Inclui os montados pela fachada das ferramentas (valores em reais). Vale para TODAS as ferramentas.
 # Campo que só uma ferramenta devolve (como assunto e corpo do enviar_email) não entra aqui: ele vai em
-# `campos_liberados` da ficha dessa ferramenta (ferramentas/base.py), para as outras continuarem negando.
+# `campos_liberados` da ficha dessa ferramenta (ferramentas/base.py), para as outras continuarem negando. É o caso do
+# que a agenda, as planilhas, os documentos e os anexos da conta da pessoa devolvem (`titulo`, `inicio`, `fim`, `local`,
+# `linhas`, `arquivo`...): vai nas fichas de `documentos_e_agenda` (F5).
 CAMPOS_NAO_RESTRITOS = frozenset(
     {
         "codigo", "nome_fantasia", "segmento", "porte", "plano", "cidade", "uf", "carteira", "situacao",
@@ -273,12 +275,6 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         # integrações externas: a chave de um chamado interno do Jira, a origem da resposta (real ou modo de
         # demonstração) e o período de uma busca
         "chave_jira", "fonte",
-        # agenda, planilhas e documentos da conta do funcionário (bloco E2): nomes descritivos. O texto continua
-        # passando pela máscara de texto livre (CPF, cartão e telefone), só não vira "***". `id_arquivo` e `link` têm
-        # formato fixo (`FORMATO_DE_IDENTIFICADORES`).
-        "titulo", "inicio", "fim", "local", "aba", "intervalo", "linhas", "modificado_em",
-        # anexos do chat: o nome do arquivo e das abas já saem mascarados da ferramenta; `aviso_de_corte` é frase fixa
-        "arquivo", "abas", "formato", "tamanho", "paginas", "aviso_de_corte", "anexos",
     }
 )
 

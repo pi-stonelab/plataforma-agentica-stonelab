@@ -62,7 +62,7 @@ class CriarEventoAgenda(EscritaDeEscritorio):
     nome = "criar_evento_agenda"
     area = "documentos_e_agenda"
     categorias_dados = ("agenda_pessoal",)
-    campos_liberados = (*EscritaDeEscritorio.campos_liberados, "quando", "convidados")
+    campos_liberados = (*EscritaDeEscritorio.campos_liberados, "quando", "convidados", "titulo", "inicio", "fim", "local")
     status = "ativa"
     titulo = "Criar evento na agenda"
     descricao_para_pessoa = "Prepara um evento na sua agenda (Google ou Microsoft); ele só é criado depois que você confirma."

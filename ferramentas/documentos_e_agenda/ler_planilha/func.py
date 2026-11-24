@@ -26,6 +26,8 @@ class LerPlanilha(Ferramenta):
     nivel_minimo = "N1"
     areas_permitidas = ("todas",)
     categorias_dados = ("documento_de_trabalho",)
+    # Da conta ou do arquivo da própria pessoa (E2/F5): saem pela máscara de CPF e cartão e só nesta ficha deixam de virar "***".
+    campos_liberados = ("titulo", "aba", "intervalo", "linhas")
     sensibilidade = "interna"
     conteudo_terceiros = True
     status = "ativa"

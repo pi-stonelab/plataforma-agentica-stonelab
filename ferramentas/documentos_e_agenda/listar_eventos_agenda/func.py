@@ -28,7 +28,9 @@ class ListarEventosAgenda(Ferramenta):
     nivel_minimo = "N1"
     areas_permitidas = ("todas",)
     categorias_dados = ("agenda_pessoal",)
-    campos_liberados = ("data_inicio", "data_fim")  # o período que a plataforma calculou, nunca texto da agenda
+    # O período vem da plataforma. Título, horários e local são da agenda da própria pessoa (E2/F5): saem pela máscara
+    # de CPF e cartão e só nesta ficha deixam de virar "***".
+    campos_liberados = ("data_inicio", "data_fim", "titulo", "inicio", "fim", "local")
     sensibilidade = "interna"
     conteudo_terceiros = True  # convite de fora entra na agenda sozinho: o título é texto de terceiro
     status = "ativa"
