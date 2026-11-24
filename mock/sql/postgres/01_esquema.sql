@@ -1,6 +1,6 @@
 -- Mock da Stone (Plataforma Agêntica Institucional). 100% sintético: nenhum dado real.
 -- Gerado por `python -m mock.exportar` a partir de mock/modelos.py e mock/gerar.py
--- (semente 20261015, esquema versão 5). Não edite à mão: rode o exportador.
+-- (semente 20261015, esquema versão 6). Não edite à mão: rode o exportador.
 
 CREATE TABLE analitica_atualizacao (
     id INTEGER NOT NULL,
@@ -63,6 +63,16 @@ CREATE TABLE artigos_ajuda (
 );
 COMMENT ON TABLE artigos_ajuda IS 'Base de conhecimento do atendimento: artigos públicos escritos pela equipe a partir das regras do DOC-MOCK. Público.';
 COMMENT ON COLUMN artigos_ajuda.termos_de_busca IS 'Título, categoria, texto e sinônimos sem acento e em minúsculas, para a busca por palavra.';
+
+CREATE TABLE escritas_aplicadas (
+    chave VARCHAR(40) NOT NULL,
+    operacao VARCHAR(30) NOT NULL,
+    codigo_resultado VARCHAR(20),
+    aplicada_em TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    CONSTRAINT pk_escritas_aplicadas PRIMARY KEY (chave)
+);
+COMMENT ON TABLE escritas_aplicadas IS 'Chaves de idempotência das escritas da plataforma (uma por confirmação). Interno.';
+COMMENT ON COLUMN escritas_aplicadas.codigo_resultado IS 'Código do que a escrita criou ou alterou (CH000061, AC0005...), sem dado do lojista.';
 
 CREATE TABLE times (
     id SERIAL NOT NULL,
@@ -131,20 +141,22 @@ CREATE TABLE acordos (
     alcada VARCHAR(20) NOT NULL,
     id_solicitante VARCHAR(5) NOT NULL,
     id_aprovador VARCHAR(5),
+    id_decisor VARCHAR(5),
     criado_em DATE NOT NULL,
     situacao VARCHAR(20) NOT NULL,
     CONSTRAINT pk_acordos PRIMARY KEY (codigo),
-    CONSTRAINT ck_acordos_situacao CHECK (situacao IN ('pendente_aprovacao', 'ativo', 'quitado', 'quebrado', 'recusado')),
+    CONSTRAINT ck_acordos_situacao CHECK (situacao IN ('pendente_aprovacao', 'ativo', 'quitado', 'quebrado', 'recusado', 'cancelado', 'expirado')),
     CONSTRAINT ck_acordos_alcada CHECK (alcada IN ('analista', 'coordenador', 'dupla_aprovacao', 'proibido')),
     CONSTRAINT ck_acordos_codigo_formato CHECK (codigo LIKE 'AC____'),
     CONSTRAINT ck_acordos_parcelas_validas CHECK (numero_de_parcelas BETWEEN 1 AND 12),
     CONSTRAINT ck_acordos_entrada_ate_o_valor CHECK (entrada_centavos BETWEEN 0 AND valor_renegociado_centavos),
     CONSTRAINT ck_acordos_descontos_nao_negativos CHECK (desconto_principal_centavos >= 0 AND perdao_encargos_centavos >= 0),
-    CONSTRAINT ck_acordos_aprovador_conforme_situacao CHECK ((situacao IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NULL) OR (situacao NOT IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NOT NULL)),
+    CONSTRAINT ck_acordos_aprovador_conforme_situacao CHECK ((situacao IN ('pendente_aprovacao', 'recusado', 'cancelado', 'expirado') AND id_aprovador IS NULL) OR (situacao NOT IN ('pendente_aprovacao', 'recusado', 'cancelado', 'expirado') AND id_aprovador IS NOT NULL)),
     CONSTRAINT ck_acordos_dupla_aprovacao_por_outra_pessoa CHECK (alcada <> 'dupla_aprovacao' OR id_aprovador IS NULL OR id_aprovador <> id_solicitante),
     CONSTRAINT fk_acordos_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
     CONSTRAINT fk_acordos_id_solicitante FOREIGN KEY(id_solicitante) REFERENCES funcionarios (id),
-    CONSTRAINT fk_acordos_id_aprovador FOREIGN KEY(id_aprovador) REFERENCES funcionarios (id)
+    CONSTRAINT fk_acordos_id_aprovador FOREIGN KEY(id_aprovador) REFERENCES funcionarios (id),
+    CONSTRAINT fk_acordos_id_decisor FOREIGN KEY(id_decisor) REFERENCES funcionarios (id)
 );
 CREATE INDEX ix_acordos_id_lojista ON acordos (id_lojista);
 CREATE INDEX ix_acordos_situacao ON acordos (situacao);
@@ -153,6 +165,7 @@ COMMENT ON COLUMN acordos.valor_original_centavos IS 'Soma das faturas incluída
 COMMENT ON COLUMN acordos.valor_renegociado_centavos IS 'Faturas mais multa e juros até a criação, menos o perdão e o desconto.';
 COMMENT ON COLUMN acordos.perdao_encargos_centavos IS 'Multa e juros perdoados: o analista perdoa em dívida de até R$ 2.000 (§7.9).';
 COMMENT ON COLUMN acordos.desconto_principal_centavos IS 'Desconto no principal: só o coordenador, até 10% do principal (§7.9).';
+COMMENT ON COLUMN acordos.id_decisor IS 'Quem tomou a decisão que encerra o pedido: aprovou, recusou ou cancelou (o aprovador só existe se aprovou).';
 
 CREATE TABLE analitica_contestacoes_mensais (
     mes VARCHAR(7) NOT NULL,
@@ -340,8 +353,9 @@ CREATE TABLE chamados (
     id_fatura VARCHAR(7),
     nivel_atendimento VARCHAR(12) NOT NULL,
     suspeita_fraude BOOLEAN NOT NULL,
+    id_aberto_por VARCHAR(5),
     CONSTRAINT pk_chamados PRIMARY KEY (codigo),
-    CONSTRAINT ck_chamados_categoria CHECK (categoria IN ('Dúvida de produto', 'Recebimento', 'Maquininha', 'Fatura e aluguel', 'Antecipação', 'Alteração cadastral', 'Contestação')),
+    CONSTRAINT ck_chamados_categoria CHECK (categoria IN ('Dúvida de produto', 'Recebimento', 'Maquininha', 'Fatura e aluguel', 'Antecipação', 'Alteração cadastral', 'Contestação', 'Pix e devolução', 'Cancelamento da conta', 'Reclamação do atendimento')),
     CONSTRAINT ck_chamados_prioridade CHECK (prioridade IN ('baixa', 'média', 'alta', 'crítica')),
     CONSTRAINT ck_chamados_fila CHECK (fila IN ('varejo', 'pme', 'contas_chave', 'ouvidoria')),
     CONSTRAINT ck_chamados_situacao CHECK (situacao IN ('novo', 'em_atendimento', 'aguardando_lojista', 'aguardando_area_interna', 'resolvido', 'fechado')),
@@ -355,7 +369,8 @@ CREATE TABLE chamados (
     CONSTRAINT fk_chamados_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
     CONSTRAINT fk_chamados_id_responsavel FOREIGN KEY(id_responsavel) REFERENCES funcionarios (id),
     CONSTRAINT fk_chamados_id_liquidacao FOREIGN KEY(id_liquidacao) REFERENCES liquidacoes (id),
-    CONSTRAINT fk_chamados_id_fatura FOREIGN KEY(id_fatura) REFERENCES faturas (codigo)
+    CONSTRAINT fk_chamados_id_fatura FOREIGN KEY(id_fatura) REFERENCES faturas (codigo),
+    CONSTRAINT fk_chamados_id_aberto_por FOREIGN KEY(id_aberto_por) REFERENCES funcionarios (id)
 );
 CREATE INDEX ix_chamados_id_lojista_aberto_em ON chamados (id_lojista, aberto_em);
 COMMENT ON TABLE chamados IS 'Chamados do CRM. RESTRITO: o resumo é texto livre e sai mascarado.';
@@ -363,6 +378,7 @@ COMMENT ON COLUMN chamados.prazo_em IS 'Prazo do SLA (DOC-MOCK §6.4): regras.pr
 COMMENT ON COLUMN chamados.resumo IS 'RESTRITO (texto livre).';
 COMMENT ON COLUMN chamados.nivel_atendimento IS 'Quem cuida (DOC-MOCK §6.3): N1, N2 ou supervisor.';
 COMMENT ON COLUMN chamados.suspeita_fraude IS 'Marcado por quem atende, como no golpe da troca de conta (§6.6).';
+COMMENT ON COLUMN chamados.id_aberto_por IS 'Quem abriu o chamado pela plataforma (só chamado aberto por funcionário). Quem registra o pedido de antecipação não o executa.';
 
 CREATE TABLE antecipacoes (
     codigo VARCHAR(6) NOT NULL,

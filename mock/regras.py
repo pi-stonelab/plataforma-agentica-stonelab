@@ -414,8 +414,14 @@ def alcada_do_acordo(
     entrada_centavos: int,
     perdao_encargos_centavos: int = 0,
     desconto_principal_centavos: int = 0,
+    original_dos_acordos_abertos_centavos: int = 0,
+    renegociado_dos_acordos_abertos_centavos: int = 0,
 ) -> str:
     """Quem aprova o acordo (DOC-MOCK §7.9): "analista", "coordenador", "dupla_aprovacao" ou "proibido".
+
+    Os `..._dos_acordos_abertos_...` são a soma dos acordos pendentes ou ativos do mesmo lojista na janela
+    `JANELA_DOS_ACORDOS_DO_LOJISTA_DIAS`: a dívida e o renegociado são do lojista, não de cada pedido, então os limites
+    de R$ 2.000 do perdão e de R$ 10.000 da dupla aprovação valem para o total (um acordo em pedaços não os fura).
 
     - Desconto no principal (o valor original das faturas): só o coordenador, até 10%; acima disso, proibido.
     - Perdão de multa e juros: o analista perdoa em dívida de até R$ 2.000; acima disso, o coordenador.
@@ -427,10 +433,11 @@ def alcada_do_acordo(
         or desconto_principal_centavos * 100 > valor_original_centavos * DESCONTO_MAXIMO_COORDENADOR_PERCENTUAL
     ):
         return "proibido"
-    if valor_renegociado_centavos > LIMITE_DA_DUPLA_APROVACAO_CENTAVOS:
+    if valor_renegociado_centavos + renegociado_dos_acordos_abertos_centavos > LIMITE_DA_DUPLA_APROVACAO_CENTAVOS:
         return "dupla_aprovacao"
     perdao_acima_da_analista = (
-        perdao_encargos_centavos > 0 and valor_original_centavos > PERDAO_DE_ENCARGOS_DO_ANALISTA_ATE_CENTAVOS
+        perdao_encargos_centavos > 0
+        and valor_original_centavos + original_dos_acordos_abertos_centavos > PERDAO_DE_ENCARGOS_DO_ANALISTA_ATE_CENTAVOS
     )
     if (
         desconto_principal_centavos > 0
@@ -525,6 +532,9 @@ NIVEL_DE_ATENDIMENTO_POR_CATEGORIA = {
     "Antecipação": "N1",
     "Alteração cadastral": "N2",
     "Contestação": "N2",
+    "Pix e devolução": "N2",  # §6.3: N2 junto com Disputas
+    "Cancelamento da conta": "supervisor",
+    "Reclamação do atendimento": "supervisor",
 }
 # Prioridade padrão de cada categoria (§6.3). Maquininha é crítica quando o lojista não consegue vender.
 PRIORIDADE_POR_CATEGORIA = {
@@ -535,6 +545,9 @@ PRIORIDADE_POR_CATEGORIA = {
     "Antecipação": "média",
     "Alteração cadastral": "média",
     "Contestação": "alta",
+    "Pix e devolução": "alta",
+    "Cancelamento da conta": "média",
+    "Reclamação do atendimento": "média",
 }
 CATEGORIA_QUE_FICA_CRITICA_SE_NAO_VENDE = "Maquininha"
 VALOR_QUE_SOBE_O_CHAMADO_PARA_O_N2_CENTAVOS = 100000  # "o valor envolvido passa de R$ 1.000" (§6.5)
@@ -576,3 +589,13 @@ ALCADAS_DE_ACORDO_DO_CARGO = {
     "coordenador_financeiro": ("analista", "coordenador"),
 }
 CARGOS_DA_SEGUNDA_APROVACAO = frozenset({"coordenador_financeiro"})
+
+# Acordos do mesmo lojista somam para a alçada: sem isso, dois acordos de R$ 6.000 passariam cada um pela alçada do
+# coordenador e furariam a dupla aprovação de R$ 10.000. Conta os acordos pendentes ou ativos criados nos últimos
+# `JANELA_DOS_ACORDOS_DO_LOJISTA_DIAS` dias. O DOC-MOCK não fala em fracionamento: a janela é decisão nossa, registrada
+# como pergunta para a PO em docs/decisoes.md (H1).
+JANELA_DOS_ACORDOS_DO_LOJISTA_DIAS = 30
+SITUACOES_DE_ACORDO_QUE_SOMAM = ("pendente_aprovacao", "ativo")
+# Acordo que ninguém decidiu prende as faturas do lojista (elas ficam ligadas a ele). Depois deste prazo vira
+# "expirado" e as faturas voltam a ficar livres. Prazo é decisão nossa (H2).
+VALIDADE_DO_ACORDO_PENDENTE_DIAS = 7

@@ -18,6 +18,7 @@ from mock.gerar import (
     CONTA_EM_VERIFICACAO,
     DIVERGENCIAS_DE_LIQUIDACAO,
     FAIXA_DA_NOTA,
+    LIQUIDACAO_RECUSADA_PELO_BANCO,
     _opcoes_de_comentario,
     recebiveis_da_venda,
     recriar,
@@ -107,6 +108,8 @@ def _sem_as_divergencias_plantadas(linha):
     for id_lojista, dia, a_menos in DIVERGENCIAS_DE_LIQUIDACAO:
         if chave == (id_lojista, str(dia)):
             return (*linha[:3], linha[3] + a_menos, *linha[4:])
+    if chave == (LIQUIDACAO_RECUSADA_PELO_BANCO[0], str(LIQUIDACAO_RECUSADA_PELO_BANCO[1])):  # era paga, sem motivo
+        return (*linha[:4], "paga", None)
     return linha
 
 
@@ -231,7 +234,8 @@ def test_so_o_chargeback_aberto_e_a_liquidacao_que_falhou_ficam_retidos(sessao):
     assert futuras == {gab.C2_VENDA}
     passadas = sessao.execute(select(Recebivel.id_venda, Recebivel.data_prevista, Recebivel.valor_parcela_centavos)
                               .where(Recebivel.situacao == "retido", Recebivel.data_prevista < regras.HOJE_DO_MOCK))
-    assert [(v, d.isoformat(), c) for v, d, c in passadas] == [gab.C1_LASTRO_NA_AGENDA]
+    # o lastro do cenário 1 e a parcela de M00015 em 13/10, que ficou retida com a recusa do banco (H3)
+    assert sorted((v, d.isoformat(), c) for v, d, c in passadas) == sorted([gab.C1_LASTRO_NA_AGENDA, ("T0000634", "2026-10-13", 9249)])
 
 
 # --- cenários ------------------------------------------------------------------------------

@@ -374,6 +374,14 @@ DIVERGENCIA_DE_LIQUIDACAO = ("M00013", date(2026, 10, 14), 1500)
 DIVERGENCIA_DO_CENARIO_9 = ("M00007", date(2026, 9, 4), 300)
 DIVERGENCIAS_DE_LIQUIDACAO = (DIVERGENCIA_DE_LIQUIDACAO, DIVERGENCIA_DO_CENARIO_9)
 
+# Segunda liquidação que falhou, desta vez com a conta de recebimento ATIVA (o banco do lojista recusou o crédito):
+# é a que o `reprocessar_liquidacao` consegue reprocessar (a do cenário 1 tem conta inválida, e o N2 corrige a conta
+# antes). O DOC-MOCK §7.3 só descreve a falha por conta inválida; esta é invenção do mock, registrada em
+# docs/decisoes.md (H3). Vira falha uma liquidação paga que já existe (nenhum sorteio muda: os cenários 1, 3, 5 e 7
+# seguem como estavam).
+LIQUIDACAO_RECUSADA_PELO_BANCO = ("M00015", date(2026, 10, 13))
+MOTIVO_DA_RECUSA_DO_BANCO = "recusa_do_banco"
+
 # Cenário 1, lastro na agenda: a liquidação que falhou em 14/10 é a parcela de uma venda no crédito à vista de
 # 14/09 (30 dias). Com a conta inválida, essa parcela fica retida (§7.3). Venda plantada depois de todas as
 # outras, para nenhum código mudar.
@@ -1003,6 +1011,7 @@ def plantar_cenarios(
     _plantar_lastro_do_cenario_1(sessao)
     _plantar_chargeback_reapresentado(sessao)
     _plantar_conta_em_verificacao(sessao)
+    _plantar_liquidacao_recusada_pelo_banco(sessao)
     sessao.flush()
 
 
@@ -1367,6 +1376,15 @@ def _plantar_lastro_do_cenario_1(sessao: Session) -> None:
     bruto = _bruto_que_da_o_liquido(valor, pontos_base)
     venda = _plantar_venda(sessao, "M00001", VENDA_DO_LASTRO_CENARIO_1, "credito_a_vista", bruto)
     venda.valor_liquido_centavos = valor  # _bruto_que_da_o_liquido pode passar 1 centavo: o líquido é o da liquidação
+
+
+def _plantar_liquidacao_recusada_pelo_banco(sessao: Session) -> None:
+    """A liquidação paga de M00015 em 13/10 passa a falhar por recusa do banco; a conta de recebimento segue ativa."""
+    id_lojista, dia = LIQUIDACAO_RECUSADA_PELO_BANCO
+    liquidacao = sessao.scalar(select(Liquidacao).where(
+        Liquidacao.id_lojista == id_lojista, Liquidacao.data == dia, Liquidacao.situacao == "paga"))
+    liquidacao.situacao = "falhou"
+    liquidacao.motivo_falha = MOTIVO_DA_RECUSA_DO_BANCO
 
 
 def _plantar_conta_em_verificacao(sessao: Session) -> None:

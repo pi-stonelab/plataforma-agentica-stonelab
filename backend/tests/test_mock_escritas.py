@@ -304,7 +304,9 @@ def test_numeros_do_acordo_seguem_os_encargos_do_cenario_3():
     numeros = escritas.montar_acordo(so_o_saldo, 4, None, False, 0)
     assert numeros["valor_renegociado_centavos"] == 33067  # R$ 330,67, o gabarito do cenário 3
     assert numeros["entrada_centavos"] == 6614  # 20% arredondado para cima
-    assert (numeros["alcada"], numeros["valor_da_parcela_centavos"]) == ("analista", 6614)
+    # 26.453 de saldo em 4 parcelas: 3 de R$ 66,13 e a última absorve a diferença (R$ 66,14), como na venda (§7.1)
+    assert (numeros["alcada"], numeros["valor_da_parcela_centavos"], numeros["valor_da_ultima_parcela_centavos"]) == (
+        "analista", 6613, 6614)
 
 
 def test_acordo_de_4_parcelas_na_alcada_da_analista_nasce_ativo_cenario_3(engine):
@@ -488,8 +490,9 @@ def test_cada_operacao_so_insere_e_altera_o_que_o_papel_de_escrita_pode(engine):
                     tocados.append((objeto.__tablename__, "update", atributo.key))
 
     try:
-        for operacao in _operacoes(engine):
-            operacao()
+        for numero, operacao in enumerate(_operacoes(engine)):
+            with escritas.com_chave(f"CONF-TESTE{numero:04d}"):  # com chave, a escrita grava a trava de idempotência
+                operacao()
     finally:
         event.remove(Session, "before_flush", anotar)
     assert tocados

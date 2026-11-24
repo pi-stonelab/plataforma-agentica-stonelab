@@ -17,10 +17,11 @@ No Postgres, quem grava é o papel `mock_escrita` (`PRIVILEGIOS_DE_ESCRITA`, ger
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, or_, select, update
+from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
 from sqlalchemy.orm import Session
 
 from . import falhas, regras
@@ -37,6 +38,7 @@ from .modelos import (
     Antecipacao,
     Chamado,
     ContaRecebimento,
+    EscritaAplicada,
     Fatura,
     Funcionario,
     Interacao,
@@ -56,15 +58,16 @@ PRIVILEGIOS_DE_ESCRITA = {
         "insert": True,
         "update": ("situacao", "id_responsavel", "resolvido_em", "nivel_atendimento", "suspeita_fraude"),
     },
+    "escritas_aplicadas": {"insert": True, "update": ()},
     "interacoes": {"insert": True, "update": ()},
     "liquidacoes": {"insert": True, "update": ("situacao",)},
-    "acordos": {"insert": True, "update": ("situacao", "id_aprovador")},
+    "acordos": {"insert": True, "update": ("situacao", "id_aprovador", "id_decisor")},
     "faturas": {"insert": False, "update": ("situacao", "id_acordo")},
     "antecipacoes": {"insert": True, "update": ()},
     "recebiveis": {"insert": False, "update": ("situacao", "id_antecipacao")},
 }
 # Tabela que o gerador deixa vazia: só a escrita da plataforma a preenche (antecipação só com pedido do lojista).
-TABELAS_SO_DA_ESCRITA = ("antecipacoes",)
+TABELAS_SO_DA_ESCRITA = ("antecipacoes", "escritas_aplicadas")
 # Sequências dos ids inteiros das tabelas em que o papel insere (o Postgres numera com SERIAL).
 SEQUENCIAS_DE_ESCRITA = ("interacoes_id_seq", "liquidacoes_id_seq")
 
@@ -78,27 +81,91 @@ class EscritaRecusada(Exception):
         self.mensagem = mensagem
 
 
+class EscritaJaAplicada(EscritaRecusada):
+    """A mesma confirmação já gravou esta escrita (a resposta anterior se perdeu depois do commit). Nada foi gravado
+    agora: o que a confirmação fez continua valendo, e quem chamou só precisa dizer isso."""
+
+    def __init__(self, codigo_resultado: str | None) -> None:
+        super().__init__(
+            "parametro_invalido", "Esta confirmação já foi aplicada. Confira o resultado no sistema antes de repetir."
+        )
+        self.codigo_resultado = codigo_resultado
+
+
+class GravacaoIncerta(Exception):
+    """O banco falhou DEPOIS de pedir o commit: não dá para saber se a escrita foi gravada. Quem chamou confere (a mesma
+    chave de confirmação não grava duas vezes)."""
+
+
 _EM_ENSAIO: ContextVar[bool] = ContextVar("escrita_em_ensaio", default=False)
+# A chave de idempotência da escrita em curso: o id da confirmação, posto por `com_chave`. Sem chave (testes, scripts),
+# a escrita não confere duplicata.
+_CHAVE: ContextVar[str | None] = ContextVar("escrita_chave", default=None)
 
 
 @contextmanager
-def _transacao(engine: Engine, *sistemas: str) -> Iterator[Session]:
+def com_chave(chave: str | None) -> Iterator[None]:
+    """Roda as escritas de dentro com a `chave` de idempotência (o id da confirmação)."""
+    marca = _CHAVE.set(chave)
+    try:
+        yield
+    finally:
+        _CHAVE.reset(marca)
+
+
+@contextmanager
+def _transacao(engine: Engine, operacao: str, *sistemas: str) -> Iterator[Session]:
     """Confere os sistemas antes de abrir e grava tudo de uma vez no fim (ou nada, se algo levantar).
 
-    Em ensaio (`ensaiar`), a transação inteira roda e é desfeita no fim: nada fica gravado."""
+    Em ensaio (`ensaiar`), a transação inteira roda e é desfeita no fim: nada fica gravado. Com chave de idempotência
+    (`com_chave`), a mesma chave não grava duas vezes: a linha de `escritas_aplicadas` entra na mesma transação, e a
+    repetição levanta `EscritaJaAplicada`. Falha do banco no commit vira `GravacaoIncerta`.
+    """
     for sistema in sistemas:
         falhas.verificar(sistema)
+    chave = _CHAVE.get()
     with trava_de_acesso(engine), Session(engine) as sessao:
         transacao = sessao.begin()
         try:
+            if chave and not _EM_ENSAIO.get():
+                _conferir_chave(sessao, chave)
             yield sessao
+            if chave and not _EM_ENSAIO.get():
+                _marcar_chave(sessao, chave, operacao)
+        except IntegrityError as erro:
+            transacao.rollback()
+            if chave and "escritas_aplicadas" in str(erro.orig):  # duas gravações da mesma chave ao mesmo tempo
+                raise EscritaJaAplicada(None) from None
+            raise
         except BaseException:
             transacao.rollback()
             raise
         if _EM_ENSAIO.get():
             transacao.rollback()
-        else:
+            return
+        try:
             transacao.commit()
+        except (OperationalError, InterfaceError) as erro:  # o commit pode ter chegado ao banco antes da falha
+            raise GravacaoIncerta() from erro
+
+
+def _conferir_chave(sessao: Session, chave: str) -> None:
+    anterior = sessao.get(EscritaAplicada, chave)
+    if anterior is not None:
+        raise EscritaJaAplicada(anterior.codigo_resultado)
+
+
+def _lembrar_resultado(sessao: Session, codigo: str | None) -> None:
+    """A operação diz o código do que criou (CH000061, AC0005...); `_marcar_chave` o grava junto da chave."""
+    sessao.info["codigo_resultado"] = codigo
+
+
+def _marcar_chave(sessao: Session, chave: str, operacao: str) -> None:
+    sessao.add(EscritaAplicada(
+        chave=chave, operacao=operacao, codigo_resultado=sessao.info.get("codigo_resultado"),
+        aplicada_em=regras.AGORA_DO_MOCK,
+    ))
+    sessao.flush()
 
 
 def ensaiar(operacao: Callable[..., dict], *argumentos, **opcoes) -> dict:
@@ -232,7 +299,7 @@ def abrir_chamado(
         raise EscritaRecusada("parametro_invalido", "Canal desconhecido.")
     if not resumo.strip():
         raise EscritaRecusada("parametro_invalido", "O resumo não pode ficar vazio.")
-    with _transacao(engine, "cadastro", "crm") as sessao:
+    with _transacao(engine, "abrir_chamado", "cadastro", "crm") as sessao:
         lojista = _lojista(sessao, codigo_lojista)
         nivel_de_quem_abre = _nivel_de_atendimento(_funcionario_ativo(sessao, id_funcionario))
         classe = classificar_chamado(categoria, lojista.carteira, impede_vender, valor_envolvido_centavos, nivel_minimo)
@@ -253,9 +320,11 @@ def abrir_chamado(
             resumo=resumo.strip(),
             nivel_atendimento=classe["nivel_atendimento"],
             suspeita_fraude=False,
+            id_aberto_por=id_funcionario,
         )
         sessao.add(chamado)
         sessao.flush()
+        _lembrar_resultado(sessao, chamado.codigo)
         return _descrever_chamado(chamado)
 
 
@@ -288,7 +357,7 @@ def adicionar_nota(
         raise EscritaRecusada("parametro_invalido", "Tipo de nota desconhecido.")
     if not texto.strip():
         raise EscritaRecusada("parametro_invalido", "O texto não pode ficar vazio.")
-    with _transacao(engine, "crm") as sessao:
+    with _transacao(engine, "adicionar_nota", "crm") as sessao:
         _funcionario_ativo(sessao, id_funcionario)
         chamado = _chamado_do_lojista(sessao, codigo_lojista, codigo_chamado)
         if chamado.situacao == "fechado":
@@ -305,6 +374,7 @@ def adicionar_nota(
         )
         sessao.add(interacao)
         sessao.flush()
+        _lembrar_resultado(sessao, chamado.codigo)
         return {"id_chamado": chamado.codigo, "tipo": tipo, "canal": canal, "data_hora": interacao.data_hora.isoformat()}
 
 
@@ -328,7 +398,7 @@ def atualizar_chamado(
     """
     if nova_situacao is None and encaminhar_para is None and not suspeita_fraude:
         raise EscritaRecusada("parametro_invalido", "Diga o que muda: situação, encaminhamento ou suspeita de fraude.")
-    with _transacao(engine, "crm") as sessao:
+    with _transacao(engine, "atualizar_chamado", "crm") as sessao:
         funcionario = _funcionario_ativo(sessao, id_funcionario)
         nivel_do_funcionario = _nivel_de_atendimento(funcionario)
         chamado = _chamado_do_lojista(sessao, codigo_lojista, codigo_chamado)
@@ -346,6 +416,7 @@ def atualizar_chamado(
         if destino is not None:
             _encaminhar(chamado, destino)
         sessao.flush()
+        _lembrar_resultado(sessao, chamado.codigo)
         return _descrever_chamado(chamado)
 
 
@@ -393,7 +464,7 @@ def reprocessar_liquidacao(engine: Engine, codigo_lojista: str, id_liquidacao: i
     A original passa a "reprocessada" (o motivo da falha fica). A nova nasce "agendada", ligada a ela. O recebível
     do dia continua retido até a nova tentativa ser paga (§7.3).
     """
-    with _transacao(engine, "cadastro", "core") as sessao:
+    with _transacao(engine, "reprocessar_liquidacao", "cadastro", "core") as sessao:
         _funcionario_ativo(sessao, id_funcionario)
         liquidacao = sessao.scalar(
             select(Liquidacao)
@@ -422,6 +493,7 @@ def reprocessar_liquidacao(engine: Engine, codigo_lojista: str, id_liquidacao: i
         liquidacao.situacao = "reprocessada"
         sessao.add(nova)
         sessao.flush()
+        _lembrar_resultado(sessao, f"LQ{nova.id}")
         return {
             "id_liquidacao": liquidacao.id,
             "id_nova_tentativa": nova.id,
@@ -430,14 +502,19 @@ def reprocessar_liquidacao(engine: Engine, codigo_lojista: str, id_liquidacao: i
         }
 
 
-def executar_antecipacao(engine: Engine, codigo_lojista: str, codigo_chamado: str, id_funcionario: str) -> dict:
-    """Antecipa hoje tudo o que dá, com o pedido do lojista registrado no chamado (§7.4).
+def executar_antecipacao(
+    engine: Engine, codigo_lojista: str, codigo_chamado: str, id_funcionario: str,
+    valor_maximo_centavos: int | None = None,
+) -> dict:
+    """Antecipa hoje o que dá, com o pedido do lojista registrado no chamado (§7.4).
 
-    Confere de novo as recusas do §7.4 e o chamado (do lojista, categoria Antecipação, não fechado). As parcelas
-    são as mesmas da simulação (`consultas.filtro_dos_recebiveis_antecipaveis`), e o desconto é calculado
-    parcela por parcela, como nela. Grava a antecipação, marca as parcelas e deixa uma nota no chamado.
+    Confere de novo as recusas do §7.4 e o chamado (do lojista, categoria Antecipação, não fechado, registrado por
+    OUTRA pessoa: quem registra o pedido não o executa). As parcelas são as mesmas da simulação
+    (`consultas.filtro_dos_recebiveis_antecipaveis`), e o desconto é calculado parcela por parcela, como nela. Sem
+    `valor_maximo_centavos`, antecipa toda a agenda disponível; com ele, as parcelas mais próximas, inteiras, até esse
+    valor bruto (o lojista pode pedir só uma parte). Grava a antecipação, marca as parcelas e deixa uma nota no chamado.
     """
-    with _transacao(engine, "cadastro", "cobranca", "core", "crm") as sessao:
+    with _transacao(engine, "executar_antecipacao", "cadastro", "cobranca", "core", "crm") as sessao:
         _funcionario_ativo(sessao, id_funcionario)
         lojista = _lojista(sessao, codigo_lojista)
         chamado = _chamado_do_lojista(sessao, codigo_lojista, codigo_chamado)
@@ -445,13 +522,22 @@ def executar_antecipacao(engine: Engine, codigo_lojista: str, codigo_chamado: st
             raise EscritaRecusada(
                 "parametro_invalido", "O pedido do lojista precisa estar num chamado de Antecipação ainda aberto."
             )
+        if chamado.id_aberto_por == id_funcionario:
+            raise EscritaRecusada(
+                "permissao_negada", "Quem registrou o pedido do lojista não o executa: peça a outro N2."
+            )
         motivos = _motivos_de_recusa(sessao, lojista)
         if motivos:
             rotulos = ", ".join(regras.ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO[m] for m in motivos)
             raise EscritaRecusada("parametro_invalido", f"Antecipação recusada: {rotulos}.")
         parcelas = sessao.scalars(
-            select(Recebivel).where(*filtro_dos_recebiveis_antecipaveis(codigo_lojista)).with_for_update()
+            select(Recebivel)
+            .where(*filtro_dos_recebiveis_antecipaveis(codigo_lojista))
+            .order_by(Recebivel.data_prevista, Recebivel.codigo)
+            .with_for_update()
         ).all()
+        if valor_maximo_centavos is not None:
+            parcelas = _parcelas_ate_o_valor(parcelas, valor_maximo_centavos)
         if not parcelas:
             raise EscritaRecusada("parametro_invalido", "Não há parcelas para antecipar.")
         taxa = regras.TAXA_ANTECIPACAO_PONTOS_BASE[regras.PLANO_POR_PORTE[lojista.porte]]
@@ -486,6 +572,7 @@ def executar_antecipacao(engine: Engine, codigo_lojista: str, codigo_chamado: st
             id_funcionario=id_funcionario,
         ))
         sessao.flush()
+        _lembrar_resultado(sessao, antecipacao.codigo)
         return {
             "codigo": antecipacao.codigo,
             "id_chamado": chamado.codigo,
@@ -498,6 +585,17 @@ def executar_antecipacao(engine: Engine, codigo_lojista: str, codigo_chamado: st
         }
 
 
+def _parcelas_ate_o_valor(parcelas: list[Recebivel], valor_maximo_centavos: int) -> list[Recebivel]:
+    """As primeiras parcelas (da data mais próxima), inteiras, cuja soma não passa de `valor_maximo_centavos`."""
+    escolhidas, soma = [], 0
+    for parcela in parcelas:
+        if soma + parcela.valor_parcela_centavos > valor_maximo_centavos:
+            break
+        escolhidas.append(parcela)
+        soma += parcela.valor_parcela_centavos
+    return escolhidas
+
+
 def _motivos_de_recusa(sessao: Session, lojista: Lojista) -> list[str]:
     """As recusas do §7.4 que valem para o lojista inteiro, lidas dentro da transação da execução."""
     return motivos_de_recusa_da_antecipacao(sessao, lojista.codigo) or []
@@ -508,11 +606,54 @@ def _motivos_de_recusa(sessao: Session, lojista: Lojista) -> list[str]:
 # ---------------------------------------------------------------------------------------------
 
 
+def _acordos_pendentes_vencidos(codigo_lojista: str | None = None):
+    """Acordos que ninguém decidiu dentro da validade (`regras.VALIDADE_DO_ACORDO_PENDENTE_DIAS`): já não valem."""
+    limite = regras.HOJE_DO_MOCK - timedelta(days=regras.VALIDADE_DO_ACORDO_PENDENTE_DIAS)
+    condicoes = [Acordo.situacao == "pendente_aprovacao", Acordo.criado_em < limite]
+    if codigo_lojista is not None:
+        condicoes.append(Acordo.id_lojista == codigo_lojista)
+    return select(Acordo.codigo).where(*condicoes)
+
+
+def _expirar_acordos_pendentes(sessao: Session, codigo_lojista: str) -> None:
+    """Passa para "expirado" os pendentes do lojista que venceram e solta as faturas que eles prendiam."""
+    vencidos = sessao.scalars(_acordos_pendentes_vencidos(codigo_lojista)).all()
+    for codigo in vencidos:
+        sessao.execute(update(Acordo).where(Acordo.codigo == codigo).values(situacao="expirado"))
+        sessao.execute(update(Fatura).where(Fatura.id_acordo == codigo).values(id_acordo=None))
+    if vencidos:
+        sessao.flush()
+
+
+def acordos_abertos_do_lojista(origem: Session | Engine, codigo_lojista: str) -> dict:
+    """A soma dos acordos pendentes ou ativos que o lojista abriu na janela das alçadas (`regras`):
+    {"quantidade", "valor_original_centavos", "valor_renegociado_centavos"}. Acordo pendente vencido não conta."""
+    inicio = regras.HOJE_DO_MOCK - timedelta(days=regras.JANELA_DOS_ACORDOS_DO_LOJISTA_DIAS)
+    consulta = select(
+        func.count(), func.coalesce(func.sum(Acordo.valor_original_centavos), 0),
+        func.coalesce(func.sum(Acordo.valor_renegociado_centavos), 0),
+    ).where(
+        Acordo.id_lojista == codigo_lojista, Acordo.situacao.in_(regras.SITUACOES_DE_ACORDO_QUE_SOMAM),
+        Acordo.criado_em >= inicio, Acordo.codigo.not_in(_acordos_pendentes_vencidos(codigo_lojista)),
+    )
+    if isinstance(origem, Session):
+        quantidade, original, renegociado = origem.execute(consulta).one()
+    else:
+        falhas.verificar("cobranca")
+        with trava_de_acesso(origem), Session(origem) as sessao:
+            quantidade, original, renegociado = sessao.execute(consulta).one()
+    return {"quantidade": quantidade, "valor_original_centavos": int(original), "valor_renegociado_centavos": int(renegociado)}
+
+
 def _faturas_para_o_acordo(sessao: Session, codigo_lojista: str, codigos: tuple[str, ...] | None) -> list[Fatura]:
-    """Faturas vencidas e fora de acordo. Com `codigos`, exatamente essas (todas precisam valer)."""
+    """Faturas vencidas e fora de acordo. Com `codigos`, exatamente essas (todas precisam valer). A fatura presa a um
+    acordo pendente que já venceu conta como fora de acordo."""
     consulta = (
         select(Fatura)
-        .where(Fatura.id_lojista == codigo_lojista, Fatura.situacao == "vencida", Fatura.id_acordo.is_(None))
+        .where(
+            Fatura.id_lojista == codigo_lojista, Fatura.situacao == "vencida",
+            or_(Fatura.id_acordo.is_(None), Fatura.id_acordo.in_(_acordos_pendentes_vencidos(codigo_lojista))),
+        )
         .order_by(Fatura.vencimento, Fatura.codigo)
         .with_for_update()
     )
@@ -537,12 +678,15 @@ def montar_acordo(
     entrada_percentual: Decimal | int | None,
     perdoar_encargos: bool,
     desconto_principal_percentual: Decimal | int,
+    acordos_abertos: dict | None = None,
 ) -> dict:
     """Os números do acordo (§7.5 e §7.9), sem banco: a prévia e a gravação usam a mesma conta.
 
     `faturas`: [{"valor_centavos", "vencimento" (date)}]. Sem `entrada_percentual`, a entrada mínima da analista
     (20% do renegociado). A entrada arredonda para cima e o desconto para baixo, ao centavo: o arredondamento nunca
-    tira o acordo da alçada que os percentuais pedidos dão.
+    tira o acordo da alçada que os percentuais pedidos dão. `acordos_abertos` (de `acordos_abertos_do_lojista`) soma os
+    acordos que o lojista já tem para a alçada. A parcela é o saldo dividido pelo número de parcelas, para baixo, e a
+    última absorve a diferença (como na venda parcelada, §7.1): a soma das parcelas fecha o saldo.
     """
     if not 1 <= numero_de_parcelas <= regras.PARCELAS_MAXIMAS_COORDENADOR:
         raise EscritaRecusada(
@@ -562,7 +706,11 @@ def montar_acordo(
     perdao = encargos if perdoar_encargos else 0
     renegociado = original + encargos - perdao - desconto
     entrada = _percentual_de(renegociado, entrada_percentual, ROUND_CEILING)
-    alcada = regras.alcada_do_acordo(original, renegociado, numero_de_parcelas, entrada, perdao, desconto)
+    abertos = acordos_abertos or {}
+    alcada = regras.alcada_do_acordo(
+        original, renegociado, numero_de_parcelas, entrada, perdao, desconto,
+        abertos.get("valor_original_centavos", 0), abertos.get("valor_renegociado_centavos", 0),
+    )
     if alcada == "proibido":
         raise EscritaRecusada(
             "parametro_invalido",
@@ -576,7 +724,10 @@ def montar_acordo(
         "valor_renegociado_centavos": renegociado,
         "entrada_centavos": entrada,
         "numero_de_parcelas": numero_de_parcelas,
-        "valor_da_parcela_centavos": -(-(renegociado - entrada) // numero_de_parcelas),
+        "valor_da_parcela_centavos": (renegociado - entrada) // numero_de_parcelas,
+        "valor_da_ultima_parcela_centavos": (renegociado - entrada) - (numero_de_parcelas - 1) * (
+            (renegociado - entrada) // numero_de_parcelas
+        ),
         "alcada": alcada,
     }
 
@@ -608,16 +759,18 @@ def registrar_acordo(
     ("negocia dentro da alçada", §8.2). Acima, nasce "pendente_aprovacao" e as faturas continuam vencidas até a
     aprovação (a régua segue, §7.5). Dupla aprovação nunca nasce ativa.
     """
-    with _transacao(engine, "cadastro", "cobranca") as sessao:
+    with _transacao(engine, "registrar_acordo", "cadastro", "cobranca") as sessao:
         _lojista(sessao, codigo_lojista)
         solicitante = _funcionario_ativo(sessao, id_solicitante)
         alcadas = regras.ALCADAS_DE_ACORDO_DO_CARGO.get(solicitante.cargo)
         if not alcadas:
             raise EscritaRecusada("permissao_negada", "Seu cargo não negocia acordos.")
+        _expirar_acordos_pendentes(sessao, codigo_lojista)
         faturas = _faturas_para_o_acordo(sessao, codigo_lojista, codigos_das_faturas)
         numeros = montar_acordo(
             [{"valor_centavos": f.valor_centavos, "vencimento": f.vencimento} for f in faturas],
             numero_de_parcelas, entrada_percentual, perdoar_encargos, desconto_principal_percentual,
+            acordos_abertos_do_lojista(sessao, codigo_lojista),
         )
         na_alcada_de_quem_pede = numeros["alcada"] in alcadas
         acordo = Acordo(
@@ -632,6 +785,7 @@ def registrar_acordo(
             alcada=numeros["alcada"],
             id_solicitante=id_solicitante,
             id_aprovador=id_solicitante if na_alcada_de_quem_pede else None,
+            id_decisor=id_solicitante if na_alcada_de_quem_pede else None,
             criado_em=regras.HOJE_DO_MOCK,
             situacao="ativo" if na_alcada_de_quem_pede else "pendente_aprovacao",
         )
@@ -641,6 +795,7 @@ def registrar_acordo(
             fatura.id_acordo = acordo.codigo
             fatura.situacao = "em_acordo" if na_alcada_de_quem_pede else "vencida"
         sessao.flush()
+        _lembrar_resultado(sessao, acordo.codigo)
         return {"codigo": acordo.codigo, "situacao": acordo.situacao, "faturas": [f.codigo for f in faturas], **numeros}
 
 
@@ -653,27 +808,35 @@ def _decide_o_acordo(cargo: str, alcada: str) -> bool:
 def decidir_acordo(engine: Engine, codigo_acordo: str, aprovar: bool, id_aprovador: str) -> dict:
     """Aprova ou recusa um acordo pendente. Quem pediu nunca decide (§8.1, segregação; §7.9), e quem decide precisa
     ter a alçada do acordo; a dupla aprovação é dada pelo coordenador (§8.2)."""
-    with _transacao(engine, "cobranca") as sessao:
+    with _transacao(engine, "decidir_acordo", "cobranca") as sessao:
         aprovador = _funcionario_ativo(sessao, id_aprovador)
         acordo = sessao.scalar(select(Acordo).where(Acordo.codigo == codigo_acordo).with_for_update())
         if acordo is None:
             raise EscritaRecusada("nao_encontrado", "Acordo não encontrado.")
         if acordo.situacao != "pendente_aprovacao":
             raise EscritaRecusada("parametro_invalido", "Só acordo pendente de aprovação é aprovado ou recusado.")
+        if acordo.codigo in sessao.scalars(_acordos_pendentes_vencidos(acordo.id_lojista)).all():
+            raise EscritaRecusada(
+                "parametro_invalido",
+                f"Este acordo expirou: ficou mais de {regras.VALIDADE_DO_ACORDO_PENDENTE_DIAS} dias sem decisão. "
+                "Peça um acordo novo.",
+            )
         if acordo.id_solicitante == id_aprovador:
             raise EscritaRecusada("permissao_negada", "Quem pediu o acordo não pode aprová-lo nem recusá-lo.")
         if not _decide_o_acordo(aprovador.cargo, acordo.alcada):
             raise EscritaRecusada("permissao_negada", "Este acordo passa da sua alçada.")
         faturas = sessao.scalars(select(Fatura).where(Fatura.id_acordo == acordo.codigo).with_for_update()).all()
+        acordo.id_decisor = id_aprovador  # quem aprovou ou recusou: a recusa também fica com nome (id), não só a aprovação
         if aprovar:
             acordo.situacao, acordo.id_aprovador = "ativo", id_aprovador
             for fatura in faturas:
                 fatura.situacao = "em_acordo"
         else:
-            acordo.situacao = "recusado"  # o esquema não guarda quem recusou: fica no registro da plataforma
+            acordo.situacao = "recusado"
             for fatura in faturas:
                 fatura.id_acordo = None
         sessao.flush()
+        _lembrar_resultado(sessao, acordo.codigo)
         return {
             "codigo": acordo.codigo,
             "id_cliente": acordo.id_lojista,
@@ -682,3 +845,37 @@ def decidir_acordo(engine: Engine, codigo_acordo: str, aprovar: bool, id_aprovad
             "valor_renegociado_centavos": acordo.valor_renegociado_centavos,
             "faturas": [f.codigo for f in faturas],
         }
+
+
+def retirar_acordo(engine: Engine, codigo_acordo: str, id_solicitante: str) -> dict:
+    """Quem pediu o acordo o retira enquanto ele espera aprovação: o acordo vira "cancelado" e as faturas que ele
+    prendia voltam a ficar livres para um acordo novo."""
+    with _transacao(engine, "retirar_acordo", "cobranca") as sessao:
+        _funcionario_ativo(sessao, id_solicitante)
+        acordo = sessao.scalar(select(Acordo).where(Acordo.codigo == codigo_acordo).with_for_update())
+        if acordo is None or acordo.id_solicitante != id_solicitante:
+            raise EscritaRecusada("nao_encontrado", "Acordo não encontrado entre os que você pediu.")
+        if acordo.situacao != "pendente_aprovacao":
+            raise EscritaRecusada("parametro_invalido", "Só acordo que ainda espera aprovação pode ser retirado.")
+        faturas = sessao.scalars(select(Fatura).where(Fatura.id_acordo == acordo.codigo).with_for_update()).all()
+        acordo.situacao, acordo.id_decisor = "cancelado", id_solicitante
+        for fatura in faturas:
+            fatura.id_acordo = None
+        sessao.flush()
+        _lembrar_resultado(sessao, acordo.codigo)
+        return {
+            "codigo": acordo.codigo,
+            "id_cliente": acordo.id_lojista,
+            "situacao": acordo.situacao,
+            "valor_renegociado_centavos": acordo.valor_renegociado_centavos,
+            "faturas": [f.codigo for f in faturas],
+        }
+
+
+def aprovadores_possiveis(engine: Engine, alcada: str, id_solicitante: str) -> int:
+    """Quantos funcionários ativos, além de quem pede, podem aprovar um acordo desta alçada (para a prévia avisar
+    quando a resposta é zero: o acordo ficaria parado)."""
+    falhas.verificar("cadastro")
+    with trava_de_acesso(engine), Session(engine) as sessao:
+        ativos = sessao.scalars(select(Funcionario).where(Funcionario.situacao == "ativo", Funcionario.id != id_solicitante))
+        return sum(_decide_o_acordo(f.cargo, alcada) for f in ativos)

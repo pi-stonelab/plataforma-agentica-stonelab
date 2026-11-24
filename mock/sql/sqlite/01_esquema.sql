@@ -1,6 +1,6 @@
 -- Mock da Stone (Plataforma Agêntica Institucional). 100% sintético: nenhum dado real.
 -- Gerado por `python -m mock.exportar` a partir de mock/modelos.py e mock/gerar.py
--- (semente 20261015, esquema versão 5). Não edite à mão: rode o exportador.
+-- (semente 20261015, esquema versão 6). Não edite à mão: rode o exportador.
 
 -- analitica_atualizacao: Quando a base analítica foi copiada e até que dia ela vai. Interno.
 CREATE TABLE analitica_atualizacao (
@@ -58,6 +58,15 @@ CREATE TABLE artigos_ajuda (
     CONSTRAINT pk_artigos_ajuda PRIMARY KEY (codigo),
     CONSTRAINT ck_artigos_ajuda_categoria CHECK (categoria IN ('Recebimento', 'Antecipação', 'Fatura e aluguel', 'Contestação', 'Pix e devolução', 'Alteração cadastral', 'Taxas e planos', 'Atendimento', 'Maquininha')),
     CONSTRAINT ck_artigos_ajuda_codigo_formato CHECK (codigo LIKE 'KB___')
+);
+
+-- escritas_aplicadas: Chaves de idempotência das escritas da plataforma (uma por confirmação). Interno.
+CREATE TABLE escritas_aplicadas (
+    chave VARCHAR(40) NOT NULL,
+    operacao VARCHAR(30) NOT NULL,
+    codigo_resultado VARCHAR(20),
+    aplicada_em DATETIME NOT NULL,
+    CONSTRAINT pk_escritas_aplicadas PRIMARY KEY (chave)
 );
 
 -- times: Times de funcionários. Interno. Carteira vazia: time sem carteira própria.
@@ -123,20 +132,22 @@ CREATE TABLE acordos (
     alcada VARCHAR(20) NOT NULL,
     id_solicitante VARCHAR(5) NOT NULL,
     id_aprovador VARCHAR(5),
+    id_decisor VARCHAR(5),
     criado_em DATE NOT NULL,
     situacao VARCHAR(20) NOT NULL,
     CONSTRAINT pk_acordos PRIMARY KEY (codigo),
-    CONSTRAINT ck_acordos_situacao CHECK (situacao IN ('pendente_aprovacao', 'ativo', 'quitado', 'quebrado', 'recusado')),
+    CONSTRAINT ck_acordos_situacao CHECK (situacao IN ('pendente_aprovacao', 'ativo', 'quitado', 'quebrado', 'recusado', 'cancelado', 'expirado')),
     CONSTRAINT ck_acordos_alcada CHECK (alcada IN ('analista', 'coordenador', 'dupla_aprovacao', 'proibido')),
     CONSTRAINT ck_acordos_codigo_formato CHECK (codigo LIKE 'AC____'),
     CONSTRAINT ck_acordos_parcelas_validas CHECK (numero_de_parcelas BETWEEN 1 AND 12),
     CONSTRAINT ck_acordos_entrada_ate_o_valor CHECK (entrada_centavos BETWEEN 0 AND valor_renegociado_centavos),
     CONSTRAINT ck_acordos_descontos_nao_negativos CHECK (desconto_principal_centavos >= 0 AND perdao_encargos_centavos >= 0),
-    CONSTRAINT ck_acordos_aprovador_conforme_situacao CHECK ((situacao IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NULL) OR (situacao NOT IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NOT NULL)),
+    CONSTRAINT ck_acordos_aprovador_conforme_situacao CHECK ((situacao IN ('pendente_aprovacao', 'recusado', 'cancelado', 'expirado') AND id_aprovador IS NULL) OR (situacao NOT IN ('pendente_aprovacao', 'recusado', 'cancelado', 'expirado') AND id_aprovador IS NOT NULL)),
     CONSTRAINT ck_acordos_dupla_aprovacao_por_outra_pessoa CHECK (alcada <> 'dupla_aprovacao' OR id_aprovador IS NULL OR id_aprovador <> id_solicitante),
     CONSTRAINT fk_acordos_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
     CONSTRAINT fk_acordos_id_solicitante FOREIGN KEY(id_solicitante) REFERENCES funcionarios (id),
-    CONSTRAINT fk_acordos_id_aprovador FOREIGN KEY(id_aprovador) REFERENCES funcionarios (id)
+    CONSTRAINT fk_acordos_id_aprovador FOREIGN KEY(id_aprovador) REFERENCES funcionarios (id),
+    CONSTRAINT fk_acordos_id_decisor FOREIGN KEY(id_decisor) REFERENCES funcionarios (id)
 );
 CREATE INDEX ix_acordos_id_lojista ON acordos (id_lojista);
 CREATE INDEX ix_acordos_situacao ON acordos (situacao);
@@ -318,8 +329,9 @@ CREATE TABLE chamados (
     id_fatura VARCHAR(7),
     nivel_atendimento VARCHAR(12) NOT NULL,
     suspeita_fraude BOOLEAN NOT NULL,
+    id_aberto_por VARCHAR(5),
     CONSTRAINT pk_chamados PRIMARY KEY (codigo),
-    CONSTRAINT ck_chamados_categoria CHECK (categoria IN ('Dúvida de produto', 'Recebimento', 'Maquininha', 'Fatura e aluguel', 'Antecipação', 'Alteração cadastral', 'Contestação')),
+    CONSTRAINT ck_chamados_categoria CHECK (categoria IN ('Dúvida de produto', 'Recebimento', 'Maquininha', 'Fatura e aluguel', 'Antecipação', 'Alteração cadastral', 'Contestação', 'Pix e devolução', 'Cancelamento da conta', 'Reclamação do atendimento')),
     CONSTRAINT ck_chamados_prioridade CHECK (prioridade IN ('baixa', 'média', 'alta', 'crítica')),
     CONSTRAINT ck_chamados_fila CHECK (fila IN ('varejo', 'pme', 'contas_chave', 'ouvidoria')),
     CONSTRAINT ck_chamados_situacao CHECK (situacao IN ('novo', 'em_atendimento', 'aguardando_lojista', 'aguardando_area_interna', 'resolvido', 'fechado')),
@@ -333,7 +345,8 @@ CREATE TABLE chamados (
     CONSTRAINT fk_chamados_id_lojista FOREIGN KEY(id_lojista) REFERENCES lojistas (codigo),
     CONSTRAINT fk_chamados_id_responsavel FOREIGN KEY(id_responsavel) REFERENCES funcionarios (id),
     CONSTRAINT fk_chamados_id_liquidacao FOREIGN KEY(id_liquidacao) REFERENCES liquidacoes (id),
-    CONSTRAINT fk_chamados_id_fatura FOREIGN KEY(id_fatura) REFERENCES faturas (codigo)
+    CONSTRAINT fk_chamados_id_fatura FOREIGN KEY(id_fatura) REFERENCES faturas (codigo),
+    CONSTRAINT fk_chamados_id_aberto_por FOREIGN KEY(id_aberto_por) REFERENCES funcionarios (id)
 );
 CREATE INDEX ix_chamados_id_lojista_aberto_em ON chamados (id_lojista, aberto_em);
 
@@ -422,4 +435,4 @@ CREATE TABLE recebiveis (
 CREATE INDEX ix_recebiveis_id_lojista_data_prevista ON recebiveis (id_lojista, data_prevista);
 CREATE INDEX ix_recebiveis_id_venda ON recebiveis (id_venda);
 
-PRAGMA user_version = 5;
+PRAGMA user_version = 6;

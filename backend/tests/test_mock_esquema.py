@@ -140,7 +140,7 @@ def test_categorias_e_prioridades_do_gerador_estao_no_esquema():
     for categoria, prioridade, *_ in gerar.CATEGORIAS_CHAMADO:
         assert categoria in modelos.CATEGORIAS_DE_CHAMADO
         assert prioridade in modelos.PRIORIDADES
-    assert {c for c, *_ in gerar.CATEGORIAS_CHAMADO} == set(modelos.CATEGORIAS_DE_CHAMADO)
+    assert {c for c, *_ in gerar.CATEGORIAS_CHAMADO} == set(modelos.CATEGORIAS_DO_GERADOR)
     for papeis in gerar.PAPEIS_POR_PORTE.values():
         assert set(papeis) <= set(modelos.PAPEIS_CONTATO)
 

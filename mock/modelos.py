@@ -54,7 +54,7 @@ CONVENCAO_DE_NOMES = {
 
 # Sobe quando o esquema muda. O SQLite local guarda a versão (PRAGMA user_version) e é refeito
 # sozinho quando ela é diferente (`gerar.garantir_mundo_local`).
-VERSAO_DO_ESQUEMA = 5
+VERSAO_DO_ESQUEMA = 6
 
 
 class BaseMock(DeclarativeBase):
@@ -76,7 +76,9 @@ SITUACOES_LIQUIDACAO = ("paga", "falhou", "devolvida", "reprocessada", "agendada
 SITUACOES_LIQUIDACAO_SEM_MOTIVO = ("paga", "agendada")
 TIPOS_FATURA = ("aluguel", "tarifa", "saldo_negativo")
 SITUACOES_FATURA = ("aberta", "paga", "vencida", "em_acordo", "cancelada")
-CATEGORIAS_DE_CHAMADO = (
+# As sete primeiras são as que o gerador sorteia. As três últimas (DOC-MOCK §6.3) só existem em chamado aberto pela
+# plataforma: o gerador não as usa, para a semente dos cenários congelados não mudar.
+CATEGORIAS_DO_GERADOR = (
     "Dúvida de produto",
     "Recebimento",
     "Maquininha",
@@ -85,6 +87,8 @@ CATEGORIAS_DE_CHAMADO = (
     "Alteração cadastral",
     "Contestação",
 )
+CATEGORIAS_SO_DA_ESCRITA = ("Pix e devolução", "Cancelamento da conta", "Reclamação do atendimento")
+CATEGORIAS_DE_CHAMADO = (*CATEGORIAS_DO_GERADOR, *CATEGORIAS_SO_DA_ESCRITA)
 PRIORIDADES = ("baixa", "média", "alta", "crítica")
 SITUACOES_CHAMADO = (
     "novo", "em_atendimento", "aguardando_lojista", "aguardando_area_interna", "resolvido", "fechado",
@@ -98,7 +102,10 @@ CANAL_INTERNO = "interno"
 CANAIS_DE_INTERACAO = (*CANAIS, CANAL_INTERNO)
 MAXIMO_DE_PARCELAS = 12
 SITUACOES_RECEBIVEL = ("previsto", "pago", "retido", "bloqueado", "antecipado")
-SITUACOES_ACORDO = ("pendente_aprovacao", "ativo", "quitado", "quebrado", "recusado")
+# "cancelado": quem pediu retirou o acordo pendente; "expirado": ninguém decidiu a tempo. Nos dois, as faturas voltam
+# a ficar livres para um acordo novo.
+SITUACOES_ACORDO = ("pendente_aprovacao", "ativo", "quitado", "quebrado", "recusado", "cancelado", "expirado")
+SITUACOES_ACORDO_SEM_APROVADOR = ("pendente_aprovacao", "recusado", "cancelado", "expirado")
 SITUACOES_CHARGEBACK = (
     "aguardando_defesa", "em_analise", "reapresentado", "aceito", "ganho", "perdido",
 )
@@ -353,6 +360,11 @@ class Chamado(BaseMock):
     suspeita_fraude: Mapped[bool] = mapped_column(
         Boolean, default=False, comment="Marcado por quem atende, como no golpe da troca de conta (§6.6)."
     )
+    id_aberto_por: Mapped[str | None] = mapped_column(
+        ForeignKey("funcionarios.id"),
+        comment="Quem abriu o chamado pela plataforma (só chamado aberto por funcionário). Quem registra o pedido de "
+        "antecipação não o executa.",
+    )
 
 
 class Interacao(BaseMock):
@@ -454,8 +466,9 @@ class Acordo(BaseMock):
         _regra("descontos_nao_negativos", "desconto_principal_centavos >= 0 AND perdao_encargos_centavos >= 0"),
         _regra(
             "aprovador_conforme_situacao",
-            "(situacao IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NULL)"
-            " OR (situacao NOT IN ('pendente_aprovacao', 'recusado') AND id_aprovador IS NOT NULL)",
+            "(situacao IN ('pendente_aprovacao', 'recusado', 'cancelado', 'expirado') AND id_aprovador IS NULL)"
+            " OR (situacao NOT IN ('pendente_aprovacao', 'recusado', 'cancelado', 'expirado')"
+            " AND id_aprovador IS NOT NULL)",
         ),
         _regra(
             "dupla_aprovacao_por_outra_pessoa",
@@ -486,8 +499,29 @@ class Acordo(BaseMock):
     alcada: Mapped[str] = mapped_column(String(20))
     id_solicitante: Mapped[str] = mapped_column(ForeignKey("funcionarios.id"))
     id_aprovador: Mapped[str | None] = mapped_column(ForeignKey("funcionarios.id"))
+    id_decisor: Mapped[str | None] = mapped_column(
+        ForeignKey("funcionarios.id"),
+        comment="Quem tomou a decisão que encerra o pedido: aprovou, recusou ou cancelou (o aprovador só existe se aprovou).",
+    )
     criado_em: Mapped[date] = mapped_column(Date)
     situacao: Mapped[str] = mapped_column(String(20))
+
+
+class EscritaAplicada(BaseMock):
+    """Uma linha por escrita já feita: a chave é o id da confirmação. Gravada na mesma transação da escrita, serve de
+    trava contra a mesma confirmação gravar duas vezes (resposta perdida depois do commit)."""
+
+    __tablename__ = "escritas_aplicadas"
+    __table_args__ = (
+        {"comment": "Chaves de idempotência das escritas da plataforma (uma por confirmação). Interno."},
+    )
+
+    chave: Mapped[str] = mapped_column(String(40), primary_key=True)
+    operacao: Mapped[str] = mapped_column(String(30))
+    codigo_resultado: Mapped[str | None] = mapped_column(
+        String(20), comment="Código do que a escrita criou ou alterou (CH000061, AC0005...), sem dado do lojista."
+    )
+    aplicada_em: Mapped[datetime] = mapped_column(DateTime)
 
 
 class Chargeback(BaseMock):
@@ -686,6 +720,7 @@ SISTEMA_DONO_DA_TABELA = {
     "faturas": "cobranca", "acordos": "cobranca",
     "chargebacks": "disputas", "casos_pix": "disputas",
     "chamados": "crm", "interacoes": "crm", "pesquisas_satisfacao": "crm", "artigos_ajuda": "crm",
+    "escritas_aplicadas": "crm",  # só chaves de idempotência da plataforma: nenhum dado de lojista
     "times": "diretorio", "funcionarios": "diretorio",
     "analitica_atualizacao": "analitica", "analitica_vendas_diarias": "analitica",
     "analitica_chamados_diarios": "analitica", "analitica_contestacoes_mensais": "analitica",
