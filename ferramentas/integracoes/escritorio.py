@@ -10,7 +10,7 @@ não sabem de qual vêm. Cada operação recebe o `id_usuario` e usa só a conta
   Brasília), local, descricao, convidados (e-mails já conferidos) e id_unico (para não duplicar se o pedido repetir).
 - `arquivos(id_usuario, consulta, tipo, limite)` -> lista de id_arquivo, titulo, tipo (planilha, documento, pasta,
   outro) e modificado_em.
-- `descrever_planilha(id_usuario, id_arquivo)` -> titulo e abas (titulo, linhas, colunas).
+- `descrever_planilha(id_usuario, id_arquivo)` -> titulo e abas (cada uma com o titulo).
 - `ler_planilha(id_usuario, id_arquivo, aba, intervalo, limite)` -> titulo, aba, intervalo, linhas (listas de texto)
   e truncado.
 - `adicionar_linha(id_usuario, id_arquivo, aba, valores)` -> linhas_adicionadas.
@@ -43,6 +43,7 @@ from ferramentas.integracoes.conector import (
     ler_lista,
 )
 from ferramentas.integracoes.escritorio_simulado import MundoSimulado
+from ferramentas.integracoes.formatos import PADRAO_NUMERO
 from ferramentas.integracoes.oauth import FluxoOAuth
 
 FUSO = ZoneInfo("America/Sao_Paulo")
@@ -60,6 +61,14 @@ def limitar_intervalo(intervalo, limite):
     achado = PADRAO_INTERVALO.fullmatch(intervalo)
     coluna_a, linha_a, coluna_b, linha_b = achado.groups()
     return f"{coluna_a.upper()}{linha_a}:{coluna_b.upper()}{min(int(linha_b), int(linha_a) + limite)}"
+
+
+def valor_da_celula(texto):
+    """O que vai à API ao gravar uma célula: número com cara de número (para somar na planilha) ou o texto como está."""
+    if PADRAO_NUMERO.fullmatch(texto):
+        numero = float(texto)
+        return int(numero) if "." not in texto else numero
+    return texto
 
 
 def texto_da_celula(valor):

@@ -45,6 +45,7 @@ from ferramentas.integracoes.escritorio import (
     horario_local,
     limitar_intervalo,
     texto_da_celula,
+    valor_da_celula,
 )
 from ferramentas.integracoes.oauth import ConfiguracaoOAuth
 from ferramentas.integracoes.registro import registrar
@@ -96,7 +97,6 @@ MOTIVOS_DE_LIMITE = frozenset({"rateLimitExceeded", "userRateLimitExceeded", "qu
 MOTIVOS_DE_ESCOPO = frozenset({"ACCESS_TOKEN_SCOPE_INSUFFICIENT"})
 MOTIVOS_DE_PLATAFORMA = frozenset({"accessNotConfigured", "SERVICE_DISABLED", "API_KEY_SERVICE_BLOCKED"})
 CAMPOS_DO_DOCUMENTO = "title,body(content(paragraph(elements(textRun(content))),table(tableRows(tableCells(content(paragraph(elements(textRun(content)))))))))"
-PADRAO_NUMERO = re.compile(r"-?[0-9]{1,15}(\.[0-9]{1,6})?")
 
 
 def _motivos(recusa):
@@ -152,11 +152,9 @@ def _texto_da_celula(celula):
     ).strip()
 
 
-def _valor_da_celula(texto):
-    """Número que parece número (ponto decimal) vai como número, para somar na planilha; o resto, como texto."""
-    if PADRAO_NUMERO.fullmatch(texto):
-        return {"userEnteredValue": {"numberValue": float(texto)}}
-    return {"userEnteredValue": {"stringValue": texto}}
+def _celula_nova(texto):
+    valor = valor_da_celula(texto)
+    return {"userEnteredValue": {"stringValue" if isinstance(valor, str) else "numberValue": valor}}
 
 
 class ConectorGoogleWorkspace(ConectorDeEscritorio):
@@ -352,17 +350,10 @@ class ConectorGoogleWorkspace(ConectorDeEscritorio):
 
     def _planilha(self, ambiente, id_usuario, id_arquivo, escopo):
         url = montar_url(self._urls(ambiente)["sheets"], id_arquivo)
-        parametros = {"fields": "properties.title,sheets.properties(title,gridProperties(rowCount,columnCount))"}
+        parametros = {"fields": "properties.title,sheets.properties.title"}
         dados = self._chamar_api(ambiente, id_usuario, "planilhas", {escopo}, "GET", url, parametros=parametros)
         try:
-            abas = [
-                {
-                    "titulo": str(aba["properties"]["title"])[:100],
-                    "linhas": int(aba["properties"].get("gridProperties", {}).get("rowCount", 0)),
-                    "colunas": int(aba["properties"].get("gridProperties", {}).get("columnCount", 0)),
-                }
-                for aba in dados["sheets"]
-            ]
+            abas = [{"titulo": str(aba["properties"]["title"])[:100]} for aba in dados["sheets"]]
             return {"titulo": str(dados["properties"]["title"])[:200], "abas": abas}
         except (KeyError, TypeError, ValueError):
             raise RespostaInvalida("resposta fora do formato") from None
@@ -403,7 +394,7 @@ class ConectorGoogleWorkspace(ConectorDeEscritorio):
         dados = self._chamar_api(
             ambiente, id_usuario, "planilhas", {PLANILHAS_ESCRITA}, "POST", url,
             parametros={"valueInputOption": "RAW", "insertDataOption": "INSERT_ROWS"},
-            corpo={"majorDimension": "ROWS", "values": [list(valores)]},
+            corpo={"majorDimension": "ROWS", "values": [[valor_da_celula(v) for v in valores]]},
         )
         atualizacao = dados.get("updates")
         if not isinstance(atualizacao, dict) or atualizacao.get("updatedRows") != 1:
@@ -414,7 +405,7 @@ class ConectorGoogleWorkspace(ConectorDeEscritorio):
         corpo = {
             "properties": {"title": titulo},
             "sheets": [{"data": [{"startRow": 0, "startColumn": 0, "rowData": [
-                {"values": [_valor_da_celula(celula) for celula in linha]} for linha in linhas
+                {"values": [_celula_nova(celula) for celula in linha]} for linha in linhas
             ]}]}],
         }
         dados = self._chamar_api(

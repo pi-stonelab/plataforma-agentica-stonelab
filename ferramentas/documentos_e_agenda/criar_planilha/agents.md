@@ -19,7 +19,7 @@ telefone, e-mail): cite o código do lojista, como `M00001`. O que for sensível
 - `titulo` (texto, obrigatório, uma linha, até 100 caracteres): o nome da planilha.
 - `colunas` (texto, obrigatório): os cabeçalhos separados por `|`. Exemplo: `Data | Chamado | Situação`.
 - `linhas` (texto, opcional): uma linha por quebra de linha, as células separadas por `|`. Até 50 linhas, 20
-  colunas e 200 caracteres por célula. Número com ponto decimal (`12.5`) vira número; o resto, texto.
+  colunas e 200 caracteres por célula. Número (`7`, `12.5`) vira número; o resto, texto.
 - `servico` (texto, opcional): `google` ou `microsoft`. Só use se a ferramenta pedir.
 
 ## O que devolve
@@ -37,7 +37,7 @@ prévias demais esperando confirmação).
 - Área: `documentos_e_agenda`. Acesso: escrita em duas fases, em `governanca.ESCRITA_COM_CONFIRMACAO`. Categoria
   `documento_de_trabalho`.
 - Fase 2: Google `spreadsheets.create` (valores como texto ou número, nunca fórmula); Microsoft envia um .xlsx
-  gerado aqui (`formatos.xlsx_de`) para o OneDrive (`Files.ReadWrite`). O registro guarda o `id_arquivo` como
+  gerado aqui (`formatos.escrever_xlsx`) para o OneDrive (`Files.ReadWrite`). O registro guarda o `id_arquivo` como
   referência externa.
 - Integração: `google_workspace` ou `microsoft_365`, alternativas; conta OAuth de cada pessoa.
 - Situação: ativa. Nos testes, servidores locais no formato das duas APIs.

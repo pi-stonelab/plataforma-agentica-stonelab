@@ -149,8 +149,7 @@ class MundoSimulado:
     def descrever_planilha(self, id_usuario, id_arquivo):
         with self._trava:
             titulo, abas = self._planilha(id_usuario, id_arquivo)
-        return {"titulo": titulo, "abas": [{"titulo": a, "linhas": len(l), "colunas": max(map(len, l), default=0)}
-                                           for a, l in abas.items()]}
+        return {"titulo": titulo, "abas": [{"titulo": a} for a in abas]}
 
     def ler_planilha(self, id_usuario, id_arquivo, aba, intervalo, limite):
         """`intervalo` já validado pela ferramenta ("A1:F20") ou None (a aba toda, até `limite` linhas)."""

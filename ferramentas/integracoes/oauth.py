@@ -62,6 +62,7 @@ class ConfiguracaoOAuth:
     escopos_sempre: tuple = ()  # Microsoft: `offline_access`, sem o qual não há token de renovação
     mais_amplos: dict = field(default_factory=dict)  # escopo -> escopos que o incluem
     escopos_de_escrita: frozenset = frozenset()
+    prefixo_dos_escopos: str = ""  # Microsoft devolve "https://graph.microsoft.com/Calendars.Read"; aqui fica "Calendars.Read"
 
 
 @dataclass
@@ -255,7 +256,9 @@ class FluxoOAuth:
         renovacao = dados.get("refresh_token") or (anterior.refresh_token if anterior else None)
         if renovacao is not None and not token_valido(renovacao):
             raise RespostaInvalida(MENSAGEM_RESPOSTA_INVALIDA)
-        concedidos = escopos_de(dados.get("scope")) or (anterior.escopos if anterior else frozenset(solicitados))
+        prefixo = self.configuracao.prefixo_dos_escopos
+        concedidos = frozenset(e.removeprefix(prefixo) for e in escopos_de(dados.get("scope")))
+        concedidos = concedidos or (anterior.escopos if anterior else frozenset(solicitados))
         return credenciais.Credencial(token, credenciais.agora() + timedelta(seconds=duracao), concedidos, renovacao)
 
 

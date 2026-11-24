@@ -214,6 +214,9 @@ FORMATO_DE_IDENTIFICADORES = {
     # Id de arquivo e link que o Google ou a Microsoft devolvem: texto técnico com dígitos no meio, que a máscara de
     # texto livre estragaria (o id não serve mais). Não é dado de pessoa, e só o valor INTEIRO nesse formato passa.
     "id_arquivo": r"[A-Za-z0-9!_-]{5,128}",
+    # Ids dos anexos do chat (sorteados pela plataforma: prefixo e 12 letras, sem dígito).
+    "anexo_id": r"ANX-[A-Z]{12}",
+    "arquivo_id": r"ARQ-[A-Z]{12}",
     "link": r"https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]{4,500}",
 }
 
@@ -264,6 +267,8 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         # passando pela máscara de texto livre (CPF, cartão e telefone), só não vira "***". `id_arquivo` e `link` têm
         # formato fixo (`FORMATO_DE_IDENTIFICADORES`).
         "titulo", "inicio", "fim", "local", "aba", "intervalo", "linhas", "colunas", "modificado_em",
+        # anexos do chat: o nome do arquivo e das abas já saem mascarados da ferramenta; `aviso` é frase fixa
+        "arquivo", "abas", "formato", "tamanho", "paginas", "aviso", "anexos",
     }
 )
 
