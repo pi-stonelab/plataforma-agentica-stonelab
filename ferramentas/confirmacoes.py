@@ -35,6 +35,7 @@ from ferramentas.base import (
     EfeitoIncerto,
     ErroFerramenta,
     Ferramenta,
+    mensagem_fora_do_ar,
     montar_registro,
     resposta,
 )
@@ -58,7 +59,11 @@ MENSAGEM_PREVIAS_DA_PESSOA = (
     f"Você já tem {LIMITE_POR_USUARIO} prévias abertas. Confirme ou descarte uma antes de pedir outra."
 )
 MENSAGEM_JA_DECIDIDA = {APROVADA: "Esta prévia já foi confirmada.", CANCELADA: "Esta prévia já foi descartada."}
-MENSAGEM_FORA_DO_AR = "Integração fora do ar. Nada foi enviado; peça uma nova prévia."
+# Falha em que nada saiu: a prévia volta para a fila, e a pessoa confirma de novo sem pedir outra ao agente.
+MENSAGEM_PREVIA_CONTINUA = "A prévia continua valendo: confirme de novo quando quiser."
+MENSAGEM_PREVIA_PRONTA = "Prévia pronta. Nada foi enviado: falta a confirmação do funcionário."
+AVISO_DE_DEMONSTRACAO = "Modo de demonstração: nada sai de verdade."
+AVISO_DE_SAIDA = "Esta mensagem sai da plataforma. Confira se não há dado pessoal."
 MENSAGEM_EFEITO_INCERTO = (
     "O servidor de destino não confirmou: a ação pode ter sido feita. Confira antes de pedir uma nova prévia."
 )
@@ -88,6 +93,7 @@ class Pedido:
     previa: dict  # o que a pessoa revisa, já mascarado
     expira_em: datetime
     liberado: bool = False  # só vira True quando a resposta com o `confirmacao_id` chega ao agente
+    aviso: str | None = None  # o que o cartão e o agente precisam dizer (demonstração, mensagem que sai)
 
 
 class FerramentaComConfirmacao(Ferramenta):
@@ -100,9 +106,35 @@ class FerramentaComConfirmacao(Ferramenta):
 
     acesso = "escrita"
     age_ao_executar = False  # a fase 1 só guarda a prévia; o efeito é do `confirmar`
-    campos_liberados = ("confirmacao_id", "expira_em")  # a subclasse soma os campos da sua prévia
+    mensagem_de_sucesso = MENSAGEM_PREVIA_PRONTA  # "Concluído." puxaria o modelo para dizer que já foi enviado
+    campos_liberados = ("confirmacao_id", "expira_em", "aviso")  # a subclasse soma os campos da sua prévia
     titulo = ""  # como a interface chama a ação ("Enviar e-mail")
     rotulos_da_previa = {}  # campo da prévia -> rótulo, na ordem em que a interface mostra
+    # Campos que só a pessoa vê no cartão, nunca o modelo (texto de terceiro lido para conferir o destino).
+    campos_so_da_interface = ()
+    sai_da_plataforma = False  # True: o texto vai para fora (Slack, Telegram, Jira, e-mail), e o cartão avisa
+
+    def aviso_da_previa(self):
+        """O aviso do cartão e do agente: demonstração (integração simulada) e/ou texto que sai. None se nenhum."""
+        from ferramentas.integracoes import registro  # aqui dentro: `integracoes` importa `base`
+
+        avisos = []
+        for nome in self.integracoes:
+            conector = registro.CONECTORES.get(nome)
+            if conector is not None and conector.demonstracao():
+                avisos.append(AVISO_DE_DEMONSTRACAO)
+                break
+        if self.sai_da_plataforma:
+            avisos.append(AVISO_DE_SAIDA)
+        return " ".join(avisos) or None
+
+    def mensagem_ao_confirmar(self, dados):
+        """A frase de sucesso do `confirmar`; a subclasse diz o que aconteceu ("Chamado PLAT-101 aberto.")."""
+        return "Enviado."
+
+    def referencia_do_resultado(self, dados):
+        """Id neutro do que foi criado fora da plataforma, para o registro (ex.: a chave do Jira). None se nada."""
+        return
 
     def texto_do_campo(self, campo, valor):
         """O valor de um campo da prévia (já mascarada) como texto para a interface."""
@@ -133,13 +165,22 @@ class FerramentaComConfirmacao(Ferramenta):
             _tirar_da_fila(confirmacao_id)
 
 
+def _expira_em(pedido):
+    return pedido.expira_em.astimezone(FUSO_DA_INTERFACE).isoformat(timespec="minutes")
+
+
 def _como_mostrar(pedido):
-    return {
+    """O que o agente (e o terminal) recebe da prévia: sem os campos que são só da interface."""
+    escondidos = pedido.ferramenta.campos_so_da_interface
+    mostrar = {
         "confirmacao_id": pedido.confirmacao_id,
         "situacao": AGUARDANDO,
-        "expira_em": pedido.expira_em.astimezone(FUSO_DA_INTERFACE).isoformat(timespec="minutes"),
-        **pedido.previa,
+        "expira_em": _expira_em(pedido),
+        **{campo: valor for campo, valor in pedido.previa.items() if campo not in escondidos},
     }
+    if pedido.aviso:
+        mostrar["aviso"] = pedido.aviso
+    return mostrar
 
 
 def _novo_id():
@@ -156,10 +197,10 @@ def _guardar(ferramenta, usuario, contexto, conteudo, previa):
         with TRAVA_DOS_PEDIDOS:
             vencidos = _recolher_vencidos()
             do_usuario = sum(p.id_usuario == usuario.id_usuario for p in PEDIDOS.values())
-            if do_usuario >= LIMITE_POR_USUARIO:
-                raise ErroFerramenta("integracao_indisponivel", MENSAGEM_PREVIAS_DA_PESSOA)
+            if do_usuario >= LIMITE_POR_USUARIO:  # pedido da pessoa, não queda: o agente repete a mensagem como veio
+                raise ErroFerramenta("parametro_invalido", MENSAGEM_PREVIAS_DA_PESSOA)
             if len(PEDIDOS) >= LIMITE_PEDIDOS:
-                raise ErroFerramenta("integracao_indisponivel", "Há prévias demais esperando confirmação na plataforma.")
+                raise ErroFerramenta("parametro_invalido", "Há prévias demais esperando confirmação na plataforma.")
             pedido = Pedido(
                 confirmacao_id=_novo_id(),
                 ferramenta=ferramenta,
@@ -168,6 +209,7 @@ def _guardar(ferramenta, usuario, contexto, conteudo, previa):
                 conteudo=conteudo,
                 previa=mascara.mascarar(previa, ferramenta.categorias_dados, ferramenta.campos_liberados),
                 expira_em=agora() + VALIDADE,
+                aviso=ferramenta.aviso_da_previa(),
             )
             PEDIDOS[pedido.confirmacao_id] = pedido
     finally:
@@ -175,8 +217,8 @@ def _guardar(ferramenta, usuario, contexto, conteudo, previa):
     return pedido
 
 
-def _registrar(pedido, usuario, resultado, camada, inicio):
-    registro = montar_registro(pedido.ferramenta, usuario, pedido.contexto, resultado, camada, inicio)
+def _registrar(pedido, usuario, resultado, camada, inicio, referencia_externa=None):
+    registro = montar_registro(pedido.ferramenta, usuario, pedido.contexto, resultado, camada, inicio, referencia_externa)
     governanca.registrar(registro)
 
 
@@ -242,7 +284,11 @@ def _devolver(pedido):
 
 
 def _para_interface(pedido, situacao=PENDENTE):
-    """O pedido no formato `Confirmacao` do contrato do front (§4.9). Só a prévia mascarada; o conteúdo fica aqui."""
+    """O pedido no formato `Confirmacao` do contrato do front (§4.9). Só a prévia mascarada; o conteúdo fica aqui.
+
+    Além dos campos da §4.9, `expira_em` (ISO, horário de Brasília: o cartão mostra "Vale até 20:04") e `aviso`
+    (demonstração ou texto que sai da plataforma; None se nenhum). [A FAZER (front, professor): mostrar os dois]
+    """
     ferramenta = pedido.ferramenta
     campos = [
         {"rotulo": rotulo, "valor": ferramenta.texto_do_campo(campo, pedido.previa[campo])}
@@ -255,6 +301,8 @@ def _para_interface(pedido, situacao=PENDENTE):
         "titulo": ferramenta.titulo or ferramenta.nome,
         "campos": campos,
         "situacao": situacao,
+        "expira_em": _expira_em(pedido),
+        "aviso": pedido.aviso,
     }
 
 
@@ -351,6 +399,11 @@ def pendentes(usuario):
     return lista
 
 
+def mensagem_nada_saiu(ferramenta, erro=None):
+    """Falha antes do envio: qual serviço falhou, que nada saiu e que a prévia continua na fila."""
+    return f"{mensagem_fora_do_ar(ferramenta, erro)} Nada foi enviado. {MENSAGEM_PREVIA_CONTINUA}"
+
+
 def confirmar(confirmacao_id, usuario):
     """Roda o efeito do pedido, se ele é de quem confirma e o acesso continua valendo. Uso único."""
     inicio = time.monotonic()
@@ -369,29 +422,33 @@ def confirmar(confirmacao_id, usuario):
     except governanca.RegistroIndisponivel:  # O9: sem rastro da intenção, nada é enviado
         _devolver(pedido)
         return resposta("erro", None, MENSAGEM_REGISTRO, "integracao_indisponivel")
-    pode_ter_saido = True  # só "nada saiu" (recusa ou falha antes do envio) muda isto
+    nada_saiu = False  # recusa ou falha antes do envio: a prévia volta para a fila
+    referencia = None
     try:
-        dados = mascara.mascarar(
-            ferramenta.efetivar(pedido.conteudo, usuario), ferramenta.categorias_dados, ferramenta.campos_liberados
-        )
-        resultado = resposta("ok", dados, "Enviado.")
+        efeito = ferramenta.efetivar(pedido.conteudo, usuario)
+        referencia = ferramenta.referencia_do_resultado(efeito)
+        dados = mascara.mascarar(efeito, ferramenta.categorias_dados, ferramenta.campos_liberados)
+        resultado = resposta("ok", dados, ferramenta.mensagem_ao_confirmar(efeito))
     except ErroFerramenta as erro:
-        pode_ter_saido = False
-        resultado = resposta("erro", None, erro.mensagem, erro.tipo_erro)
+        nada_saiu = True
+        resultado = resposta("erro", None, f"{erro.mensagem} {MENSAGEM_PREVIA_CONTINUA}", erro.tipo_erro)
     except EfeitoIncerto:  # saiu, mas sem confirmação: dizer "nada foi enviado" seria mentir
         resultado = resposta("erro", None, MENSAGEM_EFEITO_INCERTO, "integracao_indisponivel")
-    except (ConnectionError, TimeoutError):
-        pode_ter_saido = False
-        resultado = resposta("erro", None, MENSAGEM_FORA_DO_AR, "integracao_indisponivel")
+    except (ConnectionError, TimeoutError) as erro:
+        nada_saiu = True
+        resultado = resposta("erro", None, mensagem_nada_saiu(ferramenta, erro), "integracao_indisponivel")
     except Exception as erro:  # noqa: BLE001 (só o tipo vai ao log: a mensagem pode ter o e-mail)
         logger.error("confirmação falhou: ferramenta=%s tipo=%s", ferramenta.nome, type(erro).__name__)
         resultado = resposta("erro", None, "Erro interno.", "erro_interno")
     finally:
-        pedido.conteudo.clear()
-    if pode_ter_saido:  # a prévia não se confirma de novo; quem tentar ouve "já foi confirmada" (409)
+        if not nada_saiu:
+            pedido.conteudo.clear()
+    if nada_saiu:
+        _devolver(pedido)
+    else:  # a prévia não se confirma de novo; quem tentar ouve "já foi confirmada" (409)
         _lembrar_decisao(pedido, APROVADA)
     try:
-        _registrar(pedido, usuario, resultado, None, inicio)
+        _registrar(pedido, usuario, resultado, None, inicio, referencia)
     except governanca.RegistroIndisponivel:
         return resposta("erro", None, MENSAGEM_REGISTRO_FINAL, "integracao_indisponivel")
     return resultado

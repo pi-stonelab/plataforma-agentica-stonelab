@@ -41,16 +41,26 @@ def resposta(status, dados=None, mensagem="", tipo_erro=None):
     return {"status": status, "dados": dados, "mensagem": mensagem, "tipo_erro": tipo_erro}
 
 
-def _mensagem_fora_do_ar(ferramenta):
-    """Integração externa: qual serviço não respondeu, pelo rótulo, e o que fazer. Sistema interno (o mock): a frase
-    genérica de sempre, sem dizer qual sistema da Stone caiu. Nunca detalhe técnico."""
+def mensagem_fora_do_ar(ferramenta, erro=None):
+    """Integração externa: qual serviço falhou, pelo rótulo, e o que fazer. Sistema interno (o mock): a frase
+    genérica de sempre, sem dizer qual sistema da Stone caiu. Nunca detalhe técnico.
+
+    Credencial recusada não se resolve esperando (quem administra precisa trocar); limite de pedidos diz quanto
+    esperar, quando o serviço disse."""
     # Import aqui dentro: `integracoes` importa este módulo (EfeitoIncerto, ErroFerramenta).
     from ferramentas import integracoes
+    from ferramentas.integracoes.conector import CredencialRecusada, LimiteDePedidos
 
     for nome in getattr(ferramenta, "integracoes", ()):
         conector = integracoes.registro.CONECTORES.get(nome)
-        if conector is not None and conector.tipo == "externo":
-            return f"Sem resposta do serviço: {conector.rotulo}. Tente de novo em um minuto."
+        if conector is None or conector.tipo != "externo":
+            continue
+        if isinstance(erro, CredencialRecusada):
+            return f"O serviço {conector.rotulo} recusou a credencial da plataforma. Avise quem administra a plataforma."
+        if isinstance(erro, LimiteDePedidos):
+            espera = f"{erro.segundos} segundos" if erro.segundos else "alguns minutos"
+            return f"O serviço {conector.rotulo} pediu para esperar (pedidos demais). Tente de novo em {espera}."
+        return f"Sem resposta do serviço: {conector.rotulo}. Tente de novo em um minuto."
     return MENSAGEM_FORA_DO_AR
 
 
@@ -83,7 +93,7 @@ def _converter(regra, valor):
     raise ValueError
 
 
-def montar_registro(ferramenta, usuario, contexto, resultado, camada_bloqueio, inicio):
+def montar_registro(ferramenta, usuario, contexto, resultado, camada_bloqueio, inicio, referencia_externa=None):
     """Registro de uma chamada só com metadados: nunca argumentos, dados ou mensagem."""
     contexto = contexto if isinstance(contexto, dict) else {}
     return {
@@ -100,12 +110,14 @@ def montar_registro(ferramenta, usuario, contexto, resultado, camada_bloqueio, i
         "tipo_erro": resultado["tipo_erro"],
         "camada_bloqueio": camada_bloqueio,
         "duracao_ms": int((time.monotonic() - inicio) * 1000),
+        "referencia_externa": referencia_externa,
     }
 
 
 class Ferramenta:
     nome = ""
     area = ""
+    mensagem_de_sucesso = "Concluído."
     acesso = "leitura"
     integracoes = ()
     nivel_minimo = "N2"
@@ -180,15 +192,15 @@ class Ferramenta:
                 agiu = self.age_ao_executar
             dados = produzido = self.rodar_com_contexto(argumentos_validos, usuario, contexto)
             dados = mascara.mascarar(dados, self.categorias_dados, self.campos_liberados)  # uma vez, antes do embrulho
-            resultado = resposta("ok", dados, "Concluído.")
+            resultado = resposta("ok", dados, self.mensagem_de_sucesso)
             if self.conteudo_terceiros:
                 resultado = resposta("ok", {"conteudo_de_terceiros": dados}, MENSAGEM_TERCEIROS)
         except ErroFerramenta as erro:
             resultado = resposta("erro", None, erro.mensagem, erro.tipo_erro)
         except governanca.RegistroIndisponivel:  # O9, MED-1: sem rastro da intenção, nada é gravado
             return resposta("erro", None, MENSAGEM_REGISTRO, "integracao_indisponivel")
-        except (ConnectionError, TimeoutError):
-            resultado = resposta("erro", None, _mensagem_fora_do_ar(self), "integracao_indisponivel")
+        except (ConnectionError, TimeoutError) as erro:
+            resultado = resposta("erro", None, mensagem_fora_do_ar(self, erro), "integracao_indisponivel")
         except Exception:  # noqa: BLE001
             resultado = resposta("erro", None, "Erro interno.", "erro_interno")
         registro = montar_registro(self, usuario, contexto, resultado, camada, inicio)

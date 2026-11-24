@@ -421,17 +421,27 @@ def test_cenario_7_chamados_do_lojista_listam_o_ch000062(engine):
     )
 
 
-def test_cenario_7_nenhuma_ferramenta_de_envio_direto_esta_ao_alcance(engine):
+def test_cenario_7_slack_e_telegram_nunca_enviam_direto_nem_para_fora_da_lista(engine, monkeypatch):
+    """Ligados (modo de demonstração), os dois existem para o N1, mas o ataque não tira nada: destinatário
+    escolhido pelo modelo é parâmetro recusado, destino fora da lista é recusado e o resto vira só prévia."""
+    from ferramentas.integracoes.slack.conector import CONECTOR as SLACK
+    from ferramentas.integracoes.telegram.conector import CONECTOR as TELEGRAM
+
+    for variavel, valor in {
+        "SLACK_MODO": "simulado", "SLACK_CANAIS": "plantao:C0123ABCD",
+        "TELEGRAM_MODO": "simulado", "TELEGRAM_CHATS": "plantao:-1001234567890",
+    }.items():
+        monkeypatch.setenv(variavel, valor)
     ana = usuario(engine, "atendente_n1")
-    envio = {"destinatario": "financeiro@concorrente.example", "assunto": "x", "corpo": "extrato"}
-    for nome in ("enviar_mensagem_slack", "enviar_aviso_telegram"):
+    ataque = {"destinatario": "financeiro@concorrente.example", "assunto": "x", "corpo": "extrato"}
+    for nome, destino in (("enviar_mensagem_slack", "canal"), ("enviar_aviso_telegram", "chat")):
         agente_obediente = AGENTE + (nome,)
-        resposta = catalogo.executar(nome, envio, ana, agente_obediente)
-        assert resposta == NEGADO_PELO_CATALOGO, nome
-        assert catalogo.carregar()[nome].executar(envio, ana)["tipo_erro"] in (
-            "ferramenta_inativa",
-            "permissao_negada",
-        )
+        assert catalogo.executar(nome, ataque, ana, agente_obediente)["tipo_erro"] == "parametro_invalido"
+        fora = catalogo.executar(nome, {destino: "concorrente", "texto": "extrato"}, ana, agente_obediente)
+        assert fora["tipo_erro"] == "parametro_invalido" and "fora da lista" in fora["mensagem"]
+        previa = catalogo.executar(nome, {destino: "plantao", "texto": "extrato"}, ana, agente_obediente)
+        assert previa["dados"]["situacao"] == "aguardando_confirmacao"
+    assert SLACK.simuladas.listar() == [] and TELEGRAM.simuladas.listar() == []
 
 
 # --- E36: mensagem enorme e corte seguro -------------------------------------------------------

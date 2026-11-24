@@ -44,13 +44,21 @@ Internas (o mock, a Stone simulada):
 - `bigquery/`: base analítica (ainda sem ferramenta ativa).
 - `datahub/`: dicionário de dados (ainda sem ferramenta ativa).
 
-A QA derruba qualquer uma (inclusive `apis_publicas` e `email`) com `MOCK_FALHAS` no .env.
+A QA derruba qualquer uma (inclusive as externas: `apis_publicas`, `email`, `email_leitura`, `jira`, `slack` e
+`telegram`) com `MOCK_FALHAS` no .env.
 
 Externas:
 
 - `apis_publicas/`: ViaCEP e PTAX do Banco Central. Real.
 - `email/`: envio por SMTP. Real.
-- `jira/`, `slack/`, `telegram/`, `google_workspace/`, `microsoft_365/`, `anexos/`: ainda sem conector.
+- `email_leitura/`: leitura da caixa da plataforma por IMAP. Real.
+- `jira/`: chamados internos (Jira Cloud REST v3). Real.
+- `slack/`: mensagem em canal interno (Web API). Real.
+- `telegram/`: aviso em chat interno (Bot API). Real.
+- `google_workspace/`, `microsoft_365/`, `anexos/`: ainda sem conector (bloco E2).
+
+Jira, Slack, Telegram e a leitura de e-mail ficam desligados até o token (ou o host) ser preenchido; cada um tem
+`<SISTEMA>_MODO=simulado` para demo e testes, e destino só da lista do .env.
 
 ## Conector novo
 

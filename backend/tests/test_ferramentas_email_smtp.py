@@ -25,6 +25,7 @@ from .apoio_ferramentas import (
 from .apoio_smtp import SENHA, USUARIO, ServidorSmtp, porta_fechada
 
 ENVIAR = "enviar_email"
+NADA_SAIU = confirmacoes.mensagem_nada_saiu(catalogo.carregar()[ENVIAR])
 AGENTE = (ENVIAR,)
 PEDIDO = {"id_cliente": "M00001", "assunto": "Liquidação de 14/10", "corpo": "Olá, a liquidação falhou. Ação: conferir."}
 REMETENTE = "plataforma@stonelab.example"
@@ -92,7 +93,7 @@ def test_host_apagado_depois_da_previa_nao_envia(ana, monkeypatch):
     confirmacao_id = catalogo.executar(ENVIAR, PEDIDO, ana, AGENTE)["dados"]["confirmacao_id"]
     monkeypatch.setenv("EMAIL_SMTP_HOST", "")
     resultado = confirmacoes.confirmar(confirmacao_id, ana)
-    assert (resultado["tipo_erro"], resultado["mensagem"]) == ("integracao_indisponivel", email_smtp.MENSAGEM_DESLIGADO)
+    assert (resultado["tipo_erro"], resultado["mensagem"]) == ("integracao_indisponivel", f"{email_smtp.MENSAGEM_DESLIGADO} {confirmacoes.MENSAGEM_PREVIA_CONTINUA}")
 
 
 def test_porta_vazia_usa_a_padrao_de_cada_seguranca():
@@ -326,10 +327,10 @@ def test_envio_incerto_nao_diz_que_nada_saiu_e_a_previa_nao_volta(ana, monkeypat
 
 def test_servidor_fora_ou_configuracao_errada_dizem_que_nada_saiu(ana, monkeypatch):
     ligar_smtp(monkeypatch, porta_fechada())
-    assert preparar_e_confirmar(ana)["mensagem"] == confirmacoes.MENSAGEM_FORA_DO_AR
+    assert preparar_e_confirmar(ana)["mensagem"] == NADA_SAIU
     confirmacao_id = catalogo.executar(ENVIAR, PEDIDO, ana, AGENTE)["dados"]["confirmacao_id"]
     monkeypatch.setenv("EMAIL_SMTP_PORTA", "abc")
-    assert confirmacoes.confirmar(confirmacao_id, ana)["mensagem"] == confirmacoes.MENSAGEM_FORA_DO_AR
+    assert confirmacoes.confirmar(confirmacao_id, ana)["mensagem"] == NADA_SAIU
 
 
 def test_fila_de_previas_nao_fica_travada_enquanto_o_smtp_demora(ana, monkeypatch):
@@ -393,7 +394,7 @@ def test_confirmar_com_endereco_com_acento_diz_que_nada_foi_enviado(ana, monkeyp
     with ServidorSmtp() as servidor:
         ligar_smtp(monkeypatch, servidor.porta, EMAIL_DESTINO_TESTE=ENDERECO_COM_ACENTO)
         resultado = preparar_e_confirmar(ana)
-    assert resultado["mensagem"] == confirmacoes.MENSAGEM_FORA_DO_AR
+    assert resultado["mensagem"] == NADA_SAIU
     assert servidor.mensagens == []
 
 

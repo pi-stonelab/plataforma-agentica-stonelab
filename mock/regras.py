@@ -55,6 +55,8 @@ CATEGORIAS_DADO = (
     "metadado",  # dicionário de dados do mock (tabelas, colunas e sensibilidade)
     "base_conhecimento",  # artigos públicos de ajuda
     "cambio",  # cotação de moeda (API pública do Banco Central)
+    "chamado_interno",  # chamados internos da Stone no Jira (pedido a outro time, falha de sistema)
+    "comunicacao_interna",  # mensagem num canal interno da lista permitida (Slack ou Telegram)
 )
 
 # Categorias que não são dado de lojista: CEP público, pedido de ferramenta ausente, artigo público de ajuda
@@ -63,6 +65,10 @@ CATEGORIAS_COMUNS = frozenset({"endereco_publico", "pedido_plataforma", "base_co
 # Dado agregado ou sobre o próprio mock, sem lojista nem pessoa: vale para todo cargo que tem área
 # (decisão do bloco A, SEM FONTE para a lista exata; ver docs/decisoes.md).
 CATEGORIAS_DE_QUEM_TEM_AREA = frozenset({"indicador_agregado", "metadado"})
+# Trabalho interno do funcionário com os colegas: chamados internos (Jira) e avisos em canais internos (Slack e
+# Telegram). Vale para todo cargo que tem área; o destino é sempre um projeto, canal ou chat da lista do .env
+# (decisão do bloco E1, SEM FONTE para a lista exata; ver docs/decisoes.md).
+CATEGORIAS_DE_TRABALHO_INTERNO = frozenset({"chamado_interno", "comunicacao_interna"})
 
 # Nomes grossos que as fichas das ferramentas ainda planejadas usam. Nenhum cargo os permite, então
 # essas ferramentas ficam bloqueadas para todos até serem migradas para os nomes finos acima.
@@ -72,7 +78,6 @@ CATEGORIAS_DE_FERRAMENTAS_PLANEJADAS = (
     "agenda",
     "comunicacao",
     "documento",
-    "chamado_interno",
 )
 
 # DOC-MOCK §8.2: o atendimento vê o lojista inteiro (cadastro, contato, conta, vendas, agenda,
@@ -92,7 +97,7 @@ _DADOS_DO_ATENDIMENTO = frozenset(
 )
 
 JANELA_DIAS_ATENDENTE_N1 = 90  # KAN-69: vendas e agenda dos últimos 90 dias
-_COMUNS_COM_AREA = CATEGORIAS_COMUNS | CATEGORIAS_DE_QUEM_TEM_AREA
+_COMUNS_COM_AREA = CATEGORIAS_COMUNS | CATEGORIAS_DE_QUEM_TEM_AREA | CATEGORIAS_DE_TRABALHO_INTERNO
 
 
 @dataclass(frozen=True)
@@ -250,6 +255,9 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         "descricao_da_coluna", "restrita",
         # código do lojista: como o modelo o vê (id_cliente) e como o banco o chama (id_lojista)
         "id_cliente", "id_lojista",
+        # integrações externas: a chave de um chamado interno do Jira, a origem da resposta (real ou modo de
+        # demonstração) e o período de uma busca
+        "chave_jira", "fonte", "data_inicio", "data_fim",
     }
 )
 

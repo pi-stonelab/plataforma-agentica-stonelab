@@ -6,6 +6,8 @@ o disjuntor e responde a saúde sem nenhum segredo.
 
 Falha de rede vira `ConnectionError` ou `TimeoutError`, que a `Ferramenta.executar` responde como
 `integracao_indisponivel` sem repassar o texto. O log leva só a integração, o serviço, a etapa e o tipo do erro.
+Credencial recusada (401/403) e limite de pedidos (429) também são `ConnectionError`, mas NÃO contam no
+disjuntor: não são queda do serviço, e pausar não ajudaria (a credencial continua errada; o limite passa sozinho).
 
 Conector novo (bloco E): uma subclasse com `nome`, `rotulo`, `tipo`, `variaveis`, `credencial` e, se tiver,
 `variavel_modo`, `servicos` e `mensagem_desligada`; `conferir_configuracao(ambiente)` levanta
@@ -26,8 +28,12 @@ Saúde (`saude`), sem fazer chamada nenhuma:
 
 import logging
 import os
+import re
 import threading
 import time
+import unicodedata
+
+from mock import falhas
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +46,9 @@ FALHAS_PARA_PAUSAR = 3
 SEGUNDOS_DE_PAUSA = 60
 SEGUNDOS_DE_FALHA_RECENTE = 300  # depois disso, uma falha antiga sem chamada nova não acusa mais
 FALHAS_DE_REDE = (ConnectionError, TimeoutError, OSError)
+PADRAO_APELIDO = re.compile(r"[a-z0-9_-]{1,40}")  # apelido de destino no .env: o que o modelo e a pessoa usam
+# `chave:valor` ou `chave:valor:Rótulo`; o rótulo aceita espaço e acento, mas não vírgula nem dois-pontos.
+PADRAO_ITEM_COM_ROTULO = re.compile(r"[^:\s,]+:[^:\s,]+(:[^:,\n]{1,60})?")
 
 
 class ConfiguracaoInvalida(ConnectionError):
@@ -48,6 +57,18 @@ class ConfiguracaoInvalida(ConnectionError):
     def __init__(self, variavel):
         super().__init__(f"{variavel} inválida no .env.")
         self.variavel = variavel
+
+
+class CredencialRecusada(ConnectionError):
+    """O serviço recusou a credencial do .env (401, 403, token revogado): errada, vencida ou sem permissão."""
+
+
+class LimiteDePedidos(ConnectionError):
+    """O serviço pediu para esperar (429, `ratelimited`). `segundos`: quanto esperar, se ele disse (senão None)."""
+
+    def __init__(self, mensagem="integração indisponível", segundos=None):
+        super().__init__(mensagem)
+        self.segundos = segundos
 
 
 class IntegracaoPausada(ConnectionError):
@@ -60,6 +81,56 @@ class IntegracaoDesligada(ConnectionError):
 
 class DestinoNaoPermitido(ValueError):
     """O destino pedido (canal, chat, projeto) não está na lista permitida do .env."""
+
+
+def ler_lista(ambiente, variavel, padrao_do_item):
+    """Itens separados por vírgula de `variavel` (ex.: `JIRA_PROJETOS=KAN,PLAT`), na ordem; vazia: lista vazia.
+
+    Item fora de `padrao_do_item` (ou repetido): `ConfiguracaoInvalida(variavel)`, sem mostrar o valor.
+    """
+    itens = [item.strip() for item in ambiente.get(variavel, "").split(",") if item.strip()]
+    if len(set(itens)) != len(itens) or not all(padrao_do_item.fullmatch(item) for item in itens):
+        raise ConfiguracaoInvalida(variavel)
+    return itens
+
+
+def _itens_com_rotulo(ambiente, variavel, padrao_da_chave):
+    """[(chave, valor, rótulo)] de `chave:valor[:Rótulo]` separados por vírgula. O rótulo é o nome legível que a
+    prévia mostra ("plantao:C0123ABCD:Plantão de atendimento"); sem ele, a prévia mostra o apelido."""
+    itens = []
+    for item in ler_lista(ambiente, variavel, PADRAO_ITEM_COM_ROTULO):
+        chave, valor, rotulo = (item.split(":", 2) + [""])[:3]
+        if not padrao_da_chave.fullmatch(chave):
+            raise ConfiguracaoInvalida(variavel)
+        itens.append((chave, valor, rotulo.strip()))
+    if len({chave for chave, _, _ in itens}) != len(itens):
+        raise ConfiguracaoInvalida(variavel)
+    return itens
+
+
+def ler_destinos(ambiente, variavel, padrao_do_id):
+    """`apelido:id[:Rótulo],...` de `variavel` (ex.: `SLACK_CANAIS=financeiro:C0123ABCD`) como {apelido: id}.
+
+    O modelo e a pessoa só conhecem o apelido; o id do canal ou do chat fica no .env. Item torto, apelido
+    repetido ou id fora de `padrao_do_id`: `ConfiguracaoInvalida(variavel)`.
+    """
+    destinos = {}
+    for apelido, identificador, _ in _itens_com_rotulo(ambiente, variavel, PADRAO_APELIDO):
+        if not padrao_do_id.fullmatch(identificador):
+            raise ConfiguracaoInvalida(variavel)
+        destinos[apelido] = identificador
+    return destinos
+
+
+def ler_rotulos(ambiente, variavel, padrao_da_chave=PADRAO_APELIDO):
+    """{apelido: rótulo legível} dos itens de `variavel` que têm o terceiro pedaço; os outros ficam de fora."""
+    return {chave: rotulo for chave, _, rotulo in _itens_com_rotulo(ambiente, variavel, padrao_da_chave) if rotulo}
+
+
+def sem_acento(texto):
+    """Minúsculas e sem acento: "Plantão" e "plantao" são o mesmo apelido."""
+    decomposto = unicodedata.normalize("NFKD", texto.strip().casefold())
+    return "".join(c for c in decomposto if not unicodedata.combining(c))
 
 
 class Disjuntor:
@@ -137,6 +208,9 @@ class Conector:
     tipo = "externo"
     variavel_modo = ""  # ex.: APIS_PUBLICAS_MODO; vazio quando o conector decide o modo pela configuração
     modo_padrao = "real"
+    # Sem o modo escrito no .env: `real` se esta variável (a credencial ou a URL principal) está preenchida,
+    # senão `modo_padrao`. Assim preencher o token liga a integração, e nada sai sem configuração.
+    variavel_que_liga = ""
     variaveis = ()  # nomes das variáveis do .env que o conector lê (nunca os valores)
     servicos = ("",)  # cada serviço tem o próprio disjuntor: uma API fora do ar não pausa a outra
     # `plataforma`: uma credencial do .env para todos. `pessoa`: cada funcionário liga a própria conta (OAuth).
@@ -155,10 +229,15 @@ class Conector:
     def _valor_do_modo(self, ambiente):
         return ambiente.get(self.variavel_modo, "").strip().lower() if self.variavel_modo else ""
 
+    def _modo_sem_escolha(self, ambiente):
+        if self.variavel_que_liga and ambiente.get(self.variavel_que_liga, "").strip():
+            return "real"
+        return self.modo_padrao
+
     def modo(self, ambiente=os.environ):
         if not self.variavel_modo:
             return self.modo_padrao
-        valor = self._valor_do_modo(ambiente) or self.modo_padrao
+        valor = self._valor_do_modo(ambiente) or self._modo_sem_escolha(ambiente)
         if valor not in MODOS:
             if not self._modo_invalido_avisado:  # um aviso só, não um por chamada
                 self._modo_invalido_avisado = True
@@ -178,10 +257,18 @@ class Conector:
             try:
                 self.conferir_configuracao(ambiente)
             except ConfiguracaoInvalida as erro:
-                return self.dicas.get(erro.variavel, str(erro))
+                return self._dica(erro.variavel, ambiente)
             except ConnectionError as erro:  # a configuração do SMTP tem a própria exceção, com a mesma frase
                 return str(erro)
         return None
+
+    def _dica(self, variavel, ambiente):
+        """Como corrigir `variavel`. Vazia: "está vazia: <o que pôr>", porque "inválida" engana quem só esqueceu."""
+        dica = self.dicas.get(variavel, f"{variavel} inválida no .env.")
+        if variavel in ambiente and ambiente.get(variavel, "").strip():
+            return dica
+        _, _, como = dica.partition(": ")
+        return f"{variavel} está vazia: {como or 'preencha no .env.'}"
 
     def conferir_configuracao(self, ambiente=os.environ):
         """Levanta `ConfiguracaoInvalida` se o modo real não tem o que precisa. A subclasse completa."""
@@ -208,8 +295,19 @@ class Conector:
         return modo
 
     def fora_do_ar(self):
-        """True se a integração foi derrubada de propósito (falha simulada, `mock.falhas`)."""
-        return False
+        """True se a integração foi derrubada de propósito (falha simulada, `mock.falhas`, com o mesmo nome)."""
+        return self.nome in falhas.SISTEMAS and falhas.fora_do_ar(self.nome)
+
+    def _ligado(self, ambiente):
+        """O modo de uso agora. Desligada, mal configurada ou derrubada pela QA: `ConnectionError`."""
+        modo = self.exigir_ligado(ambiente)
+        if self.fora_do_ar():
+            raise ConnectionError(f"{self.nome} fora do ar (falha simulada)")
+        return modo
+
+    def demonstracao(self, ambiente=os.environ):
+        """True no modo simulado: nada sai de verdade, e a prévia e a resposta precisam dizer isso."""
+        return self.modo(ambiente) == "simulado"
 
     def aviso_desligada(self):
         """Frase para o agente quando a integração está desligada ou mal configurada (nunca fala do .env)."""
@@ -232,6 +330,13 @@ class Conector:
         disjuntor.liberar()
         try:
             resultado = funcao()
+        except (CredencialRecusada, LimiteDePedidos) as erro:  # não é queda: pausar não ajudaria
+            disjuntor.neutro()
+            logger.warning(
+                "integracao recusou: integracao=%s servico=%s etapa=%s tipo=%s",
+                self.nome, servico or "-", etapa, type(erro).__name__,
+            )
+            raise
         except FALHAS_DE_REDE as erro:
             abriu = disjuntor.falha()
             logger.warning(

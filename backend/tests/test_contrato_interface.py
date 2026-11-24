@@ -20,7 +20,7 @@ from .apoio_ferramentas import (
 CAMPOS_DA_FERRAMENTA = [
     "nome", "area", "descricao", "acesso", "sensibilidade", "status", "integracoes", "liberada", "motivo",
 ]
-CAMPOS_DA_CONFIRMACAO = ["id", "ferramenta", "titulo", "campos", "situacao"]
+CAMPOS_DA_CONFIRMACAO = ["id", "ferramenta", "titulo", "campos", "situacao", "expira_em", "aviso"]
 ENVIAR = "enviar_email"
 AGENTE = (ENVIAR,)
 PEDIDO = {"id_cliente": "M00001", "assunto": "Liquidação de 14/10", "corpo": "Olá, a liquidação falhou."}
@@ -110,7 +110,8 @@ def test_descricao_sem_marcador_e_a_planejada_mostra_a_frase_sugerida(mundo):
 def test_status_efetivo_planejada_ativa_e_ativa_com_integracao_desligada(mundo, monkeypatch):
     ana = pessoa(mundo, "atendente_n1")
     por_nome = {f["nome"]: f for f in catalogo.listar_fichas(ana)}
-    assert por_nome["abrir_chamado_jira"]["status"] == "planejada"
+    assert por_nome["criar_evento_agenda"]["status"] == "planejada"
+    assert por_nome["abrir_chamado_jira"]["status"] == "inativa"  # ativa, mas a suíte deixa o Jira desligado
     assert por_nome["consultar_cliente"]["status"] == "ativa"
     assert por_nome[ENVIAR]["status"] == "ativa"  # a suíte liga o SMTP local
     assert por_nome[ENVIAR]["integracoes"] == ["email"]
@@ -228,5 +229,6 @@ def test_envio_que_nao_saiu_nao_fica_marcado_como_confirmado(mundo, monkeypatch)
     confirmacao_id = preparar(ana, {"execucao_id": "ex-1"})
     monkeypatch.setenv("EMAIL_SMTP_PORTA", "1")  # porta local fechada: nada sai
     resultado = confirmacoes.confirmar(confirmacao_id, ana)
-    assert resultado["mensagem"] == confirmacoes.MENSAGEM_FORA_DO_AR
+    assert resultado["mensagem"] == confirmacoes.mensagem_nada_saiu(catalogo.carregar()[ENVIAR])
     assert confirmacoes.situacao_da_decisao(confirmacao_id, ana) is None
+    assert [c["id"] for c in confirmacoes.confirmacoes_da_execucao("ex-1", ana)] == [confirmacao_id]  # volta à fila
