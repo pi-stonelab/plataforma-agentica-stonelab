@@ -94,8 +94,9 @@ def test_guarda_o_anexo_na_pasta_da_pessoa_com_id_sorteado_e_so_a_pessoa_le(past
     assert (meta["nome"], meta["tipo"], meta["tamanho"]) == ("Relatório de abril.csv", "csv", 8)
     (arquivo,) = arquivos_em(pasta)
     assert arquivo == f"entrada/{ANA_ID}/{meta['anexo_id']}__Relatório de abril.csv"
-    assert stat.S_IMODE(os.stat(pasta / arquivo).st_mode) == 0o600
-    assert stat.S_IMODE(os.stat(pasta / "entrada" / ANA_ID).st_mode) == 0o700
+    if sys.platform != "win32":  # o Windows não tem modo POSIX de arquivo
+        assert stat.S_IMODE(os.stat(pasta / arquivo).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(pasta / "entrada" / ANA_ID).st_mode) == 0o700
     assert [a["anexo_id"] for a in ANEXOS.listar_entradas(ANA_ID)] == [meta["anexo_id"]]
     assert ANEXOS.listar_entradas(BIA_ID) == []
 
