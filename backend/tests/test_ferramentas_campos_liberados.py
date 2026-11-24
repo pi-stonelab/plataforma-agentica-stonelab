@@ -35,6 +35,8 @@ LIBERACOES_PERMITIDAS = {
     | {"encargos", "valor_da_parcela", "valor_da_ultima_parcela", "aprovacao", "atencao"},
     "aprovar_acordo": CONFIRMACAO | {"id_acordo", "decisao"},
     "retirar_acordo": CONFIRMACAO | {"id_acordo", "efeito"},
+    "registrar_defesa_chargeback": CONFIRMACAO
+    | {"documentos_a_registrar", "documentos_ja_registrados", "documentos_que_faltam", "o_que_acontece"},
     "buscar_emails": frozenset({"data_inicio", "data_fim"}),
     "buscar_conjuntos_dados": frozenset({"nome_do_sistema"}),
     "conferir_liquidacoes": frozenset({"agenda", "diferenca", "explicacao", "pago"}),

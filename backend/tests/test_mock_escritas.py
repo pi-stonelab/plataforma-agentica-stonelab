@@ -25,6 +25,7 @@ from tests import gabaritos as gab
 
 ANA, BRUNO, SUPERVISORA, OUVIDORIA = "F0001", "F0002", "F0006", "F0007"
 COBRANCA, RECEBIVEIS, COORDENADORA = "F0008", "F0010", "F0011"
+DISPUTAS = "F0009"
 N1_DA_PME = "F0004"
 AGORA = regras.AGORA_DO_MOCK
 AMANHA_UTIL = date(2026, 10, 16)
@@ -472,6 +473,8 @@ def _operacoes(engine):
     yield lambda: escritas.registrar_acordo(engine, "M00003", (), 4, None, False, 0, COBRANCA)
     yield lambda: escritas.decidir_acordo(engine, "AC0001", True, COORDENADORA)
     yield lambda: escritas.decidir_acordo(engine, "AC0003", False, COORDENADORA)
+    yield lambda: escritas.retirar_acordo(engine, "AC0002", COBRANCA)
+    yield lambda: escritas.registrar_defesa_chargeback(engine, "M00002", "CB00001", ("nota_fiscal",), DISPUTAS)
     chamado = _pedido_de_antecipacao(engine)
     yield lambda: escritas.executar_antecipacao(engine, "M00004", chamado, BRUNO)
 

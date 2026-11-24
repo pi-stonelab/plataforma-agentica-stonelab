@@ -36,6 +36,7 @@ GRANT UPDATE (situacao, id_aprovador, id_decisor) ON acordos TO mock_escrita;
 GRANT INSERT ON antecipacoes TO mock_escrita;
 GRANT INSERT ON chamados TO mock_escrita;
 GRANT UPDATE (situacao, id_responsavel, resolvido_em, nivel_atendimento, suspeita_fraude) ON chamados TO mock_escrita;
+GRANT UPDATE (documentos_enviados, situacao) ON chargebacks TO mock_escrita;
 GRANT INSERT ON escritas_aplicadas TO mock_escrita;
 GRANT UPDATE (situacao, id_acordo) ON faturas TO mock_escrita;
 GRANT INSERT ON interacoes TO mock_escrita;

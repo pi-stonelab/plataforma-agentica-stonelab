@@ -48,6 +48,7 @@ ESCRITA_COM_CONFIRMACAO = (
     "registrar_acordo",
     "aprovar_acordo",
     "retirar_acordo",
+    "registrar_defesa_chargeback",
     "criar_evento_agenda",
     "adicionar_linha_planilha",
     "criar_planilha",

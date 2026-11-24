@@ -37,6 +37,7 @@ from .modelos import (
     Acordo,
     Antecipacao,
     Chamado,
+    Chargeback,
     ContaRecebimento,
     EscritaAplicada,
     Fatura,
@@ -62,6 +63,7 @@ PRIVILEGIOS_DE_ESCRITA = {
     "interacoes": {"insert": True, "update": ()},
     "liquidacoes": {"insert": True, "update": ("situacao",)},
     "acordos": {"insert": True, "update": ("situacao", "id_aprovador", "id_decisor")},
+    "chargebacks": {"insert": False, "update": ("documentos_enviados", "situacao")},
     "faturas": {"insert": False, "update": ("situacao", "id_acordo")},
     "antecipacoes": {"insert": True, "update": ()},
     "recebiveis": {"insert": False, "update": ("situacao", "id_antecipacao")},
@@ -885,3 +887,54 @@ def aprovadores_possiveis(engine: Engine, alcada: str, id_solicitante: str) -> i
     with trava_de_acesso(engine), Session(engine) as sessao:
         ativos = sessao.scalars(select(Funcionario).where(Funcionario.situacao == "ativo", Funcionario.id != id_solicitante))
         return sum(_decide_o_acordo(f.cargo, alcada) for f in ativos)
+
+
+# ---------------------------------------------------------------------------------------------
+# Disputas: defesa de chargeback (DOC-MOCK §7.6)
+# ---------------------------------------------------------------------------------------------
+
+
+def registrar_defesa_chargeback(
+    engine: Engine, codigo_lojista: str, codigo_chargeback: str, documentos: tuple[str, ...], id_funcionario: str
+) -> dict:
+    """Registra os documentos de defesa que o lojista mandou. Só vale enquanto o chargeback aguarda a defesa e o
+    prazo não acabou (depois dele, sem defesa, o chargeback é aceito). Só entram documentos que o motivo pede
+    (`regras.DOCUMENTOS_POR_MOTIVO`); com todos eles, o caso segue para a análise do analista de disputas."""
+    with _transacao(engine, "registrar_defesa_chargeback", "cadastro", "disputas") as sessao:
+        _funcionario_ativo(sessao, id_funcionario)
+        _lojista(sessao, codigo_lojista)
+        chargeback = sessao.scalar(
+            select(Chargeback).where(Chargeback.codigo == codigo_chargeback, Chargeback.id_lojista == codigo_lojista)
+            .with_for_update()
+        )
+        if chargeback is None:
+            raise EscritaRecusada("nao_encontrado", "Chargeback não encontrado para este lojista.")
+        if chargeback.situacao not in regras.SITUACOES_COM_PRAZO_DO_CHARGEBACK:
+            raise EscritaRecusada("parametro_invalido", "Este chargeback não está mais aguardando a defesa.")
+        if chargeback.prazo_defesa < regras.HOJE_DO_MOCK:
+            raise EscritaRecusada(
+                "parametro_invalido",
+                f"O prazo de defesa acabou em {chargeback.prazo_defesa:%d/%m/%Y}: sem defesa, o chargeback é aceito.",
+            )
+        exigidos = regras.DOCUMENTOS_POR_MOTIVO[chargeback.motivo]
+        if fora := [d for d in documentos if d not in exigidos]:
+            raise EscritaRecusada("parametro_invalido", f"Este motivo não pede: {', '.join(fora)}.")
+        enviados = [d for d in chargeback.documentos_enviados.split(",") if d]
+        novos = [d for d in dict.fromkeys(documentos) if d not in enviados]
+        if not novos:
+            raise EscritaRecusada("parametro_invalido", "Estes documentos já estão registrados na defesa.")
+        todos = [*enviados, *novos]
+        chargeback.documentos_enviados = ",".join(todos)
+        faltam = [d for d in exigidos if d not in todos]
+        if not faltam:
+            chargeback.situacao = "em_analise"
+        sessao.flush()
+        _lembrar_resultado(sessao, chargeback.codigo)
+        return {
+            "codigo": chargeback.codigo,
+            "id_lojista": codigo_lojista,
+            "documentos_registrados": novos,
+            "documentos_enviados": todos,
+            "documentos_que_faltam": faltam,
+            "situacao": chargeback.situacao,
+        }

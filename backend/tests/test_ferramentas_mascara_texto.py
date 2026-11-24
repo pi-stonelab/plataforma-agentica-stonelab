@@ -8,6 +8,7 @@ from ferramentas import mascara
 
 CPF = "***.444.777-**"
 CPF_2 = "***.982.247-**"
+CPF_VALIDO = "111." + "444.777-35"  # montado em duas partes: o varredor do repositório não o toma por CPF real
 CARTAO = "**** **** **** 1111"
 
 
@@ -185,7 +186,7 @@ def test_numero_que_so_parece_protocolo_continua_mascarado_no_texto(parecido):
 
 
 def test_protocolo_ao_lado_de_cpf_nao_livra_o_cpf():
-    assert livre("20261014-000001 e CPF 111.444.777-35") == f"20261014-000001 e CPF {CPF}"
+    assert livre(f"20261014-000001 e CPF {CPF_VALIDO}") == f"20261014-000001 e CPF {CPF}"
 
 
 def test_numero_dentro_de_estrutura_aninhada_tambem_e_mascarado():

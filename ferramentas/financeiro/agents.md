@@ -21,7 +21,7 @@ usuário]
 ## Para quem mantém
 
 - Integrações da área: `sql`.
-- Ferramentas (16):
+- Ferramentas (18):
   - `consultar_transacoes_cliente` (leitura)
   - `consultar_liquidacoes_cliente` (leitura)
   - `consultar_agenda_recebiveis` (leitura)
@@ -39,5 +39,6 @@ usuário]
   - `registrar_acordo` (escrita com confirmação, ativa)
   - `aprovar_acordo` (escrita com confirmação, ativa)
   - `retirar_acordo` (escrita com confirmação, ativa)
+  - `registrar_defesa_chargeback` (escrita com confirmação, ativa, Disputas)
 - Saiu: `consultar_saldo_conta`. A Stone não guarda um saldo de conta do lojista no mock; o que ele tem a receber está na agenda (`consultar_agenda_recebiveis`). Ver `docs/decisoes.md`.
-- Enviar defesa de contestação continua de fora (sem ferramenta).
+- Enviar a defesa à bandeira continua de fora: `registrar_defesa_chargeback` só registra no cadastro da Stone os documentos que o lojista entregou.

@@ -161,6 +161,13 @@ def executar_antecipacao(codigo, id_chamado, id_funcionario, valor_maximo_centav
     }
 
 
+# --- Disputas: defesa de chargeback (DOC-MOCK §7.6) -----------------------------------------------------
+
+
+def registrar_defesa_chargeback(codigo, codigo_chargeback, documentos, id_funcionario):
+    return _gravar(escritas.registrar_defesa_chargeback, codigo, codigo_chargeback, tuple(documentos), id_funcionario)
+
+
 # --- Cobrança: acordos (DOC-MOCK §7.5 e §7.9) ---------------------------------------------------------
 
 

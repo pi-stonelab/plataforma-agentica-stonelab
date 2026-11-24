@@ -219,6 +219,7 @@ def buscar_endereco(cep):
 # ---------------------------------------------------------------------------------------------
 
 AGORA_DO_MOCK = regras.AGORA_DO_MOCK
+ROTULOS_DOS_DOCUMENTOS = regras.ROTULOS_DOS_DOCUMENTOS
 MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = regras.MOTIVOS_DE_RECUSA_DA_ANTECIPACAO
 DIAS_UTEIS_PARA_CAIR_A_ANTECIPACAO = regras.DIAS_UTEIS_PARA_CAIR_A_ANTECIPACAO
 alcada_do_acordo = regras.alcada_do_acordo
