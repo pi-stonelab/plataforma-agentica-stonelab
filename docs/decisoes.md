@@ -611,7 +611,7 @@ Aplicadas depois da revisão do bloco C. Ficam para o Pedro confirmar.
   6000. Medido em 24/11 com o agente geral: supervisor de atendimento 5832, especialista N2 5706, coordenador financeiro
   5564 caracteres. Cada ferramenta nova acrescenta cerca de 170 e, com mais duas ou três, o fim do índice some sem
   aviso. Sugestão: o índice mostrar só as áreas e a pessoa (ou o modelo) abrir a área com `LER`, que já existe
-  (`catalogo.ler("<area>")`), ou subir o teto do índice. Decisão deles.
+  (`catalogo.ler("<area>")`), ou subir o teto do índice. Decisão deles. Resolvido do nosso lado em F1.
 - No código: `ferramentas/tamanho.py`, `lojista.limite_pedido` (parâmetro `maximo`), as três fichas.
 
 ### C11. A cobrança vê só o saldo da agenda
@@ -695,7 +695,8 @@ Escolhas sem fonte no DOC-MOCK para as 8 escritas do bloco D (plano `plano-ferra
   8 escritas). Depois da junção com os blocos C e E1 vale o controle por ferramenta de
   `test_catalogo_indice.py`: frase curta (até 160 caracteres) e um custo fixo por linha. O problema de fundo continua
   em aberto: o agente geral lista o catálogo inteiro e o índice passa de 6000 caracteres (ver C10). Falta decidir
-  (Pedro, com agentes) se o índice mostra só a lista do agente, se é dividido por área ou se o teto sobe.
+  (Pedro, com agentes) se o índice mostra só a lista do agente, se é dividido por área ou se o teto sobe. Resolvido
+  em F1: o catálogo encurta as frases e o índice cabe em 5800 caracteres.
 - No código: `backend/tests/test_catalogo_indice.py`.
 
 ## Decisões do bloco E2: Google Workspace, Microsoft 365 e anexos (24/11, G1 a G10)
@@ -772,6 +773,42 @@ contra o serviço de verdade (sem conta nem app registrado): ver o comando `test
 - Motivo: LGPD (mínimo de dado, só o necessário e por tempo limitado) e isolamento entre pessoas. Os números são
   escolhas nossas, sem fonte.
 
+## Decisões do bloco F: índice, agente de atendimento e prompts (24/11, F1 a F6)
+
+Escolhas do fechamento das ferramentas. Todas são do Pedro confirmar; os testes estão em `backend/tests/`.
+
+### F1. O índice se encurta sozinho para caber em 6000 caracteres
+- Problema (C10, W6): o motor corta cada leitura em 6000 (`MAX_CHARS_MD`) e o índice do agente geral para um cargo com
+  50 ferramentas chegava a 9500 caracteres, então a cauda (as últimas áreas, os tipos de erro e as regras gerais)
+  sumia sem aviso. Medido em 24/11 com todas as integrações ligadas: de 6853 a 9477 caracteres, conforme o cargo.
+- Decisão: `catalogo._indice` mede o texto e divide o espaço entre as frases (`LIMITE_DO_INDICE` = 5800, folga sobre o
+  corte). Poucas ferramentas: frase inteira (até 160). Muitas: frase cortada na última palavra, com `…`, até um mínimo
+  de 30 caracteres; se nem assim couber, só `area/nome`. As áreas passam a mostrar só a quantidade de ferramentas, e o
+  texto fixo da raiz (`ferramentas/agents.md`) ficou mais curto. A frase inteira de cada ferramenta continua em
+  `LER: <area>`. Hoje o cargo de 50 ferramentas ganha frases de cerca de 40 caracteres. Escolhido por ser a mudança
+  mais simples e fica do nosso lado: o motor de Christopher e Isack não mudou.
+- Alternativas descartadas: subir `MAX_CHARS_MD` (cada passo reenvia o índice ao modelo local, mais lento) e listar só
+  as áreas no índice (a regra "leia a ficha direto" dos prompts deixaria de valer).
+- No código: `ferramentas/catalogo.py` (`_indice`, `_frase_curta`, `_limite_das_frases`), `ferramentas/agents.md`,
+  `backend/tests/test_catalogo_indice.py` (10 cargos, os dois agentes, pior caso com tudo ligado).
+
+### F2. Lista de ferramentas do agente de atendimento (KAN-55)
+- Decisão: das 56 ferramentas, 33 entram: o lojista (cadastro, contatos, identidade, chamados, histórico, base de
+  conhecimento e e-mails recebidos), vendas, depósitos, agenda, faturas, acordos e contestações, os cálculos, CEP e
+  cotação, as sete escritas de atendimento e cobrança em duas fases (`abrir_chamado`, `adicionar_nota_chamado`,
+  `atualizar_situacao_chamado`, `registrar_pedido_antecipacao`, `executar_antecipacao`, `registrar_acordo`,
+  `enviar_email`), os anexos do chat, `entregar_arquivo` e `solicitar_ferramenta_ausente`. O agente geral continua com todas.
+- Ficam de fora (23): indicadores gerenciais (`resumir_*`, `consultar_taxa_contestacao_mensal`, `calcular_roi`), o
+  dicionário de dados, Jira, Slack e Telegram (bastidor entre times), agenda, planilhas e documentos do Google ou da
+  Microsoft (conta pessoal; o geral cobre) e o que é de outro papel (`aprovar_acordo`, `reprocessar_liquidacao`,
+  segregação de funções do DOC-MOCK §8.1).
+- Lista não é permissão: o cargo manda (§8.2). `test_agente_atendimento_ferramentas.py` confere o alcance de cada cargo
+  pelo agente com os gabaritos de §8.2 e obriga cada ferramenta nova a entrar ou a ter motivo para ficar de fora.
+- Dúvida para o Pedro: `executar_antecipacao` e `registrar_acordo` entram porque o N2 executa a antecipação pedida pelo
+  lojista e a cobrança negocia (§8.2); a prévia e a confirmação humana continuam valendo. Se preferir o agente só de
+  leitura mais as escritas de chamado, é tirar as duas da lista.
+- No código: `agentes/agente_atendimento/agente.py` (`FERRAMENTAS_DO_AGENTE`).
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que
@@ -832,8 +869,8 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
 8. Escopo por chamados atribuídos. O DOC-MOCK §3.2 fala em carteira, fila e chamados atribuídos; o código só usa as
    carteiras do time (L11 da pesquisa).
 9. Reativar um agente pausado. `Plataforma.deprecar` existe; não existe método que reative. Nenhuma fonte diz se pode.
-10. Lista de ferramentas do agente de atendimento (KAN-55). Está fixa em 5, sem as 6 novas. O comentário no código diz que
-    a lista virá da configuração do agente (KAN-55); falta isso ser feito.
+10. Lista de ferramentas do agente de atendimento (KAN-55). Resolvida em F2: 33 das 56, fixas no código. O comentário
+    no código diz que a lista virá da configuração do agente (KAN-55); falta isso ser feito (Christopher e Isack).
 11. Retenção do registro de chamadas e da auditoria. O valor está em branco no código (`[preencher: prazo de retenção]`
     em `governanca.py`) e nos cards (KAN-34, trava 8). SEM FONTE.
 12. Preço simulado por token e limite mensal por pessoa (Sprint 3). A regra vem da KAN-16; os números não.

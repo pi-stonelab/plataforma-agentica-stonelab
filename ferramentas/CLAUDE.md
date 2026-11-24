@@ -322,8 +322,9 @@ Exemplo: `listar_acordos_cliente`, que lê dados que o mock já tem.
      dão a mesma resposta; sistema fora do ar (`mock.falhas.ligar("core")`) dá `integracao_indisponivel`; o registro
      não tem argumento nem dado.
 8. Agentes: o agente geral lista `catalogo.nomes()` quando o módulo é importado, então a ferramenta aparece nele
-   depois de reiniciar. O agente de atendimento tem lista fixa em `FERRAMENTAS_DO_AGENTE` (KAN-55), hoje com as 11
-   de leitura e cálculo e o `enviar_email`. Incluir outra é combinado com o Christopher e o Isack.
+   depois de reiniciar. O agente de atendimento tem lista fixa em `FERRAMENTAS_DO_AGENTE` (KAN-55), hoje com 33 das
+   56 (decisão F1/F2). Ferramenta nova precisa entrar nela ou na lista de fora de
+   `test_agente_atendimento_ferramentas.py`; incluir é combinado com o Christopher e o Isack.
 9. Rode `ruff check .` na raiz e `cd backend && python -m pytest -q`.
 
 Ferramenta de escrita só fica ativa por regra explícita na governança: `ESCRITA_SEM_CONFIRMACAO` (só o
