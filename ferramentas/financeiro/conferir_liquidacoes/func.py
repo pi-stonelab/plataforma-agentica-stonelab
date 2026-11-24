@@ -7,11 +7,11 @@ from ferramentas.base import Ferramenta
 
 DIAS_PADRAO = 30
 LIMITE_PADRAO = 20
-EXPLICACAO = {
-    "falhou": "A liquidação do dia falhou e o valor ficou retido. Veja o motivo_falha; troca de conta é só com o N2.",
-    "devolvida": "O banco devolveu o depósito. O valor volta para a agenda e é pago de novo depois que a conta for corrigida.",
+EXPLICACAO = {  # só o que a conferência enxerga (agenda x depósito do dia); a causa é de quem investiga
+    "falhou": "A liquidação do dia falhou. O motivo está em motivo_falha; veja o chamado de Recebimento ligado antes de explicar ao lojista.",
+    "devolvida": "A liquidação do dia aparece como devolvida. Veja o chamado de Recebimento ligado antes de explicar a causa ao lojista.",
     "sem_liquidacao": "A agenda mandava pagar neste dia, mas não houve liquidação.",
-    "abaixo": "O depósito veio abaixo da agenda e não há desconto registrado que explique. Abra um chamado de Recebimento para o financeiro conferir.",
+    "abaixo": "O depósito veio abaixo da agenda. Esta conferência não olha descontos do dia: abra um chamado de Recebimento para o financeiro conferir.",
     "acima": "O depósito veio acima da agenda. Abra um chamado de Recebimento para o financeiro conferir.",
 }
 

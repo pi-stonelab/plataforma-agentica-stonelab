@@ -165,7 +165,8 @@ def test_conferencia_do_cenario_1_aponta_a_liquidacao_que_falhou(engine):
     assert divergencia["data"] == g.C1_LIQUIDACAO_DATA and divergencia["situacao"] == g.C1_LIQUIDACAO_SITUACAO
     assert (divergencia["agenda"], divergencia["pago"]) == (g.C1_LIQUIDACAO_TEXTO, "R$ 0,00")
     assert divergencia["diferenca"] == "-" + g.C1_LIQUIDACAO_TEXTO
-    assert divergencia["motivo_falha"] == "conta_invalida" and "N2" in divergencia["explicacao"]
+    assert divergencia["motivo_falha"] == "conta_invalida" and "motivo_falha" in divergencia["explicacao"]
+    assert "retido" not in divergencia["explicacao"] and "N2" not in divergencia["explicacao"]  # a causa não é afirmada
 
 
 def test_conferencia_do_kan_14_caso_5_acha_o_deposito_15_reais_abaixo(engine):
@@ -175,6 +176,16 @@ def test_conferencia_do_kan_14_caso_5_acha_o_deposito_15_reais_abaixo(engine):
     assert (divergencia["agenda"], divergencia["pago"]) == (g.K14C5_AGENDA_DO_DIA_TEXTO, g.K14C5_LIQUIDACAO_TEXTO)
     assert divergencia["diferenca"] == "-" + dados_sinteticos.reais(g.K14C5_DIFERENCA_CENTAVOS)
     assert "chamado de Recebimento" in divergencia["explicacao"]
+    assert "não há desconto" not in divergencia["explicacao"]  # a ferramenta não confere descontos: não afirma
+
+
+def test_explicacoes_da_conferencia_nao_afirmam_o_que_o_codigo_nao_confere():
+    from ferramentas.financeiro.conferir_liquidacoes.func import EXPLICACAO
+
+    assert set(EXPLICACAO) == {"falhou", "devolvida", "sem_liquidacao", "abaixo", "acima"}
+    for texto in EXPLICACAO.values():
+        for afirmacao in ("não há desconto", "banco devolveu", "volta para a agenda", "for corrigida", "ficou retido"):
+            assert afirmacao not in texto
 
 
 def test_conferencia_de_lojista_sem_divergencia_devolve_lista_vazia(engine):
