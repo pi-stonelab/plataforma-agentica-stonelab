@@ -30,9 +30,11 @@ from zoneinfo import ZoneInfo
 
 from ferramentas import governanca, mascara
 from ferramentas.base import (
+    CONFIRMACAO_EM_CURSO,
     MENSAGEM_REGISTRO,
     MENSAGEM_REGISTRO_FINAL,
     EfeitoIncerto,
+    ErroDefinitivo,
     ErroFerramenta,
     Ferramenta,
     mensagem_fora_do_ar,
@@ -45,6 +47,8 @@ AGUARDANDO = "aguardando_confirmacao"
 PENDENTE = "pendente"
 APROVADA = "aprovada"
 CANCELADA = "cancelada"
+EXPIRADA = "expirada"
+RECUSADA = "recusada"  # a confirmação foi tentada e o sistema recusou de vez (ErroDefinitivo)
 VALIDADE = timedelta(minutes=15)
 # Quanto tempo a decisão (aprovada ou cancelada) fica lembrada, para o back-end responder 409 em vez de 404.
 LEMBRAR_DECISAO = timedelta(hours=1)
@@ -58,10 +62,16 @@ MENSAGEM_NAO_ENCONTRADO = "Prévia não encontrada, expirada ou já usada."
 MENSAGEM_PREVIAS_DA_PESSOA = (
     f"Você já tem {LIMITE_POR_USUARIO} prévias abertas. Confirme ou descarte uma antes de pedir outra."
 )
-MENSAGEM_JA_DECIDIDA = {APROVADA: "Esta prévia já foi confirmada.", CANCELADA: "Esta prévia já foi descartada."}
+MENSAGEM_JA_DECIDIDA = {
+    APROVADA: "Esta prévia já foi confirmada.",
+    CANCELADA: "Esta prévia já foi descartada.",
+    EXPIRADA: f"Esta prévia expirou (vale {int(VALIDADE.total_seconds() // 60)} minutos). Peça de novo ao assistente.",
+    RECUSADA: "Esta prévia não pode mais ser confirmada: o sistema a recusou. Peça de novo ao assistente.",
+}
 # Falha em que nada saiu: a prévia volta para a fila, e a pessoa confirma de novo sem pedir outra ao agente.
 MENSAGEM_PREVIA_CONTINUA = "A prévia continua valendo: confirme de novo quando quiser."
 MENSAGEM_PREVIA_PRONTA = "Prévia pronta. Nada foi enviado: falta a confirmação do funcionário."
+MENSAGEM_PREVIA_ENCERRADA = "Esta prévia saiu da fila: peça de novo ao assistente."
 AVISO_DE_DEMONSTRACAO = "Modo de demonstração: nada sai de verdade."
 AVISO_DE_SAIDA = "Esta mensagem sai da plataforma. Confira se não há dado pessoal."
 MENSAGEM_EFEITO_INCERTO = (
@@ -72,6 +82,7 @@ MENSAGEM_EFEITO_INCERTO = (
 # depois de resolvidos) e criar as rotas de listar, confirmar e cancelar, chamando `pendentes`,
 # `confirmar` e `cancelar` com o usuário do login]
 PEDIDOS = {}
+
 # confirmacao_id -> (id_usuario, situação, quando). Só isso: nada do conteúdo nem da prévia.
 DECIDIDAS = {}
 TRAVA_DOS_PEDIDOS = threading.Lock()
@@ -235,6 +246,7 @@ def _recolher_vencidos():
     for pedido in vencidos:
         del PEDIDOS[pedido.confirmacao_id]
         pedido.conteudo.clear()
+        _anotar_decisao(pedido, EXPIRADA)  # quem tentar confirmar depois ouve "expirou", não "não encontrada"
     return vencidos
 
 
@@ -340,18 +352,24 @@ def confirmacao_da_execucao(execucao_id, usuario):
     return lista[-1] if lista else None
 
 
+def _anotar_decisao(pedido, situacao):
+    """Guarda (só id, situação e hora) que a prévia já foi decidida ou expirou. Chamada com a trava tomada."""
+    limite = agora() - LEMBRAR_DECISAO
+    for antiga in [c for c, (_, _, quando) in DECIDIDAS.items() if quando <= limite]:
+        del DECIDIDAS[antiga]
+    while len(DECIDIDAS) >= LIMITE_PEDIDOS:
+        del DECIDIDAS[next(iter(DECIDIDAS))]
+    DECIDIDAS[pedido.confirmacao_id] = (pedido.id_usuario, situacao, agora())
+
+
 def _lembrar_decisao(pedido, situacao):
     with TRAVA_DOS_PEDIDOS:
-        limite = agora() - LEMBRAR_DECISAO
-        for antiga in [c for c, (_, _, quando) in DECIDIDAS.items() if quando <= limite]:
-            del DECIDIDAS[antiga]
-        while len(DECIDIDAS) >= LIMITE_PEDIDOS:
-            del DECIDIDAS[next(iter(DECIDIDAS))]
-        DECIDIDAS[pedido.confirmacao_id] = (pedido.id_usuario, situacao, agora())
+        _anotar_decisao(pedido, situacao)
 
 
 def situacao_da_decisao(confirmacao_id, usuario):
-    """`aprovada` ou `cancelada` se o `usuario` já decidiu esta prévia há pouco (`LEMBRAR_DECISAO`); senão None.
+    """`aprovada`, `cancelada`, `recusada` ou `expirada` se esta prévia do `usuario` já teve fim há pouco
+    (`LEMBRAR_DECISAO`); senão None.
 
     [A FAZER (Marcelo e Isabel, back-end, KAN-60): a rota de confirmação responde 409 quando esta função diz que
     a prévia já foi decidida e 404 quando `confirmacao_para_interface` e esta função devolvem None]
@@ -427,12 +445,17 @@ def confirmar(confirmacao_id, usuario):
         _devolver(pedido)
         return resposta("erro", None, MENSAGEM_REGISTRO, "integracao_indisponivel")
     nada_saiu = False  # recusa ou falha antes do envio: a prévia volta para a fila
+    recusada_de_vez = False
     referencia = None
+    marca = CONFIRMACAO_EM_CURSO.set(pedido.confirmacao_id)
     try:
         efeito = ferramenta.efetivar(pedido.conteudo, usuario)
         referencia = ferramenta.referencia_do_resultado(efeito)
         dados = mascara.mascarar(efeito, ferramenta.categorias_dados, ferramenta.campos_liberados)
         resultado = resposta("ok", dados, ferramenta.mensagem_ao_confirmar(efeito))
+    except ErroDefinitivo as erro:  # repetir não adianta: a prévia sai da fila e a pessoa pede outra
+        recusada_de_vez = True
+        resultado = resposta("erro", None, f"{erro.mensagem} {MENSAGEM_PREVIA_ENCERRADA}", erro.tipo_erro)
     except ErroFerramenta as erro:
         nada_saiu = True
         resultado = resposta("erro", None, f"{erro.mensagem} {MENSAGEM_PREVIA_CONTINUA}", erro.tipo_erro)
@@ -445,12 +468,13 @@ def confirmar(confirmacao_id, usuario):
         logger.error("confirmação falhou: ferramenta=%s tipo=%s", ferramenta.nome, type(erro).__name__)
         resultado = resposta("erro", None, "Erro interno.", "erro_interno")
     finally:
+        CONFIRMACAO_EM_CURSO.reset(marca)
         if not nada_saiu:
             pedido.conteudo.clear()
     if nada_saiu:
         _devolver(pedido)
     else:  # a prévia não se confirma de novo; quem tentar ouve "já foi confirmada" (409)
-        _lembrar_decisao(pedido, APROVADA)
+        _lembrar_decisao(pedido, RECUSADA if recusada_de_vez else APROVADA)
     try:
         _registrar(pedido, usuario, resultado, None, inicio, referencia)
     except governanca.RegistroIndisponivel:

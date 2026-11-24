@@ -52,6 +52,9 @@ class AdicionarNotaChamado(FerramentaComConfirmacao):
         escritas_sinteticas.ensaiar(self._gravar, conteudo, usuario)  # o que a confirmação recusaria, já recusa
         return conteudo, previa
 
+    def referencia_do_resultado(self, dados):
+        return dados["id_chamado"]  # id neutro do chamado que recebeu a nota: no registro, liga a escrita a quem confirmou
+
     def efetivar(self, conteudo, usuario):
         return self._gravar(conteudo, usuario)
 

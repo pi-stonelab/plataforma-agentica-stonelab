@@ -4,7 +4,7 @@ Só as ferramentas de escrita chamam, e só no `efetivar` (depois que a pessoa c
 prévia sem gravar (`classificar_chamado`, `montar_acordo`, `faturas_do_acordo`). Nenhuma regra de permissão
 aqui: cargo, área, categoria e carteira são da governança; as regras do negócio são do `mock/escritas.py`.
 
-Regra do negócio violada (`EscritaRecusada`) vira `ErroFerramenta` com o mesmo tipo e a mesma frase. Banco ou
+Regra do negócio violada (`EscritaRecusada`) vira `ErroDefinitivo` (um `ErroFerramenta`) com o mesmo tipo e a mesma frase. Banco ou
 sistema simulado fora do ar vira `ConnectionError` (a transação foi desfeita: nada foi gravado). Valores em reais
 saem como texto, como na fachada de leitura.
 
@@ -12,16 +12,20 @@ O banco é o de `mock.banco.url_de_escrita()`: no Postgres, o papel `mock_escrit
 arquivo da leitura. Os testes ligam o mesmo engine da leitura com `configurar`.
 """
 
+import logging
+
 from mock import escritas
 from mock.banco import criar_engine, url_de_escrita
 from mock.falhas import SistemaIndisponivel
-from sqlalchemy.exc import ArgumentError, InterfaceError, OperationalError
+from sqlalchemy.exc import ArgumentError, DBAPIError, OperationalError
 from sqlalchemy.exc import TimeoutError as TempoEsgotadoNoPool
 
-from ferramentas.base import ErroFerramenta
+from ferramentas.base import CONFIRMACAO_EM_CURSO, EfeitoIncerto, ErroDefinitivo, ErroFerramenta
 from ferramentas.dados_sinteticos import reais
 
-FALHAS_DE_INTEGRACAO = (SistemaIndisponivel, OperationalError, InterfaceError, TempoEsgotadoNoPool)
+logger = logging.getLogger(__name__)
+# Falha do banco com a transação desfeita (nada foi gravado). A que acontece DEPOIS do commit é `GravacaoIncerta`.
+FALHAS_DE_INTEGRACAO = (SistemaIndisponivel, DBAPIError, TempoEsgotadoNoPool)
 CATEGORIAS_DE_CHAMADO = escritas.CATEGORIAS_DE_CHAMADO
 CANAIS = escritas.CANAIS
 TIPOS_DE_NOTA = escritas.TIPOS_DE_NOTA
@@ -48,11 +52,21 @@ def _engine():
 
 
 def _gravar(operacao, *argumentos, **opcoes):
+    """Grava com o id da confirmação em curso como chave de idempotência (sem confirmação, não confere duplicata).
+
+    Regra violada vira `ErroDefinitivo`: a prévia foi montada com as mesmas regras, então se a confirmação recusa é
+    porque o mundo mudou desde então, e repetir não adianta. Banco fora com a transação desfeita vira
+    `ConnectionError` (nada gravado, pode repetir); falha depois do commit vira `EfeitoIncerto` (pode ter gravado).
+    """
     try:
-        return operacao(_engine(), *argumentos, **opcoes)
+        with escritas.com_chave(CONFIRMACAO_EM_CURSO.get()):
+            return operacao(_engine(), *argumentos, **opcoes)
     except escritas.EscritaRecusada as erro:
-        raise ErroFerramenta(erro.tipo_erro, erro.mensagem) from None
-    except FALHAS_DE_INTEGRACAO:
+        raise ErroDefinitivo(erro.tipo_erro, erro.mensagem) from None
+    except escritas.GravacaoIncerta:
+        raise EfeitoIncerto() from None
+    except FALHAS_DE_INTEGRACAO as erro:
+        logger.warning("escrita no mock falhou: tipo=%s", type(erro).__name__)
         raise ConnectionError("integração indisponível") from None
 
 
@@ -61,7 +75,7 @@ def _calcular(conta, *argumentos):
     try:
         return conta(*argumentos)
     except escritas.EscritaRecusada as erro:
-        raise ErroFerramenta(erro.tipo_erro, erro.mensagem) from None
+        raise ErroDefinitivo(erro.tipo_erro, erro.mensagem) from None
 
 
 # --- CRM: chamados (DOC-MOCK §6.3 a §6.6) -------------------------------------------------------------

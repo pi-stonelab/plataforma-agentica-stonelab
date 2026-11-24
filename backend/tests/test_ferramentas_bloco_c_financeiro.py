@@ -6,7 +6,8 @@ from decimal import Decimal
 
 import pytest
 from ferramentas import dados_sinteticos, governanca, lojista
-from mock import regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
+from mock import gerar as gerador  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
+from mock import regras  # noqa: UP026
 from mock.falhas import ligar
 
 from . import gabaritos as g
@@ -194,9 +195,10 @@ def test_conferencia_de_lojista_sem_divergencia_devolve_lista_vazia(engine):
     assert (dados["divergencias"], dados["total_encontrado"], dados["truncado"]) == ([], 0, False)
 
 
-def test_conferencia_no_mundo_inteiro_acha_so_as_tres_divergencias_plantadas(engine):
+def test_conferencia_no_mundo_inteiro_acha_so_as_divergencias_plantadas(engine):
     coordenador = usuario(engine, "coordenador_financeiro")
     periodo = {"data_inicio": "2026-01-01", "data_fim": "2026-10-14"}
+    lojista_recusado, dia_recusado = gerador.LIQUIDACAO_RECUSADA_PELO_BANCO
     achadas = set()
     for codigo in LOJISTAS:
         dados = chamar("conferir_liquidacoes", {"id_cliente": codigo, "limite": 50} | periodo, coordenador)["dados"]
@@ -205,6 +207,7 @@ def test_conferencia_no_mundo_inteiro_acha_so_as_tres_divergencias_plantadas(eng
         (g.C1_LOJISTA, g.C1_LIQUIDACAO_DATA, "-R$ 1.842,30"),
         (g.C9_LOJISTA, "2026-09-04", "-R$ 3,00"),
         (g.K14C5_LOJISTA, g.K14C5_DIA, "-R$ 15,00"),
+        (lojista_recusado, dia_recusado.isoformat(), "-R$ 92,49"),
     }
 
 

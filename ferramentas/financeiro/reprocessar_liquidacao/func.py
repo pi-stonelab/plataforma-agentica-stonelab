@@ -58,6 +58,9 @@ class ReprocessarLiquidacao(FerramentaComConfirmacao):
         escritas_sinteticas.ensaiar(self._gravar, conteudo, usuario)  # o que a confirmação recusaria, já recusa
         return conteudo, previa
 
+    def referencia_do_resultado(self, dados):
+        return f"liquidacao-{dados['id_nova_tentativa']}"  # id neutro da nova tentativa: liga a escrita a quem confirmou
+
     def efetivar(self, conteudo, usuario):
         return self._gravar(conteudo, usuario)
 
