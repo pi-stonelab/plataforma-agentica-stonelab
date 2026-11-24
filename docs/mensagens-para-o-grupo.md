@@ -157,6 +157,45 @@ O que pode quebrar:
 Perguntas para vocês: o que acontece quando o turno passa de 10 passos (hoje devolve uma mensagem fixa e o motivo
 `max_passos`)? Como querem guardar o `Turno.estado` entre mensagens? Fica com o back-end, por conversa.
 
+## Para o Marcelo, a Isabel e a Larissa: agenda, planilhas, documentos e anexos (bloco E2)
+
+Oi, pessoal. Entraram em `ferramentas/` o Google Workspace, o Microsoft 365 e os anexos do chat, com nove ferramentas
+novas em `documentos_e_agenda` (28 ativas em 43). Nada em `backend/app/` nem em `frontend/` foi alterado: o que falta
+de cada lado está marcado no código com `[A FAZER (...)]`, nos pontos exatos de ligação.
+
+Para o Marcelo e a Isabel (back-end, Sprint 3):
+
+- Conta de cada pessoa (OAuth2): rotas `GET /integracoes/{servico}/autorizar` (chama `FluxoOAuth.iniciar` com o
+  `id_usuario` do token e devolve o endereço de consentimento) e `GET /integracoes/{servico}/callback` (recebe `state`
+  e `code`, chama `concluir`). O `servico` é `google_workspace` ou `microsoft_365`; o `FluxoOAuth` sai de
+  `CONECTOR.fluxo()`. O `id_usuario` vem sempre do token, nunca do corpo ou da URL. Marcador em
+  `ferramentas/integracoes/oauth.py`.
+- Guardar os tokens: uma tabela `credenciais_externas` (id_usuario, serviço, escopos, expiração e os dois tokens
+  cifrados com uma chave do `.env`) e um `ProvedorNoBanco(ProvedorDeCredencial)` com `ler`, `guardar` e `apagar`;
+  `credenciais.usar(provedor)` no `lifespan`. Hoje o provedor é `ProvedorEmMemoria` (some quando reinicia). Marcador em
+  `ferramentas/integracoes/credenciais.py`.
+- Anexos: `POST /conversas/{id}/anexos` (multipart, até 5 MB, chama `anexos.guardar_entrada(id_usuario_do_token, nome,
+  bytes)` e devolve o `anexo_id`; liste os anexos da conversa para o agente com `listar_entradas`) e
+  `GET /arquivos/{arquivo_id}` (chama `anexos.abrir_saida`, com `Content-Disposition: attachment` e
+  `X-Content-Type-Options: nosniff`). Marcador em `ferramentas/integracoes/anexos/conector.py`.
+- `.env`: `GOOGLE_*`, `MICROSOFT_*`, `ESCRITORIO_DOMINIOS`, `ANEXOS_MODO` e `ANEXOS_DIRETORIO` (nomes em `.env.example`,
+  sem valores). `GOOGLE_REDIRECT_URI` e `MICROSOFT_REDIRECT_URI` precisam ser o endereço da rota de retorno de vocês.
+- Pode quebrar: `catalogo.executar` agora devolve `integracao_indisponivel` "conta não ligada" se a pessoa ainda não
+  conectou a conta; a interface precisa mostrar isso.
+
+Para a Larissa (interface, Sprint 3):
+
+- Botão "Conectar conta" e "Desconectar" por serviço na tela de conectores (`estado_integracoes()` já diz o `modo` e a
+  `saude`). Conectar abre o endereço devolvido pela rota `autorizar`.
+- Botão de anexar no chat (txt, csv, xlsx, docx e pdf, até 5 MB) e o link de download do arquivo que o agente entrega,
+  com o `arquivo_id` que vem na resposta de `entregar_arquivo`.
+- As ferramentas de escrita (`criar_evento_agenda`, `adicionar_linha_planilha`, `criar_planilha`) pedem a confirmação em
+  duas etapas que já existe para `enviar_email`.
+
+Importante para todos: o Google e a Microsoft **não foram testados contra o serviço de verdade** (sem conta nem app
+registrado, só dado sintético); os testes usam servidores locais falsos. O Pedro roda
+`MODO_TERMINAL=1 python -m ferramentas.integracoes testar google_workspace` (e `microsoft_365`) quando houver o app.
+
 ## Comentários sugeridos para o Jira (não postados)
 
 Um por assunto. O Pedro decide se posta, onde e com que texto. Os números dos cards vêm do `CLAUDE.md` da raiz e dos
@@ -192,3 +231,16 @@ documentos da pesquisa. O Pedro confere cada um antes.
    > O mock (20 lojistas, 15 funcionários, cenários 1, 3, 5 e 7) vive em banco próprio (`MOCK_DATABASE_URL`) e as
    > ferramentas leem dele. Seis ferramentas de leitura novas estão ativas (11 ativas em 43). Dado restrito é mascarado
    > na saída da ferramenta. Ver `ferramentas/CLAUDE.md` e `mock/CLAUDE.md`.
+
+6. Back-end (OAuth por pessoa e anexos, KAN-60; arquitetura, KAN-31).
+
+   > Entraram o Google Workspace, o Microsoft 365 e os anexos do chat em `ferramentas/integracoes/`, com as nove
+   > ferramentas de `documentos_e_agenda`. Falta ao back-end: rotas `/integracoes/{servico}/autorizar` e `/callback`,
+   > um `ProvedorNoBanco` com tokens cifrados e as rotas de envio e download de anexos (marcadores `[A FAZER (Marcelo...)]`).
+   > Não testado contra o Google e a Microsoft de verdade; ver `testar` nos READMEs.
+
+7. Interface (conectores e chat, KAN-60).
+
+   > A tela de conectores precisa do botão "Conectar conta" por serviço, e o chat, do botão de anexar e do link de
+   > download do arquivo que o agente entrega (marcadores `[A FAZER (Larissa...)]`). As escritas novas usam a
+   > confirmação em duas etapas.

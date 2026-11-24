@@ -1,7 +1,7 @@
 # ferramentas/ (frente 4: Pedro)
 
 Catálogo das ações que o agente pode pedir, a regra de quem pode usar cada uma e a ligação com os dados da Stone
-simulada (`mock/`). Hoje são 43 ferramentas em 8 áreas. Dezenove estão ativas. As outras 24 são esqueletos: o
+simulada (`mock/`). Hoje são 43 ferramentas em 8 áreas. Vinte e oito estão ativas. As outras 15 são esqueletos: o
 `func.py` existe, mas `rodar` só devolve `ferramenta_inativa` ("ainda sem lógica").
 
 Ativas: `consultar_cliente`, `consultar_transacoes_cliente`, `calcular_multa_atraso`, `consultar_endereco_cep`,
@@ -9,9 +9,13 @@ Ativas: `consultar_cliente`, `consultar_transacoes_cliente`, `calcular_multa_atr
 `consultar_historico_contato`, `listar_faturas_em_atraso`, `calcular_parcelas`, `consultar_contatos_lojista`,
 `consultar_cotacao_moeda`, `enviar_email` (escrita em duas fases, ver "Escrita em duas fases") e, do bloco E1,
 `consultar_chamado_jira`, `abrir_chamado_jira`, `comentar_chamado_jira`, `enviar_mensagem_slack`,
-`enviar_aviso_telegram` e `buscar_emails` (as quatro de escrita também em duas fases). Ferramenta ativa cuja
+`enviar_aviso_telegram` e `buscar_emails` (as quatro de escrita também em duas fases) e, do bloco E2, as nove da
+área `documentos_e_agenda`: `listar_eventos_agenda`, `criar_evento_agenda`, `buscar_arquivos`, `ler_planilha`,
+`adicionar_linha_planilha`, `criar_planilha`, `ler_documento`, `ler_arquivo_anexado` e `entregar_arquivo`. As três
+primeiras de escrita usam duas fases; `entregar_arquivo` não (G4). A conta é a de cada pessoa (Google ou Microsoft,
+alternativas entre si, G2) e os anexos ficam numa pasta da plataforma (G10). Ferramenta ativa cuja
 integração está desligada ou mal configurada no .env some do índice que o modelo lê e aparece `inativa` na tela.
-Jira, Slack, Telegram e a leitura de e-mail começam desligados (sem token não há conector ligado) e só alcançam
+Jira, Slack, Telegram, a leitura de e-mail, o Google Workspace, o Microsoft 365 e os anexos começam desligados (sem token não há conector ligado) e só alcançam
 destinos da lista do .env (`integracoes/README.md`).
 
 Fontes citadas neste arquivo: `KAN-xx` (cards do Jira), `DOC-MOCK §x` (documento das regras do mock),
@@ -74,8 +78,9 @@ sozinho deixa desligado e afastado entrarem. Por isso a checagem mora em `direto
   origem, prazo total do pedido, teto de 1 MB, 429, 5xx e JSON quebrado viram `ConnectionError`, 401 e 403 viram
   `CredencialRecusada`, outros 4xx viram `parametro_invalido`, e escrita que perdeu a resposta vira `EfeitoIncerto`;
   os loggers do httpx ficam em WARNING para não gravar URL), `registro.py` (`estado_integracoes()`, sem segredo) e
-  um `conector.py` por pasta que já tem código (`apis_publicas/`, `email/`). `sistemas_internos.py` vê o
-  mock como os sistemas internos (crm, sql, bigquery, datahub) e `planejados.py` lista os que ainda não têm conector.
+  um `conector.py` por pasta que já tem código (`apis_publicas/`, `email/`, `google_workspace/`, `microsoft_365/`,
+  `anexos/` e os demais). `sistemas_internos.py` vê o mock como os sistemas internos (crm, sql, bigquery, datahub).
+  A conta de cada pessoa (OAuth2 com PKCE) fica em `oauth.py` e `credenciais.py`; arquivos, em `formatos.py`.
   Cada pasta tem o README do sistema; o agente não lê. Terminal: `python -m ferramentas.integracoes estado` e
   `MODO_TERMINAL=1 python -m ferramentas.integracoes testar <integração>`. Testes em `test_integracoes_*.py`, contra
   um servidor HTTP local no formato das APIs reais (`backend/tests/apoio_http.py`); a suíte inteira aponta para ele e

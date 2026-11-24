@@ -489,6 +489,80 @@ Tomadas pelo orquestrador; sem fonte, para o Pedro e o Brenno validarem.
 - Decisão: o cliente HTTP não segue redirecionamento em escrita, e um 2xx de escrita com corpo ilegível vira "pode
   ter saído" (`EfeitoIncerto`): o servidor já recebeu o pedido, e repetir poderia duplicar a ação.
 
+## Decisões do bloco E2: Google Workspace, Microsoft 365 e anexos (24/11, G1 a G10)
+
+Tomadas pelo orquestrador; sem fonte, para o Pedro e o Brenno validarem. O Google e a Microsoft não foram testados
+contra o serviço de verdade (sem conta nem app registrado): ver o comando `testar` nos READMEs dos dois conectores.
+
+### G1. Categorias novas para agenda, planilha, documento e anexo
+- Decisão: `agenda_pessoal` (eventos da própria agenda) e `documento_de_trabalho` (planilhas, documentos, arquivos e
+  anexos do chat), em `regras.CATEGORIAS_DE_TRABALHO_INTERNO` junto com as da E1: todo cargo com área as tem; admin,
+  auditor e gestor de acessos continuam de fora.
+- Motivo: abrir a própria agenda e as próprias planilhas é trabalho de qualquer funcionário, e o conector só enxerga o
+  que a conta da pessoa enxerga. Nenhum dado de lojista passa por aqui.
+
+### G2. Google e Microsoft são alternativas, não somas
+- Decisão: as sete ferramentas de agenda, planilha, documento e arquivo declaram as duas integrações com
+  `integracoes_alternativas = True`: o catálogo só as esconde se as duas estiverem desligadas. A pessoa usa a conta
+  que ligou; com as duas ligadas, o parâmetro `servico` escolhe (ou a configuração, se só um estiver ligado).
+- Motivo: a Stone pode usar Google ou Microsoft; a ferramenta e a descrição para o modelo são as mesmas.
+
+### G3. OAuth2 por pessoa, no nível mínimo
+- Decisão: código de autorização com PKCE (S256), `state` de uso único, preso à pessoa e válido por 10 minutos;
+  renovação com trava por conta (o token da Microsoft muda a cada uso); consentimento granular: leitura por padrão,
+  escrita só quando a pessoa usa uma ferramenta de escrita, sem permissão `.All`. Sem conta ligada: `integracao_indisponivel`
+  ("conta não ligada"). Quem guarda é o back-end atrás de `ProvedorDeCredencial`; o `ProvedorEmMemoria` serve a testes e
+  demo. A tela de login e a rota de retorno não são nossas: ficam como `[A FAZER (Marcelo...)]` e `[A FAZER (Larissa...)]`.
+- Motivo: o agente roda com as permissões de quem usa; a plataforma nunca vê a senha, e o segredo nunca vai a log,
+  erro ou retorno.
+- No código: `ferramentas/integracoes/oauth.py`, `credenciais.py`.
+
+### G4. `entregar_arquivo` sem confirmação em duas etapas
+- Decisão: fica em `governanca.ESCRITA_SEM_CONFIRMACAO`, junto de `solicitar_ferramenta_ausente`. As outras três
+  escritas (`criar_evento_agenda`, `adicionar_linha_planilha`, `criar_planilha`) usam `FerramentaComConfirmacao`.
+- Motivo: `entregar_arquivo` só grava na pasta da própria pessoa e nada sai da plataforma sem a pessoa baixar. As
+  outras escrevem num serviço externo (e convidam terceiros).
+
+### G5. Conteúdo de terceiros e campos que o modo estrito deixa passar
+- Decisão: o que volta de agenda, planilha, documento e anexo é conteúdo de terceiros (dado, nunca instrução) e vai em
+  `dados["conteudo_de_terceiros"]`. Campos novos de formato fechado entram em `CAMPOS_NAO_RESTRITOS` (`titulo`, `inicio`,
+  `fim`, `local`, `aba`, `intervalo`, `linhas`, `colunas`, `modificado_em`, `arquivo`, `abas`, `formato`, `tamanho`,
+  `paginas`, `aviso_de_corte`, `anexos`) e identificadores em `FORMATO_DE_IDENTIFICADORES` (`id_arquivo`, `link`,
+  `anexo_id`, `arquivo_id`). `campos_liberados` só em escrita em duas fases, travado em `LIBERACOES_PERMITIDAS`.
+- Motivo: a lista de campos classificados continua fechada; o texto livre é mascarado (CPF, cartão, e-mail, telefone).
+
+### G6. Convidados de evento só de domínio permitido
+- Decisão: `ESCRITORIO_DOMINIOS` (no `.env`, vale para as duas contas) lista os domínios que podem receber convite;
+  vazio, ninguém. O destino é conferido por `exigir_destino` na prévia e de novo ao confirmar.
+- Motivo: o modelo não pode mandar convite (e o título e o local do evento) para fora (LGPD, E58 da KAN-69).
+
+### G7. Busca de arquivos
+- Decisão: no Google, a busca é só pelo nome (escopo `drive.metadata.readonly`: nunca lê conteúdo). No Microsoft, a
+  busca do Graph também encontra pelo conteúdo, mas o que volta é só nome, tipo e data.
+- Motivo: o Graph não oferece busca só por nome com a mesma permissão; manter o escopo mínimo é melhor que um escopo
+  maior só para filtrar.
+
+### G8. Formatos de arquivo com biblioteca padrão
+- Decisão: `formatos.py` lê e escreve txt, csv, xlsx e docx com `zipfile`, `xml.etree` e `csv`; o PDF usa `pypdf`, importado
+  só quando preciso e **não** listado no `requirements.txt`. Sem `pypdf`, ler PDF volta `parametro_invalido` com mensagem
+  fixa. Macro, zip hostil, parte cifrada, `DOCTYPE`/entidade e byte nulo são recusados; fórmula nunca é calculada;
+  csv e xlsx de saída ganham apóstrofo em texto que parece fórmula.
+- Motivo: poucas dependências no Raspberry Pi; o arquivo vem de fora e o parser precisa ser pequeno e auditável.
+- Em aberto: o grupo decide se `pypdf` entra no `requirements.txt`.
+
+### G9. Redirecionamento só para download de arquivo
+- Decisão: `cliente_http.pedir(seguir_para=...)` segue o redirecionamento do Graph `/content` para outro domínio só se for
+  `sharepoint.com`, `1drv.com` ou `onedrive.live.com`, e sem mandar o token. Um parâmetro novo, `repetivel`, faz um POST de
+  token contar como leitura (5xx vira `ConnectionError`, não `EfeitoIncerto`).
+- Motivo: complementa a E5 (escrita não redireciona): o download é leitura e o endereço já é assinado.
+
+### G10. Anexos numa pasta própria
+- Decisão: `anexos/conector.py` guarda em `ANEXOS_DIRETORIO`, por pessoa, com id sorteado (`ANX-`/`ARQ-` + 12 letras),
+  permissão 0600, gravação atômica, sem seguir link simbólico, 5 MB por arquivo, 30 arquivos e 50 MB por pessoa, retenção
+  de 7 dias (apagados no próximo envio da pessoa). Nunca um caminho sai para o modelo ou para a interface.
+- Motivo: LGPD (mínimo de dado, só o necessário e por tempo limitado) e isolamento entre pessoas. Os números são
+  escolhas nossas, sem fonte.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que

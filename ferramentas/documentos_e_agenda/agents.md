@@ -8,8 +8,9 @@ Agenda, planilhas, documentos e arquivos do próprio funcionário (Google ou Mic
 - Achar um arquivo pelo nome: `buscar_arquivos`; depois, `ler_planilha` (planilha) ou `ler_documento` (texto).
 - Registrar uma linha numa planilha que já existe: `adicionar_linha_planilha`. Planilha nova: `criar_planilha`.
 - O funcionário anexou um arquivo na conversa: `ler_arquivo_anexado`. Quer receber um arquivo pronto: `entregar_arquivo`.
-- Tudo aqui é da conta do próprio funcionário, nunca de outra pessoa. As que criam algo só montam a prévia: quem
-  confirma é o funcionário, na tela.
+- Tudo aqui é da conta do próprio funcionário, nunca de outra pessoa. As que escrevem na agenda ou numa planilha
+  (`criar_evento_agenda`, `adicionar_linha_planilha`, `criar_planilha`) só montam a prévia: quem confirma é o
+  funcionário, na tela. `entregar_arquivo` só gera o arquivo para ele baixar.
 - Se a mensagem disser que a conta não está ligada, avise o funcionário para conectá-la na tela de integrações.
 - Use só as que aparecem na lista abaixo: as outras não estão liberadas para você.
 
