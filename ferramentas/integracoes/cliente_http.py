@@ -5,20 +5,25 @@
   O caminho de cada pedido é montado por `montar_url`, que codifica cada pedaço e não deixa sair da base.
 - Redirecionamento só para o mesmo esquema, host e porta, no máximo `REDIRECIONAMENTOS` vezes.
 - Prazo total do pedido (`tempo_limite`), não só por leitura: um servidor que goteja bytes não segura a chamada.
-- Resposta acima de `LIMITE_DE_BYTES`, JSON inválido, 5xx e 429 viram `ConnectionError`; tempo esgotado vira
-  `TimeoutError`; 401 e 403 viram `CredencialRecusada`. As mensagens são genéricas: nada de URL ou conteúdo.
+- Resposta acima de `LIMITE_DE_BYTES`, JSON inválido e 5xx viram `ConnectionError`; tempo esgotado vira
+  `TimeoutError`; 401 e 403 viram `CredencialRecusada`; 429 vira `LimiteDePedidos` com os segundos de espera
+  (`Retry-After`, ou `parameters.retry_after` do Telegram). Esses dois não contam no disjuntor (`conector.chamar`).
+  As mensagens são genéricas: nada de URL ou conteúdo.
 - Pedido que muda algo (POST, PUT, PATCH, DELETE) e cai depois de enviado (sem resposta, conexão cortada,
   500, 502 ou 504) vira `base.EfeitoIncerto`: a ação pode ter acontecido, e quem chamou não repete sozinho. O
   mesmo vale quando o servidor respondeu, mas não dá para ler o resultado (2xx com corpo quebrado ou grande
   demais) ou mandou redirecionar: ele recebeu o pedido, e não sabemos o que fez.
 - 2xx devolve o JSON lido; 404 volta a quem chamou (costuma ser "não encontrado"); os outros 4xx são pedido
-  errado: `ErroFerramenta("parametro_invalido")`, que não conta como falha da integração no disjuntor.
+  errado: `PedidoRecusado` (um `ErroFerramenta("parametro_invalido")`), que não conta no disjuntor. O corpo da
+  recusa fica em `PedidoRecusado.dados`, para o conector entender o motivo; nunca vai na mensagem.
 - Os loggers do httpx e do httpcore ficam em WARNING: no nível INFO eles escrevem a URL inteira, com token
-  ou parâmetro dentro.
+  ou parâmetro dentro. E, se alguém os puser em INFO de novo, `FiltroDeToken` apaga o token do Telegram
+  (`/bot<token>/`) de cada linha antes de ela sair.
 """
 
 import json
 import logging
+import re
 import time
 from typing import NamedTuple
 from urllib.parse import quote, urlsplit
@@ -26,7 +31,11 @@ from urllib.parse import quote, urlsplit
 import httpx
 
 from ferramentas.base import EfeitoIncerto, ErroFerramenta
-from ferramentas.integracoes.conector import ConfiguracaoInvalida
+from ferramentas.integracoes.conector import (
+    ConfiguracaoInvalida,
+    CredencialRecusada,
+    LimiteDePedidos,
+)
 
 HOSTS_LOCAIS = ("localhost", "127.0.0.1", "::1")
 LIMITE_DE_BYTES = 1_000_000
@@ -38,20 +47,52 @@ STATUS_INCERTOS = (500, 502, 504)  # numa escrita, o servidor pode ter feito a a
 MENSAGEM = "integração indisponível"
 MENSAGEM_PEDIDO_RECUSADO = "O serviço recusou o pedido. Confira os dados enviados."
 
-for _nome in ("httpx", "httpcore"):
-    logging.getLogger(_nome).setLevel(logging.WARNING)
+PADRAO_TOKEN_NA_URL = re.compile(r"/bot[^/\s]+/")  # Telegram: /bot<token>/<método>
+SEGUNDOS_DE_ESPERA_NO_MAXIMO = 3600
+LOGGERS_DO_HTTP = ("httpx", "httpcore", "httpcore.connection", "httpcore.http11", "httpcore.http2", "httpcore.proxy")
 
 
-class LimiteDePedidos(ConnectionError):
-    """O serviço respondeu 429: pedidos demais. Tente mais tarde."""
+class FiltroDeToken(logging.Filter):
+    """Apaga `/bot<token>/` de toda linha de log dos loggers do httpx, mesmo se alguém os puser em INFO."""
+
+    def filter(self, registro):
+        mensagem = registro.getMessage()
+        limpa = PADRAO_TOKEN_NA_URL.sub("/bot***/", mensagem)
+        if limpa != mensagem:
+            registro.msg, registro.args = limpa, ()
+        return True
+
+
+for _nome in LOGGERS_DO_HTTP:
+    _logger = logging.getLogger(_nome)
+    _logger.setLevel(logging.WARNING)
+    if not any(isinstance(f, FiltroDeToken) for f in _logger.filters):
+        _logger.addFilter(FiltroDeToken())
 
 
 class RespostaInvalida(ConnectionError):
     """O serviço respondeu algo que não dá para usar: grande demais, JSON quebrado ou campo fora do formato."""
 
 
-class CredencialRecusada(ConnectionError):
-    """O serviço respondeu 401 ou 403: a credencial do .env está errada, vencida ou sem permissão."""
+class PedidoRecusado(ErroFerramenta):
+    """4xx (fora 401, 403, 404 e 429): o serviço recusou o pedido. `dados`: o JSON da recusa, só para o conector."""
+
+    def __init__(self, status, dados):
+        super().__init__("parametro_invalido", MENSAGEM_PEDIDO_RECUSADO)
+        self.status = status
+        self.dados = dados
+
+
+def segundos_de_espera(cabecalho, dados=None):
+    """Quanto o serviço pediu para esperar: `Retry-After` em segundos ou `parameters.retry_after` (Telegram)."""
+    candidatos = [cabecalho]
+    if isinstance(dados, dict) and isinstance(dados.get("parameters"), dict):
+        candidatos.append(dados["parameters"].get("retry_after"))
+    for valor in candidatos:
+        texto = str(valor).strip() if valor is not None else ""
+        if texto.isdigit():
+            return min(int(texto), SEGUNDOS_DE_ESPERA_NO_MAXIMO)
+    return None
 
 
 class RespostaHttp(NamedTuple):
@@ -130,7 +171,7 @@ def _json(corpo, obrigatorio):
 
 
 def _seguir(cliente, pedido, limite_de_bytes, prazo):
-    """Manda o pedido e segue redirecionamentos da mesma origem. Devolve (status, corpo em bytes).
+    """Manda o pedido e segue redirecionamentos da mesma origem. Devolve (status, corpo em bytes, Retry-After).
 
     Escrita não segue redirecionamento: o servidor já recebeu o pedido, e repetir poderia duplicar a ação.
     """
@@ -139,7 +180,8 @@ def _seguir(cliente, pedido, limite_de_bytes, prazo):
         resposta = cliente.send(pedido, stream=True)
         try:
             if not resposta.is_redirect:
-                return resposta.status_code, _ler_corpo(resposta, limite_de_bytes, prazo)
+                espera = resposta.headers.get("retry-after")
+                return resposta.status_code, _ler_corpo(resposta, limite_de_bytes, prazo), espera
             if not so_le:
                 raise EfeitoIncerto()
             destino = resposta.next_request
@@ -184,7 +226,7 @@ def pedir(
             pedido = cliente.build_request(
                 metodo, url, params=parametros, json=corpo, headers=todos_os_cabecalhos
             )
-            status, conteudo = _seguir(cliente, pedido, limite_de_bytes, prazo)
+            status, conteudo, espera = _seguir(cliente, pedido, limite_de_bytes, prazo)
     except httpx.HTTPError as erro:
         if not so_le and not _antes_de_enviar(erro):
             raise EfeitoIncerto() from None
@@ -199,12 +241,12 @@ def pedir(
         if not so_le:
             raise EfeitoIncerto() from None
         raise
-    return _interpretar(status, conteudo, so_le)
+    return _interpretar(status, conteudo, so_le, espera)
 
 
-def _interpretar(status, conteudo, so_le):
+def _interpretar(status, conteudo, so_le, espera=None):
     if status == 429:
-        raise LimiteDePedidos(MENSAGEM)
+        raise LimiteDePedidos(MENSAGEM, segundos_de_espera(espera, _json(conteudo, obrigatorio=False)))
     if status in (401, 403):
         raise CredencialRecusada(MENSAGEM)
     if not so_le and status in STATUS_INCERTOS:
@@ -212,7 +254,7 @@ def _interpretar(status, conteudo, so_le):
     if status >= 500 or status < 200 or 300 <= status < 400:
         raise ConnectionError(MENSAGEM)
     if 400 <= status < 500 and status != 404:
-        raise ErroFerramenta("parametro_invalido", MENSAGEM_PEDIDO_RECUSADO)
+        raise PedidoRecusado(status, _json(conteudo, obrigatorio=False))
     try:
         dados = _json(conteudo, obrigatorio=status < 300)
     except RespostaInvalida:

@@ -1,21 +1,26 @@
 """Jira Cloud (REST API v3): ler, abrir e comentar chamados internos da Stone, pela conta de serviço da plataforma.
 
-Configuração (.env): `JIRA_URL` (o site, como https://empresa.atlassian.net), `JIRA_EMAIL` e `JIRA_TOKEN` (conta
-de serviço e token de API, autenticação Basic), `JIRA_PROJETOS` (chaves liberadas, como `KAN,PLAT`) e
-`JIRA_TIPOS` (tipos de chamado liberados para abrir, como `Tarefa,Bug`; o primeiro é o padrão). Preencher o
-`JIRA_TOKEN` liga a integração; `JIRA_MODO` força `real`, `simulado` ou `desligado`.
+Configuração (.env): `JIRA_URL` (o site, como https://empresa.atlassian.net), `JIRA_EMAIL` e `JIRA_TOKEN` (um
+usuário comum dedicado à plataforma e um token de API SEM escopos, autenticação Basic; conta de serviço da
+Atlassian só funciona com `JIRA_URL=https://api.atlassian.com/ex/jira/<cloudId>`), `JIRA_PROJETOS` (chaves
+liberadas, com nome opcional: `KAN:Kanban da plataforma,PLAT`) e `JIRA_TIPOS` (tipos de chamado liberados para
+abrir, como `Tarefa,Bug`; o primeiro é o padrão). Preencher o `JIRA_TOKEN` liga a integração; `JIRA_MODO` força
+`real`, `simulado` ou `desligado`.
 
 O modelo nunca escolhe site nem projeto fora da lista: a chave do chamado tem de ser de um projeto liberado,
 inclusive para ler. Descrição e comentários chegam do Jira em ADF (`adf.py`) e saem daqui em texto simples,
-sem e-mail nem nome de ninguém. No modo simulado, os chamados ficam em memória (`ChamadosSimulados`) e toda
-resposta diz isso em `fonte`.
+sem e-mail nem nome de ninguém (menção vira `[menção]`; e-mail no meio do texto sai mascarado pela ferramenta).
+No modo simulado, os chamados ficam em memória (`ChamadosSimulados`), o que a plataforma abriu ou comentou vai
+também para a caixa de saída simulada, e toda resposta diz isso em `fonte`.
 
 Pedidos (documentação oficial: https://developer.atlassian.com/cloud/jira/platform/rest/v3/):
 - GET  /rest/api/3/issue/{chave}?fields=...          (404: não existe ou a conta não vê)
 - GET  /rest/api/3/issue/{chave}/comment?orderBy=-created&maxResults=N
 - POST /rest/api/3/issue            {"fields": {project, issuetype, summary, description}}  → 201 {"key"}
 - POST /rest/api/3/issue/{chave}/comment  {"body": ADF}                                   → 201 {"id"}
-- GET  /rest/api/3/myself e /rest/api/3/project/{chave}   (só o `testar`)
+- GET  /rest/api/3/myself, /rest/api/3/project/{chave} e /rest/api/3/issue/createmeta/{chave}/issuetypes
+                                                          (só o `testar`: a conta, o projeto e os tipos dele)
+- 400 traz `{"errorMessages": [...], "errors": {"campo": "..."}}`: só os nomes dos campos aparecem no `testar`.
 """
 
 import base64
@@ -24,12 +29,12 @@ import re
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from mock import falhas
-
+from ferramentas import dados_sinteticos
 from ferramentas.base import EfeitoIncerto, ErroFerramenta
-from ferramentas.integracoes import cliente_http
-from ferramentas.integracoes.cliente_http import RespostaInvalida
+from ferramentas.integracoes import cliente_http, simuladas
+from ferramentas.integracoes.cliente_http import PedidoRecusado, RespostaInvalida
 from ferramentas.integracoes.conector import (
     Conector,
     ConfiguracaoInvalida,
@@ -40,6 +45,7 @@ from ferramentas.integracoes.jira.adf import adf_do_texto, texto_do_adf
 from ferramentas.integracoes.registro import registrar
 
 PADRAO_PROJETO = re.compile(r"[A-Z][A-Z0-9_]{1,9}")
+PADRAO_PROJETO_COM_NOME = re.compile(r"[A-Z][A-Z0-9_]{1,9}(:[^:,\n]{1,60})?")
 PADRAO_CHAVE = re.compile(r"([A-Z][A-Z0-9_]{1,9})-[1-9][0-9]{0,8}")
 PADRAO_TIPO = re.compile(r"[^\s,:][^,:\n]{0,38}[^\s,:]|[^\s,:]")
 PADRAO_EMAIL_DA_CONTA = re.compile(r"[^@\s,]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
@@ -51,7 +57,9 @@ TAMANHO_DA_DESCRICAO = 2000
 TAMANHO_DO_COMENTARIO = 1000
 TAMANHO_DE_CAMPO_CURTO = 255
 PROJETOS_SIMULADOS = ("PLAT",)
+NOMES_SIMULADOS = {"PLAT": "Plataforma (demonstração)"}
 TIPOS_SIMULADOS = ("Tarefa",)
+FUSO = ZoneInfo("America/Sao_Paulo")
 FONTE_REAL = "Jira"
 FONTE_SIMULADA = "Jira simulado (modo de demonstração): nada disto existe no Jira de verdade"
 MENSAGEM_TESTE_SIMULADO = "Modo simulado: os chamados ficam na memória da plataforma, sem chamar o Jira."
@@ -113,6 +121,17 @@ def _comentarios_do_jira(dados):
     return comentarios, total
 
 
+def _agora_do_mock():
+    """O "agora" do mundo simulado (15/10/2026), em ISO com o fuso: o simulado não usa o relógio de verdade."""
+    return dados_sinteticos.AGORA_DO_MOCK.replace(tzinfo=FUSO).isoformat(timespec="minutes")
+
+
+def _campos_recusados(dados):
+    """Os NOMES dos campos que o Jira recusou num 400 (`errors`), nunca as mensagens: só o `testar` mostra."""
+    erros = dados.get("errors") if isinstance(dados, dict) else None
+    return sorted(str(campo)[:40] for campo in erros) if isinstance(erros, dict) else []
+
+
 class ChamadosSimulados:
     """Os chamados do modo simulado, em memória: dois de exemplo por projeto e os que a plataforma abrir."""
 
@@ -149,23 +168,26 @@ class ChamadosSimulados:
             return None if chamado is None else {**chamado, "comentarios": list(chamado["comentarios"])}
 
     def abrir(self, projeto, tipo, resumo, descricao):
+        agora = _agora_do_mock()
         with self._trava:
             self._semear(projeto)
             chave = f"{projeto}-{self._proximo[projeto]}"
             self._proximo[projeto] += 1
             self._chamados[chave] = {
                 "chave_jira": chave, "resumo": resumo, "situacao": "Aberto", "tipo": tipo, "prioridade": "Média",
-                "criado_em": None, "atualizado_em": None, "texto": descricao, "comentarios": [],
+                "criado_em": agora, "atualizado_em": agora, "texto": descricao, "comentarios": [],
             }
             return chave
 
     def comentar(self, chave, texto):
+        agora = _agora_do_mock()
         with self._trava:
             self._semear(PADRAO_CHAVE.fullmatch(chave).group(1))
             chamado = self._chamados.get(chave)
             if chamado is None:
                 return None
-            chamado["comentarios"].insert(0, {"criado_em": None, "texto": texto})
+            chamado["comentarios"].insert(0, {"criado_em": agora, "texto": texto})
+            chamado["atualizado_em"] = agora
             return str(len(chamado["comentarios"]))
 
     def limpar(self):
@@ -187,20 +209,33 @@ class ConectorJira(Conector):
     dica_sem_rede = "Confira a internet e o JIRA_URL, ou use JIRA_MODO=simulado."
     dicas = {
         "JIRA_URL": "JIRA_URL inválida: use o endereço do site, como https://empresa.atlassian.net, sem / no fim.",
-        "JIRA_EMAIL": "JIRA_EMAIL inválido: use o e-mail da conta de serviço que criou o token.",
-        "JIRA_TOKEN": "JIRA_TOKEN inválido: crie um token de API em id.atlassian.com (Segurança > Tokens de API).",
-        "JIRA_PROJETOS": "JIRA_PROJETOS inválida: as chaves dos projetos separadas por vírgula, como KAN,PLAT.",
+        "JIRA_EMAIL": "JIRA_EMAIL inválido: use o e-mail do usuário da plataforma que criou o token.",
+        "JIRA_TOKEN": (
+            "JIRA_TOKEN inválido: em id.atlassian.com, Segurança > Criar token de API (sem escopos)."
+        ),
+        "JIRA_PROJETOS": (
+            "JIRA_PROJETOS inválida: as chaves dos projetos separadas por vírgula, como KAN,PLAT, com um nome"
+            " opcional (KAN:Kanban da plataforma)."
+        ),
         "JIRA_TIPOS": "JIRA_TIPOS inválida: os tipos de chamado separados por vírgula, como Tarefa,Bug.",
     }
 
     def __init__(self):
         super().__init__()
         self.simulados = ChamadosSimulados()
+        self.simuladas = simuladas.caixa(self.nome)
 
     def _listas(self, ambiente):
-        projetos = ler_lista(ambiente, "JIRA_PROJETOS", PADRAO_PROJETO)
+        projetos = [item.split(":", 1)[0] for item in ler_lista(ambiente, "JIRA_PROJETOS", PADRAO_PROJETO_COM_NOME)]
         tipos = ler_lista(ambiente, "JIRA_TIPOS", PADRAO_TIPO)
         return tuple(projetos), tuple(tipos)
+
+    def nomes_dos_projetos(self, ambiente=os.environ):
+        """{chave: nome legível} dos projetos com nome no .env (no simulado sem lista, o de exemplo)."""
+        if self.modo(ambiente) == "simulado" and not self._listas(ambiente)[0]:
+            return dict(NOMES_SIMULADOS)
+        itens = (item.partition(":") for item in ler_lista(ambiente, "JIRA_PROJETOS", PADRAO_PROJETO_COM_NOME))
+        return {chave: nome.strip() for chave, _, nome in itens if nome.strip()}
 
     def _configuracao(self, ambiente):
         url = cliente_http.url_base(ambiente.get("JIRA_URL", ""), "JIRA_URL")
@@ -220,15 +255,6 @@ class ConectorJira(Conector):
 
     def conferir_configuracao(self, ambiente=os.environ):
         self._configuracao(ambiente)
-
-    def fora_do_ar(self):
-        return falhas.fora_do_ar("jira")
-
-    def _ligado(self, ambiente):
-        modo = self.exigir_ligado(ambiente)
-        if self.fora_do_ar():
-            raise ConnectionError("jira fora do ar (falha simulada)")
-        return modo
 
     def destinos(self, ambiente=os.environ):
         """(projetos, tipos) liberados agora. No simulado sem lista no .env: os de exemplo."""
@@ -316,7 +342,9 @@ class ConectorJira(Conector):
         self.exigir_destino(projeto, projetos)
         self.exigir_destino(tipo, tipos)
         if modo == "simulado":
-            return self.simulados.abrir(projeto, tipo, resumo, descricao)
+            chave = self.simulados.abrir(projeto, tipo, resumo, descricao)
+            self.simuladas.guardar(chave, f"{resumo}\n\n{descricao}")
+            return chave
         config = self._configuracao(ambiente)
         corpo = {
             "fields": {
@@ -341,6 +369,7 @@ class ConectorJira(Conector):
             id_comentario = self.simulados.comentar(chave, texto)
             if id_comentario is None:
                 raise ErroFerramenta("nao_encontrado", "Chamado não encontrado no Jira. Nada foi gravado.")
+            self.simuladas.guardar(chave, texto)
             return id_comentario
         config = self._configuracao(ambiente)
         url = cliente_http.montar_url(config.url, "rest", "api", "3", "issue", chave, "comment")
@@ -359,19 +388,44 @@ class ConectorJira(Conector):
         resposta = self.chamar("testar_conta", lambda: cliente_http.pedir("GET", eu, cabecalhos=cabecalhos))
         if not isinstance(resposta.dados, dict) or not resposta.dados.get("accountId"):
             raise RespostaInvalida("resposta fora do formato")
+        linhas = ["O Jira aceitou a conta da plataforma."]
         for projeto in config.projetos:
             url = cliente_http.montar_url(config.url, "rest", "api", "3", "project", projeto)
             achado = self.chamar("testar_projeto", lambda url=url: cliente_http.pedir("GET", url, cabecalhos=cabecalhos))
             if achado.status == 404:
                 raise ErroFerramenta(
                     "nao_encontrado",
-                    f"Projeto {projeto} não encontrado, ou a conta de serviço não tem acesso. Confira JIRA_PROJETOS.",
+                    f"Projeto {projeto} não encontrado, ou a conta da plataforma não tem acesso. Confira JIRA_PROJETOS.",
                 )
-        return f"O Jira aceitou a conta de serviço. Projetos liberados encontrados: {', '.join(config.projetos)}."
+            linhas.append(self._conferir_tipos(config, projeto))
+        return " ".join(linhas)
+
+    def _conferir_tipos(self, config, projeto):
+        """Os tipos de chamado que o projeto aceita, e qual tipo de `JIRA_TIPOS` não existe nele."""
+        url = cliente_http.montar_url(config.url, "rest", "api", "3", "issue", "createmeta", projeto, "issuetypes")
+        cabecalhos = self._cabecalhos(config)
+        try:
+            resposta = self.chamar("testar_tipos", lambda: cliente_http.pedir("GET", url, cabecalhos=cabecalhos))
+        except PedidoRecusado as recusa:
+            campos = ", ".join(_campos_recusados(recusa.dados)) or "nenhum campo informado"
+            return f"{projeto}: o Jira recusou a consulta dos tipos (campos: {campos})."
+        dados = resposta.dados if isinstance(resposta.dados, dict) else {}
+        lista = dados.get("issueTypes", dados.get("values"))
+        if resposta.status == 404 or not isinstance(lista, list):
+            return f"{projeto}: não deu para conferir os tipos de chamado."
+        existentes = [t["name"] for t in lista if isinstance(t, dict) and isinstance(t.get("name"), str)]
+        faltando = [tipo for tipo in config.tipos if tipo not in existentes]
+        if faltando:
+            return (
+                f"{projeto}: o tipo {', '.join(faltando)} não existe neste projeto (abrir chamado vai falhar)."
+                f" Tipos do projeto: {', '.join(existentes) or 'nenhum'}. Corrija JIRA_TIPOS."
+            )
+        return f"{projeto}: ok (tipos {', '.join(config.tipos)})."
 
     def reiniciar(self):
         super().reiniciar()
         self.simulados.limpar()
+        self.simuladas.limpar()
 
 
 CONECTOR = registrar(ConectorJira())

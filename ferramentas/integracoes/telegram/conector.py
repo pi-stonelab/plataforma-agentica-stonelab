@@ -1,35 +1,40 @@
 """Telegram (Bot API): aviso num chat da lista permitida, pelo bot da plataforma.
 
 Configuração (.env): `TELEGRAM_TOKEN` (o token que o @BotFather entrega, como `123456789:AA...`) e
-`TELEGRAM_CHATS` (`apelido:chat_id` separados por vírgula, como `plantao:-1001234567890`). O modelo e a pessoa
-só usam o apelido; o número do chat fica no .env. Preencher o `TELEGRAM_TOKEN` liga a integração;
+`TELEGRAM_CHATS` (`apelido:chat_id[:Nome]` separados por vírgula, como `plantao:-1001234567890:Plantão`). O
+modelo e a pessoa só usam o apelido; o número do chat fica no .env, e o nome (opcional) aparece no cartão. Preencher o `TELEGRAM_TOKEN` liga a integração;
 `TELEGRAM_MODO` força `real`, `simulado` ou `desligado`. `TELEGRAM_URL` só existe para os testes (padrão:
 https://api.telegram.org).
 
 O token vai no caminho da URL (`/bot<token>/sendMessage`), como a Bot API exige. Por isso ele é conferido por
-formato antes de entrar na URL, os loggers do httpx ficam calados (`cliente_http`) e nenhum erro, log ou estado
-leva a URL. O texto vai sem formatação (sem `parse_mode`) e sem prévia de link. No modo simulado, o aviso fica
-em memória (`AvisosSimulados`) e a resposta diz isso em `fonte`.
+formato antes de entrar na URL, os loggers do httpx ficam calados e com o `FiltroDeToken` (`cliente_http`), e
+nenhum erro, log ou estado leva a URL. O texto vai sem formatação (sem `parse_mode`) e sem prévia de link. No
+modo simulado, o aviso fica na caixa de saída simulada (`simuladas.py`) e a resposta diz isso em `fonte`.
+
+Recusa 400: a `description` diz o motivo ("Bad Request: chat not found", "message is too long"); ela decide a
+mensagem, mas nunca é repetida. 429: `parameters.retry_after` diz quanto esperar.
 
 Pedidos (documentação oficial: https://core.telegram.org/bots/api#sendmessage e #getme):
 - POST /bot<token>/sendMessage  {"chat_id": ..., "text": ..., "link_preview_options": {"is_disabled": true}}
                                  → {"ok": true, "result": {"message_id": 123, ...}}
 - GET  /bot<token>/getMe        → {"ok": true, "result": {"is_bot": true, "username": ...}}   (só o `testar`)
+- GET  /bot<token>/getChat?chat_id=...  → {"ok": true, "result": {"id": ..., "title": ...}}   (só o `testar`)
 Erros: {"ok": false, "error_code": 400, "description": "Bad Request: chat not found"}; 401 token inválido;
 403 bot bloqueado ou fora do chat; 429 pedidos demais.
 """
 
 import os
 import re
-import threading
-from collections import deque
-
-from mock import falhas
 
 from ferramentas.base import EfeitoIncerto, ErroFerramenta
-from ferramentas.integracoes import cliente_http
-from ferramentas.integracoes.cliente_http import RespostaInvalida
-from ferramentas.integracoes.conector import Conector, ConfiguracaoInvalida, ler_destinos
+from ferramentas.integracoes import cliente_http, simuladas
+from ferramentas.integracoes.cliente_http import PedidoRecusado, RespostaInvalida
+from ferramentas.integracoes.conector import (
+    Conector,
+    ConfiguracaoInvalida,
+    ler_destinos,
+    ler_rotulos,
+)
 from ferramentas.integracoes.registro import registrar
 
 TELEGRAM_PADRAO = "https://api.telegram.org"
@@ -38,37 +43,29 @@ PADRAO_CHAT = re.compile(r"-?[0-9]{1,20}")
 TAMANHO_MAXIMO_DO_TEXTO = 4096  # limite da Bot API por mensagem
 FONTE_REAL = "Telegram"
 FONTE_SIMULADA = "Telegram simulado (modo de demonstração): nada foi enviado ao Telegram de verdade"
-MENSAGEM_TESTE_SIMULADO = "Modo simulado: os avisos ficam na memória da plataforma, sem chamar o Telegram."
+MENSAGEM_TESTE_SIMULADO = (
+    "Modo simulado: os avisos ficam na caixa de saída simulada da plataforma, sem chamar o Telegram"
+    " (python -m ferramentas.integracoes simuladas mostra o que teria saído)."
+)
 MENSAGEM_CHAT_RECUSOU = (
     "O Telegram não aceitou o aviso no chat {apelido}: o chat não existe ou o bot não está nele. Nada foi"
     " enviado; avise quem administra a plataforma."
 )
-LIMITE_DE_SIMULADOS = 50
+MENSAGEM_TEXTO_LONGO = "O Telegram recusou o aviso porque ficou longo demais. Encurte o texto. Nada foi enviado."
+MENSAGEM_RECUSA = "O Telegram recusou o aviso. Nada foi enviado."
 CHATS_SIMULADOS = {"plantao": "-1000000000001"}  # modo simulado sem TELEGRAM_CHATS
+ROTULOS_SIMULADOS = {"plantao": "Plantão (demonstração)"}
 
 
-class AvisosSimulados:
-    """Os avisos do modo simulado, em memória e só os últimos `LIMITE_DE_SIMULADOS` (testes e demo)."""
-
-    def __init__(self):
-        self._trava = threading.Lock()
-        self._avisos = deque(maxlen=LIMITE_DE_SIMULADOS)
-        self._contador = 0
-
-    def enviar(self, apelido, texto):
-        with self._trava:
-            self._contador += 1
-            self._avisos.append({"id_mensagem": self._contador, "chat": apelido, "texto": texto})
-            return self._contador
-
-    def listar(self):
-        with self._trava:
-            return [dict(aviso) for aviso in self._avisos]
-
-    def limpar(self):
-        with self._trava:
-            self._avisos.clear()
-            self._contador = 0
+def _motivo_da_recusa(dados):
+    """`chat`, `texto` ou None, pela `description` do Telegram (que nunca é repetida para ninguém)."""
+    descricao = dados.get("description", "") if isinstance(dados, dict) else ""
+    descricao = descricao.casefold() if isinstance(descricao, str) else ""
+    if "chat not found" in descricao or "not a member" in descricao or "kicked" in descricao:
+        return "chat"
+    if "too long" in descricao or "text must be non-empty" in descricao:
+        return "texto"
+    return None
 
 
 def _id_da_mensagem(dados):
@@ -102,7 +99,7 @@ class ConectorTelegram(Conector):
 
     def __init__(self):
         super().__init__()
-        self.simulados = AvisosSimulados()
+        self.simuladas = simuladas.caixa(self.nome)
 
     def _token(self, ambiente):
         token = ambiente.get("TELEGRAM_TOKEN", "").strip()
@@ -123,19 +120,16 @@ class ConectorTelegram(Conector):
             return dict(CHATS_SIMULADOS)
         return chats
 
+    def rotulos(self, ambiente=os.environ):
+        """{apelido: nome legível} dos chats com nome no .env (no simulado, o de exemplo)."""
+        if not ler_destinos(ambiente, "TELEGRAM_CHATS", PADRAO_CHAT) and self.modo(ambiente) == "simulado":
+            return dict(ROTULOS_SIMULADOS)
+        return ler_rotulos(ambiente, "TELEGRAM_CHATS")
+
     def conferir_configuracao(self, ambiente=os.environ):
         self._url_do_metodo(ambiente, "getMe")
         if not self.chats(ambiente):
             raise ConfiguracaoInvalida("TELEGRAM_CHATS")
-
-    def fora_do_ar(self):
-        return falhas.fora_do_ar("telegram")
-
-    def _ligado(self, ambiente):
-        modo = self.exigir_ligado(ambiente)
-        if self.fora_do_ar():
-            raise ConnectionError("telegram fora do ar (falha simulada)")
-        return modo
 
     def apelidos(self, ambiente=os.environ):
         return sorted(self.chats(ambiente))
@@ -146,20 +140,38 @@ class ConectorTelegram(Conector):
         chats = self.chats(ambiente)
         self.exigir_destino(apelido, chats)
         if modo == "simulado":
-            return self.simulados.enviar(apelido, texto)
+            return self.simuladas.guardar(apelido, texto)
         url = self._url_do_metodo(ambiente, "sendMessage")
         corpo = {"chat_id": chats[apelido], "text": texto, "link_preview_options": {"is_disabled": True}}
 
         def enviar_aviso():
             try:
                 resposta = cliente_http.pedir("POST", url, corpo=corpo)
-            except ErroFerramenta:  # 400 do Telegram: quase sempre "chat not found"; nada foi enviado
-                raise ErroFerramenta("integracao_indisponivel", MENSAGEM_CHAT_RECUSOU.format(apelido=apelido)) from None
+            except PedidoRecusado as recusa:  # 400: nada foi enviado; a `description` diz o motivo
+                motivo = _motivo_da_recusa(recusa.dados)
+                if motivo == "chat":
+                    mensagem = MENSAGEM_CHAT_RECUSOU.format(apelido=apelido)
+                    raise ErroFerramenta("integracao_indisponivel", mensagem) from None
+                if motivo == "texto":
+                    raise ErroFerramenta("parametro_invalido", MENSAGEM_TEXTO_LONGO) from None
+                raise ErroFerramenta("parametro_invalido", MENSAGEM_RECUSA) from None
             if resposta.status == 404:  # sem esse método: a URL base ou o token não são da Bot API
                 raise ConnectionError(cliente_http.MENSAGEM)
             return _id_da_mensagem(resposta.dados)
 
         return self.chamar("enviar", enviar_aviso)
+
+    def _conferir_chat(self, ambiente, apelido, chat_id):
+        """Uma frase sobre o chat: o bot vê o chat, ou o que falta (sem mandar nada)."""
+        url = self._url_do_metodo(ambiente, "getChat")
+        try:
+            dados = self.chamar("testar", lambda: cliente_http.pedir("GET", url, parametros={"chat_id": chat_id}).dados)
+        except PedidoRecusado:
+            return f"{apelido}: chat não encontrado, ou o bot não está nele (adicione o bot ao grupo)."
+        chat = dados.get("result") if isinstance(dados, dict) and dados.get("ok") is True else None
+        if not isinstance(chat, dict):
+            return f"{apelido}: o Telegram respondeu fora do formato."
+        return f"{apelido}: ok."
 
     def testar(self, ambiente=os.environ):
         if self._ligado(ambiente) == "simulado":
@@ -170,11 +182,33 @@ class ConectorTelegram(Conector):
         if not isinstance(bot, dict) or bot.get("is_bot") is not True:
             raise RespostaInvalida("resposta fora do formato")
         nome = bot.get("username") if isinstance(bot.get("username"), str) else "sem nome"
-        return f"O Telegram aceitou o token do bot @{nome}. Chats liberados: {', '.join(self.apelidos(ambiente))}."
+        linhas = [f"O Telegram aceitou o token do bot @{nome}."]
+        linhas += [self._conferir_chat(ambiente, a, c) for a, c in sorted(self.chats(ambiente).items())]
+        return " ".join(linhas)
+
+    def descobrir(self, ambiente=os.environ):
+        """Os chats em que o bot recebeu mensagem recentemente (getUpdates): [(título, chat_id)], sem o texto.
+
+        Para quem configura achar o `chat_id` sem abrir a URL com o token no navegador."""
+        if self._ligado(ambiente) == "simulado":
+            return [(rotulo, CHATS_SIMULADOS[apelido]) for apelido, rotulo in ROTULOS_SIMULADOS.items()]
+        url = self._url_do_metodo(ambiente, "getUpdates")
+        dados = self.chamar("testar", lambda: cliente_http.pedir("GET", url).dados)
+        atualizacoes = dados.get("result") if isinstance(dados, dict) and dados.get("ok") is True else None
+        if not isinstance(atualizacoes, list):
+            raise RespostaInvalida("resposta fora do formato")
+        chats = {}
+        for atualizacao in atualizacoes:
+            for chave in ("message", "channel_post", "my_chat_member"):
+                chat = atualizacao.get(chave, {}).get("chat") if isinstance(atualizacao, dict) else None
+                if isinstance(chat, dict) and isinstance(chat.get("id"), int):
+                    titulo = chat.get("title") or chat.get("first_name") or "conversa sem título"
+                    chats[chat["id"]] = str(titulo)[:60]
+        return [(titulo, str(chat_id)) for chat_id, titulo in chats.items()]
 
     def reiniciar(self):
         super().reiniciar()
-        self.simulados.limpar()
+        self.simuladas.limpar()
 
 
 CONECTOR = registrar(ConectorTelegram())

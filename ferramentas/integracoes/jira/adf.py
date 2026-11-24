@@ -1,7 +1,7 @@
 """Atlassian Document Format (ADF): o formato de texto rico das descrições e comentários do Jira Cloud (API v3).
 
 `texto_do_adf` lê o documento e devolve texto simples (parágrafos separados por linha em branco). Só o texto
-de verdade entra: links, imagens e cartões viram um marcador curto, nunca a URL. `adf_do_texto` faz o caminho
+de verdade entra: links, imagens, cartões e menções viram um marcador curto, nunca a URL nem o nome da pessoa. `adf_do_texto` faz o caminho
 de volta para o que a plataforma escreve (parágrafos e quebras de linha, sem formatação nem link).
 Formato: https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/
 """
@@ -12,7 +12,13 @@ BLOCOS = frozenset(
      "table", "tableRow", "tableCell", "tableHeader", "rule", "expand", "nestedExpand", "taskList", "taskItem",
      "decisionList", "decisionItem", "mediaSingle", "mediaGroup"}
 )
-MARCADORES = {"media": "[anexo]", "inlineCard": "[link]", "blockCard": "[link]", "embedCard": "[link]"}
+MARCADORES = {
+    "media": "[anexo]",
+    "inlineCard": "[link]",
+    "blockCard": "[link]",
+    "embedCard": "[link]",
+    "mention": "[menção]",  # o `text` da menção é o nome da pessoa: nome de colega não sai daqui
+}
 
 
 def _texto_do_no(no, profundidade, pedacos):
@@ -24,10 +30,10 @@ def _texto_do_no(no, profundidade, pedacos):
         pedacos.append(no["text"])
     elif tipo == "hardBreak":
         pedacos.append("\n")
-    elif tipo in ("mention", "emoji", "status", "date") and isinstance(atributos.get("text"), str):
-        pedacos.append(atributos["text"])
     elif tipo in MARCADORES:
         pedacos.append(MARCADORES[tipo])
+    elif tipo in ("emoji", "status", "date") and isinstance(atributos.get("text"), str):
+        pedacos.append(atributos["text"])
     filhos = no.get("content")
     for filho in filhos if isinstance(filhos, list) else ():
         _texto_do_no(filho, profundidade + 1, pedacos)

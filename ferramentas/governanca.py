@@ -56,6 +56,9 @@ CAMPOS_REGISTRO = (
     "tipo_erro",
     "camada_bloqueio",
     "duracao_ms",
+    # Id neutro do que a escrita criou fora da plataforma (a chave KAN-123 do Jira), para ir do chamado até quem
+    # confirmou. Nunca conteúdo; None em toda chamada que não criou nada lá fora.
+    "referencia_externa",
 )
 LIMITE_REGISTROS = 1000
 
