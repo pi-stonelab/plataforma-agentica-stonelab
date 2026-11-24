@@ -11,8 +11,10 @@ from ferramentas.integracoes.telegram.conector import (
 )
 from ferramentas.mensagens_internas import (
     assinado,
-    destino_liberado,
+    com_rotulo,
+    escolher_da_lista,
     exigir_integracao,
+    liberados_para_o_agente,
     texto_mascarado,
 )
 
@@ -30,28 +32,42 @@ class EnviarAvisoTelegram(FerramentaComConfirmacao):
     sensibilidade = "interna"
     conteudo_terceiros = False
     status = "ativa"
+    sai_da_plataforma = True
     titulo = "Enviar aviso no Telegram"
     descricao_para_pessoa = "Prepara um aviso num chat interno do Telegram; ele só sai depois que você confirma."
-    rotulos_da_previa = {"chat": "Chat", "texto": "Aviso"}
+    rotulos_da_previa = {"chat": "Chat (Telegram)", "texto": "Aviso"}
     parametros = {
         "chat": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": 40},
         "texto": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": TAMANHO_DO_TEXTO},
     }
 
+    def situacao_para_o_agente(self):
+        return liberados_para_o_agente(TELEGRAM, "Chats", TELEGRAM.apelidos())
+
     def montar(self, argumentos, usuario):
         exigir_integracao(TELEGRAM)
-        chat = destino_liberado(argumentos["chat"], TELEGRAM.apelidos(), "Chat")
+        chat = escolher_da_lista(argumentos["chat"], TELEGRAM.apelidos(), "Chat")
         texto = assinado(texto_mascarado(argumentos["texto"], "O texto"), usuario)
         conteudo = {"chat": chat, "texto": texto}
-        return conteudo, dict(conteudo)
+        previa = {"chat": com_rotulo(chat, TELEGRAM.rotulos()), "texto": texto}
+        return conteudo, previa
 
     def efetivar(self, conteudo, usuario):
-        simulado = TELEGRAM.modo() == "simulado"
+        fonte = _fonte()
         try:
             TELEGRAM.enviar(conteudo["chat"], conteudo["texto"])
         except DestinoNaoPermitido:  # o chat saiu da lista do .env depois da prévia
             raise ErroFerramenta("parametro_invalido", "Esse chat não está mais liberado. Nada foi enviado.") from None
-        return {"chat": conteudo["chat"], "fonte": FONTE_SIMULADA if simulado else FONTE_REAL}
+        return {"chat": conteudo["chat"], "fonte": fonte}
+
+    def mensagem_ao_confirmar(self, dados):
+        rotulo = com_rotulo(dados["chat"], TELEGRAM.rotulos())
+        frase = f"Aviso enviado ao chat {rotulo} (Telegram)."
+        return f"{frase} Modo de demonstração: nada saiu de verdade." if dados["fonte"] == FONTE_SIMULADA else frase
+
+
+def _fonte():
+    return FONTE_SIMULADA if TELEGRAM.demonstracao() else FONTE_REAL
 
 
 FERRAMENTA = EnviarAvisoTelegram()

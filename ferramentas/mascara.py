@@ -22,15 +22,24 @@ Texto livre, o que vale (ALTO-1 da auditoria B, MED-1 da C):
   cai na regra abaixo;
 - 11 dígitos viram CPF (`***.456.789-**`); 13 a 19, cartão (`**** **** **** 1111`); 12 dígitos ou
   mais de 19 viram `***` (na dúvida, mascara). Luhn não é usado: nunca se libera um número;
-- falsos positivos aceitos, do lado seguro: número de 11 dígitos sem DDD entre parênteses ("0800 123 4567",
-  "21 99999-8888") vira CPF, duas datas
+- exceção (revisão do bloco E1, 23/11): 11 dígitos SEM a pontuação de CPF que começam por um DDD que existe e
+  têm 9 no terceiro dígito ("21998765432") têm cara de celular e ganham a máscara de telefone
+  (`(21) *****-5432`), para o cartão de confirmação não mostrar um telefone com cara de CPF. Um CPF que
+  calhe de ter esse formato também sai mascarado (os 4 últimos dígitos em vez dos 6 do meio);
+- falsos positivos aceitos, do lado seguro: número de 11 dígitos sem cara de celular ("0800 123 4567")
+  vira CPF, duas datas
   seguidas viram cartão, e `, : ;` juntam o que o autor separou ("14:30:00 15/10/2026"). Não são texto livre,
   então não mascaram: o campo `protocolo` (AAAAMMDD-NNNNNN) e os campos de valor em reais (`valor`,
   `valor_bruto`, `valor_liquido`, `valor_total`), desde que o valor inteiro tenha o formato esperado;
 - NFKC troca caracteres de compatibilidade em todo texto livre: "1º" vira "1o", "m²" vira "m2", "½" vira
   "1⁄2", "™" vira "TM"; ZWJ/ZWNJ somem (emoji de família vira três emojis). Aceito: o sentido se mantém;
-- NÃO coberto de propósito: e-mail em texto livre e telefone sem DDD (DOC-MOCK §8.3 só diz CPF e cartão;
-  decisão de produto pendente) e número por extenso ou com letra no meio;
+- e-mail em texto livre: só no tipo `texto_externo`, o texto que SAI da plataforma (Slack, Telegram, Jira) ou que
+  CHEGA de fora (Jira, caixa de e-mail): `joao.silva@exemplo.example` vira `j***@exemplo.example`, como o campo `email`
+  (decisão do orquestrador em 23/11, sem fonte, para o Brenno validar). O `texto_livre` de sempre não mexe em
+  e-mail: o DOC-MOCK §8.3 só fala de CPF e cartão;
+- NÃO coberto de propósito: telefone sem DDD, nome de pessoa e conta bancária no meio do texto (não há como
+  reconhecer sem errar muito; as fichas que mandam texto para fora pedem para não escrevê-los) e número por
+  extenso ou com letra no meio;
 - risco residual aceito: o mesmo número escrito pelo lojista como CPF numa mensagem e como telefone em outra
   mostra partes diferentes em cada uma. Só o próprio autor controla o formato do que escreve;
 - LIMITAÇÃO CONHECIDA: número dividido entre duas mensagens ou dois campos ("CPF 111.444" e "777-00")
@@ -74,6 +83,13 @@ TELEFONE_NO_TEXTO = re.compile(
     r"|(?<![\d+])(?P<pais2>\+55[ ]?)(?P<ddd2>\d{2})[ ]?(?P<meio2>9?\d{4})[- ]?(?P<fim2>\d{4})(?!\d)"
 )
 CNPJ_NO_TEXTO = re.compile(r"(?<!\d)\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}(?!\d)")
+# Limites em cada pedaço: a busca anda numa passada só, sem ReDoS, mesmo num texto grande.
+EMAIL_NO_TEXTO = re.compile(r"(?<![\w.+-])[\w.%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){1,8}")
+DDDS = frozenset(
+    {11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 24, 27, 28, 31, 32, 33, 34, 35, 37, 38, 41, 42, 43, 44, 45, 46,
+     47, 48, 49, 51, 53, 54, 55, 61, 62, 63, 64, 65, 66, 67, 68, 69, 71, 73, 74, 75, 77, 79, 81, 82, 83, 84, 85,
+     86, 87, 88, 89, 91, 92, 93, 94, 95, 96, 97, 98, 99}
+)
 # Forma de cada valor depois de mascarado: mascarar de novo devolve o mesmo valor.
 JA_MASCARADO = {
     "cpf": re.compile(r"\*\*\*\.\d{3}\.\d{3}-\*\*"),
@@ -133,9 +149,16 @@ def _normalizar(texto):
     return CARACTERES_INVISIVEIS.sub("", texto)
 
 
+def _cara_de_celular(trecho, digitos):
+    """11 dígitos sem a pontuação de CPF, com DDD que existe e 9 no terceiro dígito (ver o topo do arquivo)."""
+    return "." not in trecho and int(digitos[:2]) in DDDS and digitos[2] == "9"
+
+
 def _numero_no_texto(trecho):
     """Máscara de uma sequência de dígitos achada no texto, pela quantidade de dígitos."""
     digitos = _digitos(trecho)
+    if len(digitos) == 11 and _cara_de_celular(trecho, digitos):
+        return _telefone(digitos)
     if len(digitos) == 11:
         return _cpf(digitos)
     if 13 <= len(digitos) <= 19:
@@ -165,6 +188,12 @@ def _texto_livre(valor):
     return SEQUENCIA_DE_DIGITOS.sub(lambda m: _numero_no_texto(m.group()), texto)
 
 
+def _texto_externo(valor):
+    """Texto livre que sai da plataforma ou chega de fora: o `texto_livre` e, antes, o e-mail no meio do texto."""
+    texto = EMAIL_NO_TEXTO.sub(lambda m: _email(m.group()), _normalizar(valor))
+    return _texto_livre(texto)
+
+
 MASCARAS = {
     "cpf": _cpf,
     "telefone": _telefone,
@@ -173,6 +202,7 @@ MASCARAS = {
     "cartao": _cartao,
     "nome": _nome,
     "texto_livre": _texto_livre,
+    "texto_externo": _texto_externo,
 }
 
 

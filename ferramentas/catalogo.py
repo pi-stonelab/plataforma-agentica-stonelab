@@ -193,8 +193,19 @@ def _texto_do_caminho(caminho, liberadas):
     if nome in liberadas:
         area = ferramentas[nome].area
         if caminho in (nome, f"{area}/{nome}"):
-            return _ler_arquivo(RAIZ / area / nome)
+            return _ler_arquivo(RAIZ / area / nome) + _situacao_agora(ferramentas[nome])
     raise ValueError
+
+
+def _situacao_agora(ferramenta):
+    """O que a ficha não sabe de antemão e o modelo precisa ver: o que está liberado agora no .env (canais, chats,
+    projetos) e se a integração está em demonstração. A ferramenta que tem isso escreve `situacao_para_o_agente`."""
+    situacao = getattr(ferramenta, "situacao_para_o_agente", None)
+    try:
+        texto = situacao() if callable(situacao) else ""
+    except ConnectionError:  # configuração errada: a ficha nem aparece (a integração some do índice)
+        texto = ""
+    return f"\n\n## Liberado agora\n\n{texto}" if texto else ""
 
 
 def ler(caminho, usuario, ferramentas_do_agente):
