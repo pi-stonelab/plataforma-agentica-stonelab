@@ -435,7 +435,7 @@ def motivos_de_recusa_da_antecipacao(origem: Session | Engine, codigo: str) -> l
     """Motivos do lojista que recusam qualquer antecipação (DOC-MOCK §7.4), na ordem de
     `regras.MOTIVOS_DE_RECUSA_DA_ANTECIPACAO`. Lista vazia: pode antecipar. None: lojista não existe.
 
-    O quarto motivo do §7.4 (parcela retida ou bloqueada) vale parcela por parcela: essas parcelas ficam
+    O motivo "parcela retida ou bloqueada" (§7.4) vale parcela por parcela: essas parcelas ficam
     fora de `recebiveis_para_antecipacao` em vez de recusar tudo.
     """
     falhas.verificar("cadastro")
@@ -453,6 +453,8 @@ def motivos_de_recusa_da_antecipacao(origem: Session | Engine, codigo: str) -> l
         motivos.append("lojista_bloqueado")
     if conta == "em_verificacao":
         motivos.append("conta_em_verificacao")
+    if conta == "invalida":
+        motivos.append("conta_invalida")  # §7.3: a liquidação falha e o dinheiro fica retido
     if vencida_ha_muito:
         motivos.append("fatura_vencida_ha_mais_de_15_dias")
     return motivos

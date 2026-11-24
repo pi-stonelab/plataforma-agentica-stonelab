@@ -113,6 +113,19 @@ def test_simulacao_recusada_explica_o_motivo_e_nao_traz_valor(engine):
     assert dados["motivos_de_recusa"] == [g.C4_MOTIVO_DA_RECUSA_TEXTO]
 
 
+def test_simulacao_e_recusada_com_conta_de_recebimento_invalida_do_cenario_1(engine):
+    for cargo in ("atendente_n1", "analista_recebiveis"):
+        dados = chamar("simular_antecipacao", {"id_cliente": g.C1_LOJISTA}, usuario(engine, cargo))["dados"]
+        assert (dados["pode_antecipar"], dados["simulacao"]) == (False, None)
+        assert dados["motivos_de_recusa"] == ["a conta de recebimento está inválida e o dinheiro fica retido"]
+
+
+def test_simulacao_com_conta_em_verificacao_continua_recusada_e_a_do_cenario_4_continua_valendo(engine):
+    dados = chamar("simular_antecipacao", {"id_cliente": "M00019"}, usuario(engine, "analista_recebiveis"))["dados"]
+    assert dados["motivos_de_recusa"] == ["a conta de recebimento está em verificação"]
+    assert chamar("simular_antecipacao", {"id_cliente": g.C4_LOJISTA}, atendente_pme(engine))["dados"]["pode_antecipar"]
+
+
 def test_simulacao_fora_da_carteira_e_negada_e_id_errado_e_invalido(engine):
     ana = usuario(engine, "atendente_n1")
     assert resultado(chamar("simular_antecipacao", {"id_cliente": g.C4_LOJISTA}, ana)) == NEGADA

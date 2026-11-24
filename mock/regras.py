@@ -367,11 +367,13 @@ def desconto_da_antecipacao_centavos(valor_centavos: int, dias_antecipados: int,
     return _arredondar_divisao(valor_centavos * taxa_pontos_base * dias_antecipados, 10000 * 30)
 
 
-# Os quatro motivos de recusa do §7.4, na ordem em que a ferramenta explica, com o texto para a pessoa.
+# Os motivos de recusa da antecipação, na ordem em que a ferramenta explica, com o texto para a pessoa. Os quatro
+# do §7.4 mais a conta inválida: o §7.3 diz que com ela o dinheiro fica retido, então nada sai (docs/decisoes.md, C7).
 ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = {
     "recebivel_retido_ou_bloqueado": "a parcela está retida ou bloqueada",
     "lojista_bloqueado": "o lojista está bloqueado",
     "conta_em_verificacao": "a conta de recebimento está em verificação",
+    "conta_invalida": "a conta de recebimento está inválida e o dinheiro fica retido",
     "fatura_vencida_ha_mais_de_15_dias": "há fatura vencida há mais de 15 dias",
 }
 MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = tuple(ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO)

@@ -533,6 +533,31 @@ Pedro confirmar.
   do hoje do mock até ontem; a taxa de chargeback, os últimos 6 meses até o mês atual. Teto de 92 dias e de 24 meses.
 - No código: `ferramentas/indicadores.py` e as três fichas.
 
+## Correções do bloco C depois da revisão (24/11, C7 a C14)
+
+Aplicadas depois da revisão do bloco C. Ficam para o Pedro confirmar.
+
+### C7. Antecipação recusada também com a conta de recebimento inválida
+- Decisão: `simular_antecipacao` recusa (`pode_antecipar` falso, com motivo) quando a conta de recebimento é
+  `invalida`. O §7.4 lista quatro recusas e não cita esta; o §7.3 diz que com a conta inválida a liquidação falha e o
+  dinheiro fica retido, então não faz sentido simular um dinheiro que não sai.
+- Conferido contra o cenário 1 (M00001, a única com conta inválida): o DOC-MOCK §9 espera cruzar cadastro, liquidação e
+  chamado e passar para o N2. Nenhum cenário espera simular antecipação para a M00001, e os cenários de antecipação
+  (M00004 e M00003) não mudam.
+- No código: `regras.ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO`, `consultas.motivos_de_recusa_da_antecipacao`.
+
+### C8. Verificação de identidade: tudo o que for informado precisa conferir
+- Decisão: telefone e e-mail informados juntos precisam ser do MESMO contato cadastrado (cenário 6, §6.6: número fora
+  do cadastro com o e-mail do sócio não passa). O telefone é comparado como DDD + número, sem `+55`, `0` de discagem
+  ou pontuação, dos dois lados.
+- No código: `consultas.normalizar_telefone`, `consultas.contato_confere`.
+
+### C9. O limite de 1% de chargeback é por lojista
+- Decisão: `consultar_taxa_contestacao_mensal` (agregado da Stone) mostra só a taxa e a tendência. Quem compara com o
+  limite do §7.6 é a nova `consultar_taxa_contestacao_cliente` (categoria `disputa`, escopo de carteira), pelas
+  quantidades (`chargebacks * 100 > vendas`), sem o arredondamento da taxa.
+- No código: `financeiro/consultar_taxa_contestacao_cliente`, `dados_sinteticos.contestacoes_do_lojista_por_mes`.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que
