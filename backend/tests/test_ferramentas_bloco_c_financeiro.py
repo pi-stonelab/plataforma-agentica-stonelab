@@ -370,23 +370,41 @@ def test_parcelas_recusam_principal_e_perdao_incoerentes(engine, argumentos):
     assert resultado(resposta) == INVALIDO
 
 
-@pytest.mark.parametrize("numero_parcelas", [1, 6, 7, 12, 13])
-@pytest.mark.parametrize("entrada_percentual", [Decimal(10), Decimal(20)])
-@pytest.mark.parametrize("desconto", [Decimal(0), Decimal(5), Decimal(11)])
-@pytest.mark.parametrize("valor_total", [Decimal("330.67"), Decimal(2500), Decimal(10500)])
-def test_quem_aprova_e_sempre_a_regra_do_mock_e_o_motivo_nunca_vem_vazio(
-    engine, numero_parcelas, entrada_percentual, desconto, valor_total
+# Valores escritos à mão a partir do DOC-MOCK §7.9 (não recalculados com a regra do código):
+# até 6 parcelas e entrada de 20% = analista; 7 a 12 parcelas, entrada abaixo de 20% ou desconto até 10% = coordenador;
+# mais de 12 parcelas ou desconto acima de 10% = proibido; acima de R$ 10.000 renegociados = dupla aprovação
+# (a quantidade de parcelas e o desconto proibidos valem antes dela).
+@pytest.mark.parametrize(
+    ("valor_total", "parcelas_", "entrada", "desconto", "alcada_esperada"),
+    [
+        ("330.67", 1, "20", "0", "analista"),
+        ("330.67", 6, "20", "0", "analista"),
+        ("330.67", 7, "20", "0", "coordenador"),
+        ("330.67", 12, "20", "0", "coordenador"),
+        ("330.67", 13, "20", "0", "proibido"),
+        ("330.67", 6, "10", "0", "coordenador"),
+        ("330.67", 6, "20", "5", "coordenador"),
+        ("330.67", 6, "20", "11", "proibido"),
+        ("2500", 4, "20", "0", "analista"),
+        ("2500", 4, "20", "10", "coordenador"),
+        ("2500", 7, "10", "0", "coordenador"),
+        ("2500", 12, "20", "0", "coordenador"),
+        ("10000", 6, "20", "0", "analista"),
+        ("10000.01", 6, "20", "0", "dupla_aprovacao"),
+        ("10500", 6, "20", "0", "dupla_aprovacao"),
+        ("10500", 6, "20", "5", "coordenador"),
+        ("10500", 6, "20", "11", "proibido"),
+        ("10500", 13, "20", "0", "proibido"),
+    ],
+)
+def test_alcada_do_acordo_bate_com_o_doc_mock_e_o_motivo_nunca_vem_vazio(
+    engine, valor_total, parcelas_, entrada, desconto, alcada_esperada
 ):
     dados = parcelas(
-        engine, valor_total=str(valor_total), numero_parcelas=numero_parcelas,
-        entrada_percentual=str(entrada_percentual), desconto_principal_percentual=str(desconto),
+        engine, valor_total=valor_total, numero_parcelas=parcelas_,
+        entrada_percentual=entrada, desconto_principal_percentual=desconto,
     )["dados"]
-    total = int(valor_total * 100)
-    desconto_centavos = int(total * desconto / 100)  # para baixo, como a ferramenta
-    negociado = total - desconto_centavos
-    entrada = -(-negociado * int(entrada_percentual) // 100)  # para cima, como a ferramenta
-    esperado = regras.alcada_do_acordo(total, negociado, numero_parcelas, entrada, 0, desconto_centavos)
-    assert dados["alcada"] == esperado
+    assert dados["alcada"] == alcada_esperada
     assert dados["motivo"] and not dados["motivo"].endswith(": .")
 
 
