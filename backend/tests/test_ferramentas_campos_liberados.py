@@ -51,7 +51,8 @@ LIBERACOES_PERMITIDAS = {
     # linhas e nome de arquivo são texto dela (ou de quem a convidou), que passa pela máscara de CPF e cartão e só
     # nestas fichas deixa de virar "***". Antes valiam para toda ferramenta, na lista global de mock/regras.py.
     "listar_eventos_agenda": frozenset({"data_inicio", "data_fim", "titulo", "inicio", "fim", "local"}),
-    "criar_evento_agenda": CONFIRMACAO | {"servico", "quando", "convidados", "titulo", "inicio", "fim", "local"},
+    "criar_evento_agenda": CONFIRMACAO
+    | {"servico", "quando", "convidados", "titulo", "inicio", "fim", "local", "atencao"},
     "buscar_arquivos": frozenset({"titulo", "modificado_em"}),
     "ler_planilha": frozenset({"titulo", "aba", "abas", "intervalo", "linhas"}),
     "adicionar_linha_planilha": CONFIRMACAO | {"servico", "planilha", "valores", "linhas_adicionadas", "aba", "abas"},

@@ -50,10 +50,12 @@ class BuscarArquivos(Ferramenta):
             raise ErroFerramenta("parametro_invalido", f"O tipo deve ser um destes: {', '.join(TIPOS_DE_ARQUIVO)}.")
         limite = exigir_limite(argumentos.get("limite"), LIMITE_PADRAO, LIMITE_MAXIMO)
         conta = conector_da_pessoa(usuario, argumentos.get("servico"))
-        arquivos = conta.arquivos(usuario.id_usuario, consulta, tipo, limite)
+        achados = conta.arquivos(usuario.id_usuario, consulta, tipo, limite + 1)  # um a mais mostra que há mais
+        arquivos = achados[:limite]
         return {
             "arquivos": [{**arquivo, "titulo": mascarar_celula(arquivo["titulo"])} for arquivo in arquivos],
-            "total": len(arquivos),
+            "total": len(arquivos),  # quantos vieram nesta resposta, não quantos existem
+            "truncado": len(achados) > limite,
             "fonte": conta.fonte(),
         }
 

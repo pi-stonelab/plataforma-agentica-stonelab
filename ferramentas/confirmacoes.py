@@ -73,7 +73,12 @@ MENSAGEM_PREVIA_CONTINUA = "A prévia continua valendo: confirme de novo quando 
 MENSAGEM_PREVIA_PRONTA = "Prévia pronta. Nada foi enviado: falta a confirmação do funcionário."
 MENSAGEM_PREVIA_ENCERRADA = "Esta prévia saiu da fila: peça de novo ao assistente."
 AVISO_DE_DEMONSTRACAO = "Modo de demonstração: nada sai de verdade."
-AVISO_DE_SAIDA = "Esta mensagem sai da plataforma. Confira se não há dado pessoal."
+AVISO_DE_SAIDA = (
+    "Esta mensagem sai da plataforma. CPF, cartão, telefone e e-mail saem mascarados; confira os outros dados pessoais."
+)
+AVISO_DE_CONTA_DA_PESSOA = (
+    "O conteúdo vai para a sua conta, não para outras pessoas. CPF, cartão, telefone e e-mail saem mascarados."
+)
 MENSAGEM_EFEITO_INCERTO_EM = (
     "O servidor de destino não confirmou: a ação pode ter sido feita. Confira {onde} antes de tentar de novo."
 )
@@ -129,6 +134,7 @@ class FerramentaComConfirmacao(Ferramenta):
     campos_so_da_interface = ()
     onde_conferir = None  # "na agenda": onde a pessoa vê se a ação aconteceu, quando o destino não confirmou
     frase_de_nada_feito = "Nada foi enviado."  # a escrita no mock diz "Nada foi gravado."
+    aviso_de_saida = AVISO_DE_SAIDA  # o que o cartão diz quando o texto sai
     sai_da_plataforma = False  # True: o texto vai para fora (Slack, Telegram, Jira, e-mail), e o cartão avisa
 
     def aviso_da_previa(self, conteudo=None):
@@ -144,7 +150,7 @@ class FerramentaComConfirmacao(Ferramenta):
                 avisos.append(AVISO_DE_DEMONSTRACAO)
                 break
         if self.sai_da_plataforma:
-            avisos.append(AVISO_DE_SAIDA)
+            avisos.append(self.aviso_de_saida)
         return " ".join(avisos) or None
 
     def mensagem_ao_confirmar(self, dados):

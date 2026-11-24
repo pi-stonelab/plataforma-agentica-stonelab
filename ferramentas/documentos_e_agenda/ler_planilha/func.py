@@ -5,6 +5,7 @@ from ferramentas.escritorio import (
     CELULAS_NO_MAXIMO,
     INTEGRACOES,
     PARAMETRO_SERVICO,
+    TAMANHO_DO_ID_OU_LINK,
     conector_da_pessoa,
     exigir_id_de_arquivo,
     exigir_intervalo,
@@ -33,7 +34,7 @@ class LerPlanilha(Ferramenta):
     status = "ativa"
     descricao_para_pessoa = "Mostra as linhas de uma planilha da sua conta Google ou Microsoft."
     parametros = {
-        "id_arquivo": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": 128},
+        "id_arquivo": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": TAMANHO_DO_ID_OU_LINK},
         "aba": {"tipo": "texto", "obrigatorio": False, "tamanho_maximo": 100},
         "intervalo": {"tipo": "texto", "obrigatorio": False, "tamanho_maximo": 20},
         "limite": {"tipo": "inteiro", "obrigatorio": False},

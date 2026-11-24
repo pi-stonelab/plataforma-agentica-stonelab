@@ -4,6 +4,7 @@ from ferramentas.base import Ferramenta
 from ferramentas.escritorio import (
     INTEGRACOES,
     PARAMETRO_SERVICO,
+    TAMANHO_DO_ID_OU_LINK,
     conector_da_pessoa,
     exigir_id_de_arquivo,
     mascarar_celula,
@@ -31,7 +32,7 @@ class LerDocumento(Ferramenta):
     status = "ativa"
     descricao_para_pessoa = "Mostra o texto de um documento da sua conta Google ou Microsoft."
     parametros = {
-        "id_arquivo": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": 128},
+        "id_arquivo": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": TAMANHO_DO_ID_OU_LINK},
         "servico": PARAMETRO_SERVICO,
     }
 

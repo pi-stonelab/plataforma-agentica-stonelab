@@ -14,7 +14,7 @@ Não use para planilha (`ler_planilha`) nem para arquivo anexado na conversa (`l
 
 ## Parâmetros
 
-- `id_arquivo` (texto, obrigatório): o id que `buscar_arquivos` devolveu.
+- `id_arquivo` (texto, obrigatório): o id que `buscar_arquivos` devolveu, ou o link do arquivo no Google que o funcionário colou (o id sai da URL).
 - `servico` (texto, opcional): `google` ou `microsoft`. Só use se a ferramenta pedir.
 
 ## O que devolve

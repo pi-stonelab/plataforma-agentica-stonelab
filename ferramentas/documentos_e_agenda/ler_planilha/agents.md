@@ -15,7 +15,7 @@ Não use para somar ou analisar milhares de linhas: a ferramenta devolve só as 
 
 ## Parâmetros
 
-- `id_arquivo` (texto, obrigatório): o id que `buscar_arquivos` devolveu.
+- `id_arquivo` (texto, obrigatório): o id que `buscar_arquivos` devolveu, ou o link do arquivo no Google que o funcionário colou (o id sai da URL).
 - `aba` (texto, opcional): o nome da aba. Padrão: a primeira. Se não existir, a mensagem lista as abas.
 - `intervalo` (texto, opcional): o trecho, como `A1:F20`. Padrão: a aba inteira, até o limite de linhas.
 - `limite` (inteiro, opcional): quantas linhas, de 1 a 100. Padrão: 30. Cada linha mostra até 20 colunas.

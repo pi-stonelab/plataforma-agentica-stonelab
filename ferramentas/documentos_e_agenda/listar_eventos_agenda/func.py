@@ -1,6 +1,6 @@
 """Eventos da agenda da conta (Google Calendar ou Outlook) de quem pede, num período."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 from ferramentas import lojista
 from ferramentas.base import ErroFerramenta, Ferramenta
@@ -17,6 +17,14 @@ LIMITE_PADRAO = 10
 LIMITE_MAXIMO = 25
 DIAS_PADRAO = 7
 DIAS_NO_MAXIMO = 31
+
+
+def com_fim_inclusivo(evento):
+    """Google e Microsoft contam o fim do evento de dia inteiro como o dia seguinte (fim exclusivo). Quem lê espera o
+    último dia do evento: um evento de 17/10 a 17/10 não pode aparecer como 17/10 a 18/10."""
+    if evento["dia_inteiro"] and evento["fim"] > evento["inicio"]:
+        return {**evento, "fim": (date.fromisoformat(evento["fim"]) - timedelta(days=1)).isoformat()}
+    return evento
 
 
 class ListarEventosAgenda(Ferramenta):
@@ -59,7 +67,7 @@ class ListarEventosAgenda(Ferramenta):
             "data_fim": data_fim.isoformat(),
             "eventos": [
                 {**evento, "titulo": mascarar_celula(evento["titulo"]), "local": mascarar_celula(evento["local"])}
-                for evento in eventos
+                for evento in map(com_fim_inclusivo, eventos)
             ],
             "total": len(eventos),
             "truncado": truncado,

@@ -173,7 +173,19 @@ def test_protocolo_do_chamado_so_passa_se_o_valor_inteiro_tem_o_formato():
     assert mascara.mascarar({"protocolo": "20261014-000001 4111"}, ("chamado",)) != {
         "protocolo": "20261014-000001 4111"
     }
-    assert livre("protocolo 20261014-000001") == "protocolo **** **** **** 0001"
+    # No meio de um texto, o protocolo (data de verdade e seis dígitos) passa; qualquer dígito colado a ele não.
+    assert livre("protocolo 20261014-000001 aberto") == "protocolo 20261014-000001 aberto"
+    assert livre("protocolo 20261014-000001 4111") != "protocolo 20261014-000001 4111"
+    assert livre("20261014-0000014111") != "20261014-0000014111"
+
+
+@pytest.mark.parametrize("parecido", ["20261314-000001", "19991014-000001", "20261014-00001", "41111111-111111"])
+def test_numero_que_so_parece_protocolo_continua_mascarado_no_texto(parecido):
+    assert livre(f"pedido {parecido}") != f"pedido {parecido}"
+
+
+def test_protocolo_ao_lado_de_cpf_nao_livra_o_cpf():
+    assert livre("20261014-000001 e CPF 111.444.777-35") == f"20261014-000001 e CPF {CPF}"
 
 
 def test_numero_dentro_de_estrutura_aninhada_tambem_e_mascarado():

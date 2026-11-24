@@ -3,6 +3,7 @@
 from ferramentas.base import ErroFerramenta
 from ferramentas.escritorio import (
     PARAMETRO_SERVICO,
+    TAMANHO_DO_ID_OU_LINK,
     EscritaDeEscritorio,
     celulas_de,
     conector_da_pessoa,
@@ -26,7 +27,7 @@ class AdicionarLinhaPlanilha(EscritaDeEscritorio):
     )
     rotulos_da_previa = {"servico": "Conta", "planilha": "Planilha", "aba": "Aba", "valores": "Linha a adicionar"}
     parametros = {
-        "id_arquivo": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": 128},
+        "id_arquivo": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": TAMANHO_DO_ID_OU_LINK},
         "valores": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": 2000},
         "aba": {"tipo": "texto", "obrigatorio": False, "tamanho_maximo": 100},
         "servico": PARAMETRO_SERVICO,

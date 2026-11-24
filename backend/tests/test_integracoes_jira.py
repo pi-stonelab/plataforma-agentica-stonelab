@@ -182,7 +182,7 @@ def test_abrir_recusa_projeto_e_tipo_fora_da_lista_e_resumo_de_duas_linhas(jira,
         ({"resumo": "x", "descricao": "y", "projeto": "RH"}, "Projeto fora da lista"),
         ({"resumo": "x", "descricao": "y", "tipo": "Epic"}, "Tipo de chamado fora da lista"),
         ({"resumo": "a\nb", "descricao": "y"}, "uma linha só"),
-        ({"resumo": "  ", "descricao": "y"}, "não pode ficar vazio"),
+        ({"resumo": "  ", "descricao": "y"}, "não pode ficar em branco"),
     ]:
         resposta = catalogo.executar(ABRIR, argumentos, ana, AGENTE)
         assert resposta["tipo_erro"] == "parametro_invalido" and trecho in resposta["mensagem"], resposta

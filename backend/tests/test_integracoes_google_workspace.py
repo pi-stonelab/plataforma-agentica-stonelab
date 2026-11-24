@@ -375,7 +375,7 @@ def test_criar_evento_so_mostra_a_previa_e_so_cria_depois_de_confirmar(conta_com
     assert previa["servico"] == "Google Workspace" and previa["quando"] == "20/10/2026 das 14:30 às 15:15"
     assert previa["convidados"] == ["bia@stone.example", "carlos@filial.example"]
     assert ASSINATURA_DA_ANA in previa["texto"]
-    assert pedidos_a_apis(servidor) == [] and dados.eventos == {}
+    assert escritas_nas_apis(servidor) == [] and not any(dados.eventos.values())  # a prévia só lê a agenda, para avisar de conflito
     resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
     assert resultado["status"] == "ok" and resultado["dados"]["fonte"] == GOOGLE.fonte_real
     (criado,) = dados.eventos[ANA_ID]
@@ -405,7 +405,7 @@ def test_dominio_removido_da_lista_depois_da_previa_nao_cria_o_evento(conta_com_
     monkeypatch.setenv("ESCRITORIO_DOMINIOS", "filial.example")
     resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
     assert resultado["tipo_erro"] == "parametro_invalido" and "Nada foi criado" in resultado["mensagem"]
-    assert dados.eventos == {}
+    assert not any(dados.eventos.values())
 
 
 @pytest.mark.parametrize(
@@ -648,3 +648,112 @@ def test_criar_planilha_com_resposta_sem_id_diz_que_pode_ter_criado(conta_com_es
     servidor.responder = responder
     resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
     assert resultado["mensagem"] == incerto(CRIAR_PLANILHA)
+
+
+# --- clareza para quem lê (U15, U18, U19) ----------------------------------------------------------------------------
+
+
+def test_evento_de_dia_inteiro_volta_com_o_ultimo_dia_e_nao_o_dia_seguinte(conta, ana):
+    _, dados = conta
+    dados.evento(ANA_ID, "Feriado da empresa", "2026-10-17", "2026-10-18")  # o Google conta o fim como o dia seguinte
+    dados.evento(ANA_ID, "Retiro", "2026-10-19", "2026-10-22")
+    eventos = {e["titulo"]: e for e in dados_de(EVENTOS, {"data_inicio": "2026-10-15", "data_fim": "2026-10-25"}, ana)["eventos"]}
+    assert (eventos["Feriado da empresa"]["inicio"], eventos["Feriado da empresa"]["fim"]) == ("2026-10-17", "2026-10-17")
+    assert (eventos["Retiro"]["inicio"], eventos["Retiro"]["fim"]) == ("2026-10-19", "2026-10-21")
+
+
+def test_previa_do_evento_mostra_as_duas_datas_quando_passa_da_meia_noite(conta_com_escrita, ana):
+    previa = dados_de(CRIAR_EVENTO, {"titulo": "Plantão", "data": "2026-10-20", "hora_inicio": "23:00", "duracao_minutos": 120}, ana)
+    assert previa["quando"] == "20/10/2026 às 23:00 até 21/10/2026 às 01:00"
+
+
+def test_previa_do_evento_avisa_do_conflito_so_para_a_pessoa_e_nao_impede(conta_com_escrita, ana):
+    _, dados = conta_com_escrita
+    dados.evento(ANA_ID, "Reunião com a diretoria", "2026-10-20T14:00:00-03:00", "2026-10-20T15:00:00-03:00")
+    dados.evento(ANA_ID, "Almoço", "2026-10-20T12:00:00-03:00", "2026-10-20T13:00:00-03:00")
+    previa = dados_de(CRIAR_EVENTO, {"titulo": "Alinhamento", "data": "2026-10-20", "hora_inicio": "14:30"}, ana)
+    assert "atencao" not in previa  # o título do outro evento é texto de terceiro: o modelo não o recebe
+    cartao = {c["rotulo"]: c["valor"] for c in confirmacoes.confirmacao_para_interface(previa["confirmacao_id"], ana)["campos"]}
+    assert cartao["Atenção"] == "Você já tem na agenda neste horário: Reunião com a diretoria (14:00 às 15:00)."
+    assert confirmacoes.confirmar(previa["confirmacao_id"], ana)["status"] == "ok"
+
+
+def test_previa_do_evento_sai_sem_aviso_se_a_agenda_nao_responde(conta_com_escrita, ana):
+    servidor, _ = conta_com_escrita
+    resposta_normal = servidor.responder
+    servidor.responder = lambda pedido: (500, {}, b"") if pedido.metodo == "GET" else resposta_normal(pedido)
+    previa = dados_de(CRIAR_EVENTO, {"titulo": "Alinhamento", "data": "2026-10-20", "hora_inicio": "14:30"}, ana)
+    assert previa["situacao"] == "aguardando_confirmacao"
+
+
+def test_busca_de_arquivos_diz_quando_ha_mais_do_que_o_limite(conta, ana):
+    todos = dados_de(ARQUIVOS, {"consulta": "teste", "limite": 1}, ana)
+    assert (todos["total"], todos["truncado"]) == (1, True)  # `total` é quantos vieram, não quantos existem
+    inteiro = dados_de(ARQUIVOS, {"consulta": "teste", "limite": 5}, ana)
+    assert (inteiro["total"], inteiro["truncado"]) == (2, False)
+
+
+@pytest.mark.parametrize("link", [
+    f"https://docs.google.com/spreadsheets/d/{PLANILHA}/edit#gid=0",
+    f"https://docs.google.com/spreadsheets/u/0/d/{PLANILHA}/edit?usp=sharing",
+    f"https://drive.google.com/file/d/{PLANILHA}/view",
+    f"https://drive.google.com/open?id={PLANILHA}",
+    f"  {PLANILHA}  ",
+])
+def test_o_link_do_google_vale_como_id_do_arquivo(conta, ana, link):
+    assert dados_de(LER_PLANILHA, {"id_arquivo": link}, ana)["titulo"] == "Acompanhamento de testes"
+
+
+@pytest.mark.parametrize("link", [
+    "https://exemplo.com/spreadsheets/d/abcdefghijk1234567890/edit",
+    "http://docs.google.com/spreadsheets/d/abcdefghijk1234567890",
+    "https://docs.google.com.exemplo.com/spreadsheets/d/abcdefghijk1234567890",
+    "https://docs.google.com/spreadsheets/d/abc/../../x",
+])
+def test_link_que_nao_e_do_google_continua_recusado(conta, ana, link):
+    assert usar(LER_PLANILHA, {"id_arquivo": link}, ana)["tipo_erro"] == "parametro_invalido"
+
+
+def test_previa_da_planilha_usa_singular_e_o_aviso_fala_da_conta_da_pessoa(conta_com_escrita, ana):
+    previa = dados_de(CRIAR_PLANILHA, {"titulo": "Teste", "colunas": "A", "linhas": "x"}, ana)
+    assert previa["tamanho"] == "1 linha de dados, 1 coluna"
+    assert "CPF, cartão, telefone e e-mail saem mascarados" in previa["aviso"] and "mensagem" not in previa["aviso"]
+    vazia = usar(ADICIONAR_LINHA, {"id_arquivo": PLANILHA, "valores": "  "}, ana)
+    assert vazia["mensagem"] == "A linha não pode ficar em branco."
+
+
+def test_documento_com_quebras_de_secao_nao_conta_o_mesmo_texto_duas_vezes(conta, ana):
+    servidor, _ = conta
+    corpo = lambda texto: {"paragraph": {"elements": [{"textRun": {"content": texto}}]}}
+    conteudo = [corpo("a" * 3000 + "\n"), {"sectionBreak": {}}, {"sectionBreak": {}}, corpo("b" * 2000 + "\n")]
+    resposta_normal = servidor.responder
+    servidor.responder = lambda pedido: (
+        (200, {"Content-Type": "application/json"}, json.dumps({"title": "Longo", "body": {"content": conteudo}}).encode())
+        if "/v1/documents/" in pedido.rota else resposta_normal(pedido)
+    )
+    resultado = dados_de(LER_DOCUMENTO, {"id_arquivo": DOCUMENTO}, ana)
+    assert resultado["truncado"] is False and "b" * 2000 in resultado["texto"]  # 5.001 caracteres cabem em 6.000
+
+
+def test_documento_com_mais_conteudo_do_que_o_limite_avisa_mesmo_quando_o_corte_cai_entre_blocos(conta, ana):
+    servidor, _ = conta
+    corpo = lambda texto: {"paragraph": {"elements": [{"textRun": {"content": texto}}]}}
+    conteudo = [corpo("a" * 6000 + "\n"), corpo("depois do limite\n")]
+    resposta_normal = servidor.responder
+    servidor.responder = lambda pedido: (
+        (200, {"Content-Type": "application/json"}, json.dumps({"title": "Longo", "body": {"content": conteudo}}).encode())
+        if "/v1/documents/" in pedido.rota else resposta_normal(pedido)
+    )
+    resultado = dados_de(LER_DOCUMENTO, {"id_arquivo": DOCUMENTO}, ana)
+    assert resultado["truncado"] is True and "depois do limite" not in resultado["texto"]
+
+
+def test_descricao_do_evento_vai_sem_html_para_o_calendar(conta_com_escrita, ana):
+    _, dados = conta_com_escrita
+    previa = dados_de(CRIAR_EVENTO, {
+        "titulo": "Alinhamento", "data": "2026-10-20", "hora_inicio": "14:30",
+        "descricao": 'Veja <a href="https://exemplo.example">o link</a> & <b>confirme</b>',
+    }, ana)
+    assert confirmacoes.confirmar(previa["confirmacao_id"], ana)["status"] == "ok"
+    (criado,) = dados.eventos[ANA_ID]
+    assert "<a " not in criado["description"] and "&lt;a href" in criado["description"] and "&amp;" in criado["description"]

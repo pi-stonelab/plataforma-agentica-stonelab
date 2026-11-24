@@ -24,7 +24,7 @@ nas ferramentas de atendimento e financeiro.
 ## O que devolve
 
 Em `dados`: `data_inicio`, `data_fim`, `eventos` (cada um com `titulo`, `inicio`, `fim`, `dia_inteiro`, `local` e
-`convidados`, que é só a quantidade), `total`, `truncado` (há mais eventos que o limite) e `fonte`. Horários no
+`convidados`, que é só a quantidade; num evento de dia inteiro, `fim` é o último dia do evento), `total`, `truncado` (há mais eventos que o limite) e `fonte`. Horários no
 fuso de Brasília. Se `fonte` disser que é demonstração, avise o funcionário de que os eventos são de exemplo.
 
 Erros possíveis: `parametro_invalido` (datas fora de ordem, período longo demais, limite fora de 1 a 25),

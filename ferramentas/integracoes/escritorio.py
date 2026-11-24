@@ -298,7 +298,6 @@ class ConectorDeEscritorio(Conector):
         self.mundo.limpar()
 
 
-
 def horario_local(texto, fuso_do_texto=FUSO):
     """Data e hora de uma API ("2026-10-16T14:00:00-03:00", ou sem fuso, que vale `fuso_do_texto`) como horário de
     Brasília ("2026-10-16T14:00"). Formato estranho: `ValueError`."""

@@ -210,7 +210,7 @@ def test_lista_eventos_convertendo_utc_para_brasilia_com_dia_inteiro_e_sem_cance
     treino, reuniao, feriado = resultado["eventos"]
     assert (treino["inicio"], treino["fim"]) == ("2026-10-15T09:00", "2026-10-15T10:30")  # 12h UTC = 9h em Brasília
     assert reuniao["local"] == "Sala 2" and reuniao["convidados"] == 2
-    assert (feriado["inicio"], feriado["fim"], feriado["dia_inteiro"]) == ("2026-10-17", "2026-10-18", True)
+    assert (feriado["inicio"], feriado["fim"], feriado["dia_inteiro"]) == ("2026-10-17", "2026-10-17", True)  # fim inclusivo
     assert resultado["fonte"] == MICROSOFT.fonte_real and resultado["truncado"] is False
     chamada = pedidos_ao_graph(servidor)[-1]
     assert chamada.token == credenciais.provedor().ler(ANA_ID, "microsoft_365").access_token
@@ -233,7 +233,7 @@ def test_cria_o_evento_em_utc_com_transaction_id_convidados_liberados_e_assinatu
         "titulo": "Alinhamento", "data": "2026-10-20", "hora_inicio": "14:30", "duracao_minutos": 45,
         "convidados": "bia@stone.example", "local": "Sala 3", "descricao": "Pauta do mês",
     }, ana)
-    assert previa["servico"] == "Microsoft 365" and pedidos_ao_graph(servidor) == []
+    assert previa["servico"] == "Microsoft 365" and escritas(servidor) == []
     resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
     assert resultado["status"] == "ok" and resultado["dados"]["fonte"] == MICROSOFT.fonte_real
     (criado,) = dados.eventos[ANA_ID]

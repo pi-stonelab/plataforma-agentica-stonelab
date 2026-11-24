@@ -29,6 +29,7 @@ https://developers.google.com/drive/api/reference/rest/v3/files):
   e item sem acesso (`forbidden`): `classificar_recusa` separa as três.
 """
 
+import html
 import os
 import re
 from datetime import datetime, time, timedelta
@@ -127,22 +128,28 @@ def _texto_dos_elementos(paragrafo):
 
 
 def _texto_do_conteudo(conteudo, limite):
-    """O texto de `body.content` do Docs: parágrafos e as células das tabelas (separadas por tabulação), até `limite`."""
+    """O texto de `body.content` do Docs: parágrafos e as células das tabelas (separadas por tabulação).
+
+    Devolve `(texto, parou)`: `parou` é True quando o documento tem mais conteúdo do que o texto devolvido. Cada
+    pedaço entra na contagem uma vez só (o bloco que não é parágrafo nem tabela não conta pedaço nenhum)."""
     partes = []
     tamanho = 0
-    for bloco in conteudo if isinstance(conteudo, list) else ():
+    blocos = conteudo if isinstance(conteudo, list) else []
+    for posicao, bloco in enumerate(blocos):
         if not isinstance(bloco, dict):
             continue
+        novas = []
         if "paragraph" in bloco:
-            partes.append(_texto_dos_elementos(bloco["paragraph"]))
+            novas.append(_texto_dos_elementos(bloco["paragraph"]))
         elif isinstance(bloco.get("table"), dict):
             for linha in bloco["table"].get("tableRows", ()):
                 celulas = linha.get("tableCells", ()) if isinstance(linha, dict) else ()
-                partes.append("\t".join(_texto_da_celula(c) for c in celulas) + "\n")
-        tamanho += len(partes[-1]) if partes else 0
+                novas.append("\t".join(_texto_da_celula(c) for c in celulas) + "\n")
+        partes.extend(novas)
+        tamanho += sum(len(parte) for parte in novas)
         if tamanho > limite:
-            break
-    return "".join(partes)
+            return "".join(partes), posicao < len(blocos) - 1 or tamanho > limite
+    return "".join(partes), False
 
 
 def _texto_da_celula(celula):
@@ -292,7 +299,7 @@ class ConectorGoogleWorkspace(ConectorDeEscritorio):
         if evento.get("local"):
             corpo["location"] = evento["local"]
         if evento.get("descricao"):
-            corpo["description"] = evento["descricao"]
+            corpo["description"] = html.escape(evento["descricao"], quote=False)  # o Calendar entende HTML na descrição
         if evento.get("convidados"):
             corpo["attendees"] = [{"email": email} for email in evento["convidados"]]
         try:
@@ -410,8 +417,8 @@ class ConectorGoogleWorkspace(ConectorDeEscritorio):
         dados = resposta.dados
         if not isinstance(dados, dict) or not isinstance(dados.get("title"), str):
             raise RespostaInvalida("resposta fora do formato")
-        texto = _texto_do_conteudo((dados.get("body") or {}).get("content"), limite)
-        return {"titulo": dados["title"][:200], "texto": texto[:limite], "truncado": len(texto) > limite}
+        texto, parou = _texto_do_conteudo((dados.get("body") or {}).get("content"), limite)
+        return {"titulo": dados["title"][:200], "texto": texto[:limite], "truncado": parou or len(texto) > limite}
 
 
 CONECTOR = registrar(ConectorGoogleWorkspace())

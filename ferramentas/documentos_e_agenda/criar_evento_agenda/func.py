@@ -11,6 +11,7 @@ from ferramentas.escritorio import (
     EscritaDeEscritorio,
     conector_da_pessoa,
     exigir_uma_linha,
+    mascarar_celula,
 )
 from ferramentas.integracoes import conector
 from ferramentas.integracoes.conector import DestinoNaoPermitido
@@ -26,6 +27,7 @@ DIAS_A_FRENTE_NO_MAXIMO = 365
 TAMANHO_DO_TITULO = 120
 TAMANHO_DA_DESCRICAO = 500
 TAMANHO_DO_LOCAL = 100
+EVENTOS_NA_CONFERENCIA = 50
 
 
 def _inicio(argumentos, hoje):
@@ -37,6 +39,30 @@ def _inicio(argumentos, hoje):
     if data < hoje or data > hoje + timedelta(days=DIAS_A_FRENTE_NO_MAXIMO):
         raise ErroFerramenta("parametro_invalido", "A data deve ser de hoje até um ano à frente.")
     return datetime.combine(data, time(int(achado.group(1)), int(achado.group(2))))
+
+
+def _quando(inicio, fim):
+    """"17/10/2026 das 09:00 às 10:00"; se o evento passa da meia-noite, as duas datas aparecem."""
+    if fim.date() != inicio.date():
+        return f"{inicio:%d/%m/%Y} às {inicio:%H:%M} até {fim:%d/%m/%Y} às {fim:%H:%M}"
+    return f"{inicio:%d/%m/%Y} das {inicio:%H:%M} às {fim:%H:%M}"
+
+
+def _conflitos(conta, id_usuario, inicio, fim):
+    """Os eventos da agenda que se sobrepõem ao novo, como "Título (09:00 às 10:00)". Só aviso: se a agenda não
+    responder, a prévia sai sem ele (a confirmação não depende dessa conferência)."""
+    try:
+        eventos, _ = conta.eventos(id_usuario, inicio.date(), fim.date(), EVENTOS_NA_CONFERENCIA)
+    except (ConnectionError, TimeoutError, ErroFerramenta):
+        return []
+    achados = []
+    for evento in eventos:
+        if evento["dia_inteiro"]:
+            continue
+        comeca, termina = datetime.fromisoformat(evento["inicio"]), datetime.fromisoformat(evento["fim"])
+        if comeca < fim and inicio < termina:
+            achados.append(f"{mascarar_celula(evento['titulo'])} ({comeca:%H:%M} às {termina:%H:%M})")
+    return achados
 
 
 def _convidados(conta, texto):
@@ -62,7 +88,10 @@ class CriarEventoAgenda(EscritaDeEscritorio):
     nome = "criar_evento_agenda"
     area = "documentos_e_agenda"
     categorias_dados = ("agenda_pessoal",)
-    campos_liberados = (*EscritaDeEscritorio.campos_liberados, "quando", "convidados", "titulo", "inicio", "fim", "local")
+    campos_liberados = (
+        *EscritaDeEscritorio.campos_liberados, "quando", "convidados", "titulo", "inicio", "fim", "local", "atencao",
+    )
+    campos_so_da_interface = ("atencao",)  # traz o título de outro evento (texto de terceiro): a pessoa lê, o modelo não
     status = "ativa"
     onde_conferir = "na agenda"
     titulo = "Criar evento na agenda"
@@ -70,6 +99,7 @@ class CriarEventoAgenda(EscritaDeEscritorio):
     rotulos_da_previa = {
         "servico": "Conta", "titulo": "Evento", "quando": "Quando", "local": "Local", "convidados": "Convidados",
         "texto": "Descrição",
+        "atencao": "Atenção",
     }
     parametros = {
         "titulo": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": TAMANHO_DO_TITULO},
@@ -104,11 +134,13 @@ class CriarEventoAgenda(EscritaDeEscritorio):
         previa = {
             "servico": conta.rotulo,
             "titulo": titulo,
-            "quando": f"{inicio:%d/%m/%Y} das {inicio:%H:%M} às {fim:%H:%M}",
+            "quando": _quando(inicio, fim),
             "local": local,
             "convidados": convidados,
             "texto": texto,
         }
+        if conflitos := _conflitos(conta, usuario.id_usuario, inicio, fim):
+            previa["atencao"] = f"Você já tem na agenda neste horário: {'; '.join(conflitos)}."
         return conteudo, {campo: valor for campo, valor in previa.items() if valor not in ("", [])}
 
     def efetivar(self, conteudo, usuario):

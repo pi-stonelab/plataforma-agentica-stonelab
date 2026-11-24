@@ -24,7 +24,7 @@ def texto_mascarado(valor, rotulo, uma_linha=False):
     """O texto do modelo já mascarado e conferido: não vazio, sem caractere que o destino recusaria."""
     texto = mascarar_valor(TEXTO_QUE_SAI, valor)
     if not texto or not texto.strip():
-        raise ErroFerramenta("parametro_invalido", f"{rotulo} não pode ficar vazio.")
+        raise ErroFerramenta("parametro_invalido", f"{rotulo} não pode ficar em branco.")
     if uma_linha and not email_smtp.assunto_valido(texto):
         raise ErroFerramenta("parametro_invalido", f"{rotulo} deve ter uma linha só.")
     if not email_smtp.corpo_valido(texto):

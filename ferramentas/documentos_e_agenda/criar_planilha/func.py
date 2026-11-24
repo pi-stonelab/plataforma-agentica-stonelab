@@ -8,6 +8,7 @@ from ferramentas.escritorio import (
     conector_da_pessoa,
     exigir_uma_linha,
     linhas_de,
+    plural,
 )
 from ferramentas.integracoes import conector
 
@@ -45,7 +46,7 @@ class CriarPlanilha(EscritaDeEscritorio):
             "servico": conta.rotulo,
             "titulo": titulo,
             "colunas": colunas,
-            "tamanho": f"{len(linhas)} linhas de dados, {len(colunas)} colunas",
+            "tamanho": f"{plural(len(linhas), 'linha')} de dados, {plural(len(colunas), 'coluna')}",
             "linhas": linhas[:LINHAS_NA_PREVIA],  # cada célula já mascarada; o cartão mostra as primeiras
         }
         return conteudo, previa

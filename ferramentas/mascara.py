@@ -67,6 +67,9 @@ CARACTERES_SEPARADORES = (
 SEQUENCIA_DE_DIGITOS = re.compile(
     rf"\d(?:(?:{TAG_HTML_CURTA}|[{CARACTERES_SEPARADORES}]){{0,{LIMITE_DE_SEPARADORES}}}\d)*"
 )
+# Protocolo de chamado, AAAAMMDD-NNNNNN, com uma data de verdade no começo: no meio de um texto, não é cartão. O formato
+# estreito (ano 20xx, mês e dia que existem) deixa quase nenhum cartão real com cara de protocolo.
+PROTOCOLO_NO_TEXTO = re.compile(r"20\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])-\d{6}")
 CARACTERES_INVISIVEIS = re.compile(
     "[\x00-\x08\x0e-\x1f\x7f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e"
     "\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff"
@@ -156,6 +159,8 @@ def _cara_de_celular(trecho, digitos):
 
 def _numero_no_texto(trecho):
     """Máscara de uma sequência de dígitos achada no texto, pela quantidade de dígitos."""
+    if PROTOCOLO_NO_TEXTO.fullmatch(trecho):
+        return trecho
     digitos = _digitos(trecho)
     if len(digitos) == 11 and _cara_de_celular(trecho, digitos):
         return _telefone(digitos)

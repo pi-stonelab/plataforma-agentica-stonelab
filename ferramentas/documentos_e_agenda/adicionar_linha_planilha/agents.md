@@ -15,7 +15,7 @@ dado pessoal de lojista (CPF, cartão, conta, telefone, e-mail): cite o código 
 
 ## Parâmetros
 
-- `id_arquivo` (texto, obrigatório): o id que `buscar_arquivos` devolveu.
+- `id_arquivo` (texto, obrigatório): o id que `buscar_arquivos` devolveu, ou o link do arquivo no Google que o funcionário colou (o id sai da URL).
 - `valores` (texto, obrigatório): as células da linha separadas por `|`, até 20 células de 200 caracteres.
   Exemplo: `19/10 | 100 | 90 | 2`. O que for escrito fica como texto (uma célula `=SOMA(A1)` não vira fórmula).
 - `aba` (texto, opcional): o nome da aba. Padrão: a primeira.

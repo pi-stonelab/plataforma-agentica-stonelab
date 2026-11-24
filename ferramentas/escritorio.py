@@ -10,7 +10,11 @@
 import re
 
 from ferramentas.base import ErroFerramenta
-from ferramentas.confirmacoes import AVISO_DE_DEMONSTRACAO, AVISO_DE_SAIDA, FerramentaComConfirmacao
+from ferramentas.confirmacoes import (
+    AVISO_DE_CONTA_DA_PESSOA,
+    AVISO_DE_DEMONSTRACAO,
+    FerramentaComConfirmacao,
+)
 from ferramentas.integracoes import conector
 from ferramentas.integracoes.conector import sem_acento
 from ferramentas.integracoes.escritorio import PADRAO_ID_ARQUIVO, PADRAO_INTERVALO
@@ -24,6 +28,7 @@ APELIDOS_DAS_CONTAS = {
     "microsoft": "microsoft_365",
     "microsoft_365": "microsoft_365",
 }
+TAMANHO_DO_ID_OU_LINK = 300  # o id tem até 128; o link do Google que a pessoa cola é mais longo
 PARAMETRO_SERVICO = {"tipo": "texto", "obrigatorio": False, "tamanho_maximo": 30}
 SEPARADOR_DE_CELULAS = "|"
 CELULAS_NO_MAXIMO = 20
@@ -80,10 +85,20 @@ def situacao_das_contas():
     return texto
 
 
+LINK_DO_GOOGLE = re.compile(
+    r"https://(?:docs|drive)\.google\.com/(?:(?:document|spreadsheets|presentation|file)/(?:u/\d/)?d/|open\?id=)"
+    r"(?P<id>[A-Za-z0-9_-]{10,128})(?:[/?#&]\S*)?"
+)
+
+
 def exigir_id_de_arquivo(texto):
-    """O id do arquivo como o Google ou a Microsoft o escrevem (letras, números, `-`, `_` e `!`)."""
+    """O id do arquivo como o Google ou a Microsoft o escrevem (letras, números, `-`, `_` e `!`). Aceita também o link
+    do Google que a pessoa colou (o id sai da URL); link da Microsoft não traz o id, então a pessoa usa a busca."""
+    texto = texto.strip()
+    if (achado := LINK_DO_GOOGLE.fullmatch(texto)) is not None:
+        texto = achado.group("id")
     if not PADRAO_ID_ARQUIVO.fullmatch(texto):
-        raise ErroFerramenta("parametro_invalido", "O id_arquivo deve ser o id que buscar_arquivos devolveu.")
+        raise ErroFerramenta("parametro_invalido", "O id_arquivo deve ser o id que buscar_arquivos devolveu ou o link do arquivo no Google.")
     return texto
 
 
@@ -94,6 +109,11 @@ def exigir_intervalo(texto):
     if not PADRAO_INTERVALO.fullmatch(texto):
         raise ErroFerramenta("parametro_invalido", "O intervalo deve ter o formato A1:F20.")
     return texto.upper()
+
+
+def plural(quantidade, palavra):
+    """"1 linha", "2 linhas"."""
+    return f"{quantidade} {palavra}" if quantidade == 1 else f"{quantidade} {palavra}s"
 
 
 def exigir_limite(valor, padrao, maximo):
@@ -107,7 +127,7 @@ def exigir_uma_linha(texto, rotulo):
     """Texto de uma linha só e não vazio, já mascarado (CPF, cartão, telefone e e-mail no meio do texto)."""
     mascarado = mascarar_valor(TEXTO_QUE_SAI, texto)
     if not mascarado.strip() or "\n" in mascarado or "\r" in mascarado:
-        raise ErroFerramenta("parametro_invalido", f"{rotulo} deve ter uma linha só e não pode ficar vazio.")
+        raise ErroFerramenta("parametro_invalido", f"{rotulo} deve ter uma linha só e não pode ficar em branco.")
     return mascarado.strip()
 
 
@@ -122,7 +142,7 @@ def celulas_de(texto, rotulo):
         raise ErroFerramenta("parametro_invalido", f"{rotulo} deve ser um texto de uma linha só.")
     celulas = [celula.strip() for celula in texto.split(SEPARADOR_DE_CELULAS)]
     if not any(celulas):
-        raise ErroFerramenta("parametro_invalido", f"{rotulo} não pode ficar vazio.")
+        raise ErroFerramenta("parametro_invalido", f"{rotulo} não pode ficar em branco.")
     if len(celulas) > CELULAS_NO_MAXIMO or any(len(celula) > TAMANHO_DA_CELULA for celula in celulas):
         raise ErroFerramenta(
             "parametro_invalido",
@@ -148,6 +168,7 @@ class EscritaDeEscritorio(FerramentaComConfirmacao):
     nivel_minimo = "N1"
     sensibilidade = "interna"
     sai_da_plataforma = True
+    aviso_de_saida = AVISO_DE_CONTA_DA_PESSOA
     campos_liberados = (*FerramentaComConfirmacao.campos_liberados, "servico")  # "conta" é campo de banco: mascarado
 
     def situacao_para_o_agente(self):
@@ -167,5 +188,5 @@ class EscritaDeEscritorio(FerramentaComConfirmacao):
             return super().aviso_da_previa()
         avisos = [AVISO_DE_DEMONSTRACAO] if conector(conteudo["servico"]).demonstracao() else []
         if self.sai_da_plataforma:
-            avisos.append(AVISO_DE_SAIDA)
+            avisos.append(self.aviso_de_saida)
         return " ".join(avisos) or None
