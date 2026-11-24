@@ -6,7 +6,8 @@ arquivo vem de uma pessoa ou de uma conta externa, então ele é tratado como ho
   último valor que o Excel guardou;
 - zip: poucas partes, nomes sem `..` nem caminho absoluto, tamanho descompactado limitado (zip bomb) e cada parte lida
   com teto, mesmo que o cabeçalho minta;
-- XML com `DOCTYPE` ou `ENTITY` é recusado (entidade que se multiplica, entidade externa);
+- XML com `DOCTYPE` ou `ENTITY` é recusado (entidade que se multiplica, entidade externa), e XML que não é UTF-8
+  (UTF-16 esconderia o `DOCTYPE` do filtro) também;
 - limites de bytes, linhas, colunas, caracteres e páginas, e o resultado diz quando cortou.
 
 Erro de formato: `ArquivoInvalido` (`parametro_invalido`), com mensagem fixa, sem trecho do arquivo.
@@ -28,6 +29,7 @@ BYTES_NO_MAXIMO = 5_000_000
 PARTES_NO_MAXIMO = 500
 BYTES_DESCOMPACTADOS_NO_MAXIMO = 25_000_000
 BYTES_DA_PARTE_NO_MAXIMO = 15_000_000
+BYTES_DOS_TEXTOS_NO_MAXIMO = 5_000_000  # sharedStrings vira lista de textos na memória: teto menor que o das outras partes
 LINHAS_PADRAO = 200
 COLUNAS_PADRAO = 30
 CARACTERES_PADRAO = 20_000
@@ -38,6 +40,7 @@ EXTENSOES_COM_MACRO = (".xlsm", ".xlsb", ".docm", ".xltm", ".dotm")
 TIPOS_COM_MACRO = ("macroenabled", "vbaproject")
 PADRAO_NUMERO = re.compile(r"-?(0|[1-9][0-9]{0,14})(\.[0-9]{1,6})?")  # sem zero à esquerda: "007" é código, não número
 PADRAO_DE_FORMULA = re.compile(r"[=@]|[+-](?!" + PADRAO_NUMERO.pattern + r"$)")
+PADRAO_DA_CODIFICACAO = re.compile(rb"""(?:\xef\xbb\xbf)?\s*<\?xml[^>]*?encoding\s*=\s*["']([^"']+)["']""")
 CARACTERE_ILEGAL_NO_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
 NS_RELACOES = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 TIPO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -80,23 +83,30 @@ def abrir_zip(conteudo):
     return pacote
 
 
-def _parte(pacote, nome, obrigatoria=True):
+def _parte(pacote, nome, obrigatoria=True, limite=BYTES_DA_PARTE_NO_MAXIMO):
     """Os bytes de uma parte, lidos com teto. Faltando: `ArquivoInvalido` (ou None se não for obrigatória)."""
     try:
         with pacote.open(nome) as parte:
-            dados = parte.read(BYTES_DA_PARTE_NO_MAXIMO + 1)
+            dados = parte.read(limite + 1)
     except KeyError:
         if obrigatoria:
             raise ArquivoInvalido from None
         return None
     except (zipfile.BadZipFile, OSError, RuntimeError, ValueError, NotImplementedError):
         raise ArquivoInvalido from None
-    if len(dados) > BYTES_DA_PARTE_NO_MAXIMO:
+    if len(dados) > limite:
         raise ArquivoInvalido("O arquivo é grande demais depois de aberto.")
     return dados
 
 
 def _conferir_xml(dados):
+    """Recusa `DOCTYPE`/`ENTITY` e todo XML que não seja UTF-8: em UTF-16 as letras de `<!doctype` têm bytes nulos no
+    meio e passariam pelo filtro de bytes, mas o analisador as entenderia."""
+    if dados.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in dados[:200]:
+        raise ArquivoInvalido
+    declaracao = PADRAO_DA_CODIFICACAO.match(dados[:200])
+    if declaracao and declaracao.group(1).lower() not in (b"utf-8", b"utf8"):
+        raise ArquivoInvalido
     minusculas = dados.lower()
     if b"<!doctype" in minusculas or b"<!entity" in minusculas:
         raise ArquivoInvalido
@@ -205,7 +215,7 @@ def _texto_do_item(elemento):
 
 
 def _textos_compartilhados(pacote):
-    dados = _parte(pacote, "xl/sharedStrings.xml", obrigatoria=False)
+    dados = _parte(pacote, "xl/sharedStrings.xml", obrigatoria=False, limite=BYTES_DOS_TEXTOS_NO_MAXIMO)
     if dados is None:
         return []
     return [_texto_do_item(item) for item in _arvore(dados) if _nome_local(item.tag) == "si"]

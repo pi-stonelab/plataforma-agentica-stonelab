@@ -186,6 +186,40 @@ def test_xml_com_doctype_ou_entidade_nao_e_interpretado(xml):
     assert "bomba" not in erro.value.mensagem and "passwd" not in erro.value.mensagem
 
 
+def _trocar_a_planilha(xml):
+    pacote = xlsx_a_mao("")
+    with zipfile.ZipFile(io.BytesIO(pacote)) as original:
+        partes = {nome: original.read(nome) for nome in original.namelist()}
+    partes["xl/worksheets/sheet1.xml"] = xml
+    return zip_com(partes)
+
+
+@pytest.mark.parametrize("codificacao", ["utf-16", "utf-16-le", "utf-16-be"])
+def test_xml_em_utf16_com_doctype_nao_passa_pelo_filtro_de_bytes(codificacao):
+    xml = '<!DOCTYPE x [<!ENTITY a "bomba">]><worksheet xmlns="' + PRINCIPAL + '"><sheetData/></worksheet>'
+    with pytest.raises(ArquivoInvalido):
+        formatos.ler_xlsx(_trocar_a_planilha(xml.encode(codificacao)))
+
+
+def test_xml_que_declara_outra_codificacao_e_recusado_e_utf8_com_declaracao_continua_valendo():
+    corpo = '<worksheet xmlns="' + PRINCIPAL + '"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>ok</t></is></c></row></sheetData></worksheet>'
+    with pytest.raises(ArquivoInvalido):
+        formatos.ler_xlsx(_trocar_a_planilha('<?xml version="1.0" encoding="ISO-8859-1"?>' + corpo))
+    lido = formatos.ler_xlsx(_trocar_a_planilha('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + corpo))
+    assert lido["linhas"] == [["ok"]]
+
+
+def test_shared_strings_enorme_e_recusado_antes_de_virar_lista_na_memoria():
+    pacote = xlsx_a_mao("")
+    with zipfile.ZipFile(io.BytesIO(pacote)) as original:
+        partes = {nome: original.read(nome) for nome in original.namelist()}
+    partes["xl/sharedStrings.xml"] = '<sst xmlns="' + PRINCIPAL + '">' + "<si><t>a</t></si>" * 400_000 + "</sst>"
+    assert formatos.BYTES_DOS_TEXTOS_NO_MAXIMO < len(partes["xl/sharedStrings.xml"]) < formatos.BYTES_DA_PARTE_NO_MAXIMO
+    with pytest.raises(ArquivoInvalido) as erro:
+        formatos.ler_xlsx(zip_com(partes))
+    assert "grande demais" in erro.value.mensagem
+
+
 def test_zip_bomb_e_recusado_pelo_tamanho_descompactado_sem_descompactar():
     bomba = zip_com({
         "[Content_Types].xml": "<Types/>", "xl/workbook.xml": "<w/>",
