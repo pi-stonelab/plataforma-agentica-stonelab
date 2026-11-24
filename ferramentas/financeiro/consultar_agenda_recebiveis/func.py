@@ -5,7 +5,6 @@ from datetime import timedelta
 from ferramentas import dados_sinteticos, governanca, lojista
 from ferramentas.base import ErroFerramenta, Ferramenta
 
-
 DIAS_PADRAO_DO_PASSADO = 30  # só data_fim no passado: a agenda são os 30 dias que terminam nela
 
 
