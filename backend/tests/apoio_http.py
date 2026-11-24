@@ -122,6 +122,7 @@ class _Atendimento(BaseHTTPRequestHandler):
     def _atender(self):
         servidor = self.server
         servidor.pedidos.append((self.command, self.path))
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))  # sem ler o corpo, o Windows reinicia a conexão
         if servidor.atraso:
             time.sleep(servidor.atraso)
         status, cabecalhos, corpo = servidor.responder(self.command, self.path)
