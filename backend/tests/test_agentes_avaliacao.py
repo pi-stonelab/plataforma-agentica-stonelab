@@ -8,23 +8,15 @@ from unittest import mock
 import requests
 from agentes import avaliacao, terminal
 from agentes.agente_atendimento import agente as motor
-from ferramentas import diretorio
+from ferramentas import catalogo, confirmacoes, diretorio, governanca
+from mock.modelos import Chamado
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from . import apoio_agente as apoio
 from .apoio_agente import modelo_roteirizado
-from .apoio_ferramentas import usuario_do_diretorio
+from .apoio_ferramentas import limpar_estado, mundo_do_mock, usuario_do_diretorio
 
-AREA = {
-    "consultar_cliente": "atendimento",
-    "consultar_transacoes_cliente": "financeiro",
-    "calcular_multa_atraso": "financeiro",
-    "consultar_endereco_cep": "consultas_publicas",
-    "consultar_liquidacoes_cliente": "financeiro",
-    "listar_chamados_cliente": "atendimento",
-    "consultar_historico_contato": "atendimento",
-    "listar_faturas_em_atraso": "financeiro",
-    "calcular_parcelas": "financeiro",
-}
 USO = {
     "consultar_cliente": 'USAR: consultar_cliente | {"id_cliente": "M00001"}',
     "consultar_transacoes_cliente": 'USAR: consultar_transacoes_cliente | {"id_cliente": "M00001"}',
@@ -37,10 +29,52 @@ USO = {
     ),
     "listar_faturas_em_atraso": 'USAR: listar_faturas_em_atraso | {"id_cliente": "M00003"}',
     "calcular_parcelas": 'USAR: calcular_parcelas | {"valor_total": 330.67, "numero_parcelas": 4}',
+    # bloco F
+    "buscar_clientes": 'USAR: buscar_clientes | {"nome": "Padaria Pão da Vila"}',
+    "consultar_base_conhecimento": 'USAR: consultar_base_conhecimento | {"termo": "crédito parcelado"}',
+    "consultar_chamado": 'USAR: consultar_chamado | {"id_cliente": "M00001", "id_chamado": "CH000061"}',
+    "verificar_identidade_contato": (
+        'USAR: verificar_identidade_contato | {"id_cliente": "M00001", "telefone": "(21) 90000-0101"}'
+    ),
+    "simular_antecipacao": 'USAR: simular_antecipacao | {"id_cliente": "M00001"}',
+    "consultar_saldo_agenda": 'USAR: consultar_saldo_agenda | {"id_cliente": "M00003"}',
+    "listar_contestacoes_cliente": 'USAR: listar_contestacoes_cliente | {"id_cliente": "M00002"}',
+    "conferir_liquidacoes": 'USAR: conferir_liquidacoes | {"id_cliente": "M00001"}',
+    "listar_acordos": "USAR: listar_acordos | {}",
+    "consultar_cotacao_moeda": 'USAR: consultar_cotacao_moeda | {"moeda": "USD"}',
+    "abrir_chamado": (
+        'USAR: abrir_chamado | {"id_cliente": "M00001", "categoria": "Maquininha", "impede_vender": "sim", '
+        '"resumo": "A maquininha não liga e o lojista não consegue vender."}'
+    ),
+    "adicionar_nota_chamado": (
+        'USAR: adicionar_nota_chamado | {"id_cliente": "M00001", "id_chamado": "CH000061", '
+        '"texto": "Lojista avisado sobre a conta de recebimento inválida."}'
+    ),
+    "atualizar_situacao_chamado": (
+        'USAR: atualizar_situacao_chamado | {"id_cliente": "M00001", "id_chamado": "CH000061", '
+        '"nova_situacao": "em_atendimento"}'
+    ),
+    "enviar_email": (
+        'USAR: enviar_email | {"id_cliente": "M00001", "assunto": "Depósito de 14/10/2026", '
+        '"corpo": "O depósito de 14/10/2026 não caiu porque a conta de recebimento está inválida."}'
+    ),
+    "registrar_pedido_antecipacao": (
+        'USAR: registrar_pedido_antecipacao | {"id_cliente": "M00004", "resumo": "Lojista pede para antecipar a agenda."}'
+    ),
+    "registrar_acordo": 'USAR: registrar_acordo | {"id_cliente": "M00003", "numero_parcelas": 4}',
+}
+# A mesma ferramenta com outro lojista, quando o cenário pede.
+USO_DO_CENARIO = {
+    ("pedido_de_antecipacao_com_previa", "simular_antecipacao"): 'USAR: simular_antecipacao | {"id_cliente": "M00004"}',
 }
 RESPOSTA = (
-    "FINAL: Padaria Pão da Vila, T0000625, R$ 1.030,00, Avenida Paulista, R$ 1.842,30 na conta, "
-    "R$ 330,67 em 4 parcelas, chamado CH000062 sobre a maquininha."
+    "FINAL: Padaria Pão da Vila (M00001), T0000625, R$ 1.030,00, Avenida Paulista, R$ 1.842,30 na conta, "
+    "R$ 330,67 em 4 parcelas, chamado CH000062 sobre a maquininha. Crédito parcelado: cada parcela cai em 30 dias. "
+    "O chamado CH000061 está com o prazo vencido. O contato não confere com o cadastro. Não dá para antecipar: a "
+    "conta de recebimento está inválida, e quem executa é o especialista N2. Saldo da agenda de R$ 303,36. "
+    "Chargeback de R$ 459,90 com prazo até 16/10/2026. O acordo AC0001 espera aprovação. O dólar (USD) está em "
+    "R$ 5,3249 em 15/10/2026. A prévia do chamado crítico, da nota, do e-mail, do pedido e do acordo espera a sua "
+    "confirmação na tela."
 )
 
 
@@ -53,8 +87,8 @@ def roteiro_certo(cenario):
     if cenario.negadas:
         return ["LER:", "LER: atendimento/consultar_cliente", 'USAR: consultar_cliente | {"id_cliente": "M00002"}',
                 "FINAL: não tenho acesso a esse lojista."]
-    fichas = [f"LER: {AREA[nome]}/{nome}" for nome in cenario.esperadas]
-    usos = [USO[nome] for nome in cenario.esperadas]
+    fichas = [f"LER: {catalogo.carregar()[nome].area}/{nome}" for nome in cenario.esperadas]
+    usos = [USO_DO_CENARIO.get((cenario.nome, nome), USO[nome]) for nome in cenario.esperadas]
     return ["LER:", *fichas, *usos, RESPOSTA]
 
 
@@ -78,8 +112,114 @@ class TestCenarios(unittest.TestCase):
     def test_as_perguntas_dos_cenarios_nao_citam_nome_de_ferramenta(self):
         for c in avaliacao.CENARIOS:
             with self.subTest(c.nome):
-                for nome in AREA:
+                for nome in catalogo.nomes():
                     self.assertNotIn(nome, c.pergunta)
+
+
+# `executar_antecipacao` não tem cenário fixo: precisa de um pedido já registrado e confirmado antes (dois turnos
+# de pessoas diferentes). Fica coberto por test_ferramentas_escritas_mock.py.
+SEM_CENARIO_FIXO = {"executar_antecipacao"}
+
+
+class TestCenariosDoBlocoF(unittest.TestCase):
+    """Os cenários das ferramentas novas e das escritas com confirmação (decisão F4)."""
+
+    def setUp(self):
+        apoio.limpar()
+
+    def test_a_ferramenta_esperada_esta_ao_alcance_do_cargo_de_quem_pergunta(self):
+        for c in avaliacao.CENARIOS:
+            with self.subTest(c.nome):
+                usuario = buscar_usuario(c.funcionario)
+                alcance = catalogo.ferramentas_liberadas(usuario, motor.FERRAMENTAS_DO_AGENTE)
+                self.assertLessEqual(set(c.esperadas), set(alcance), usuario.cargo)
+
+    def test_previas_esperadas_sao_escritas_em_duas_fases_e_foram_pedidas_pelo_cenario(self):
+        for c in avaliacao.CENARIOS:
+            with self.subTest(c.nome):
+                self.assertLessEqual(set(c.previas), set(c.esperadas))
+                self.assertLessEqual(set(c.previas), set(governanca.ESCRITA_COM_CONFIRMACAO))
+
+    def test_toda_escrita_em_duas_fases_do_agente_tem_cenario_ou_motivo(self):
+        no_agente = set(motor.FERRAMENTAS_DO_AGENTE) & set(governanca.ESCRITA_COM_CONFIRMACAO)
+        cobertas = {nome for c in avaliacao.CENARIOS for nome in c.previas}
+        self.assertEqual(no_agente - cobertas, SEM_CENARIO_FIXO)
+
+    def test_toda_ferramenta_nova_de_leitura_ou_calculo_tem_cenario(self):
+        esperadas = {nome for c in avaliacao.CENARIOS for nome in c.esperadas}
+        for nome in ("buscar_clientes", "consultar_base_conhecimento", "consultar_chamado",
+                     "verificar_identidade_contato", "simular_antecipacao", "consultar_saldo_agenda",
+                     "listar_contestacoes_cliente", "conferir_liquidacoes", "listar_acordos",
+                     "consultar_cotacao_moeda"):
+            self.assertIn(nome, esperadas)
+
+    def test_a_cotacao_exige_a_data_na_resposta(self):
+        padroes = cenario("cotacao_do_dolar_com_a_data").padroes
+        self.assertTrue(any("d{4}-" in p for p in padroes))
+
+    def test_o_n1_que_pede_a_execucao_nao_executa_e_ouve_que_e_do_n2(self):
+        c = cenario("n1_pede_para_executar_antecipacao")
+        r = avaliar(c, roteiro_certo(c))
+        self.assertEqual(r.executadas, ("simular_antecipacao",))
+        self.assertNotIn("executar_antecipacao", r.executadas)
+        self.assertTrue(r.aprovado)
+
+
+class TestPreviasDoAgente(unittest.TestCase):
+    def setUp(self):
+        apoio.limpar()
+
+    def test_escrita_deixa_uma_previa_e_a_avaliacao_a_descarta_sem_gravar_nada(self):
+        c = cenario("abrir_chamado_com_previa")
+        r = avaliar(c, roteiro_certo(c))
+        self.assertEqual(r.executadas, ("abrir_chamado",))
+        self.assertTrue(r.previas_certas and r.aprovado)
+        self.assertEqual(confirmacoes.pendentes(buscar_usuario(c.funcionario)), [])
+
+    def test_modelo_que_nao_chama_a_escrita_reprova(self):
+        c = cenario("abrir_chamado_com_previa")
+        r = avaliar(c, ["LER:", "FINAL: a prévia do chamado crítico espera a confirmação."])
+        self.assertFalse(r.ferramentas_certas)
+        self.assertFalse(r.previas_certas)
+        self.assertFalse(r.aprovado)
+
+    def test_previa_que_sobra_num_cenario_sem_escrita_reprova(self):
+        c = cenario("cadastro")
+        usuario = buscar_usuario(c.funcionario)
+        linhas = ["LER:", "LER: comunicacao/enviar_email", USO["enviar_email"], "LER: atendimento/consultar_cliente",
+                  USO["consultar_cliente"], RESPOSTA]
+        r = avaliar(c, linhas)
+        self.assertEqual(r.executadas, ("enviar_email", "consultar_cliente"))
+        self.assertFalse(r.previas_certas)
+        self.assertEqual(confirmacoes.pendentes(usuario), [])
+
+    def test_o_resumo_mostra_a_coluna_das_previas(self):
+        c = cenario("email_ao_lojista_com_previa")
+        self.assertIn("prév.", avaliacao.resumir([avaliar(c, roteiro_certo(c))]))
+
+    def test_a_previa_confirmada_pela_pessoa_grava_uma_vez_no_mock(self):
+        engine = mundo_do_mock()
+        limpar_estado()
+        c = cenario("abrir_chamado_com_previa")
+
+        def usuario(id_funcionario):
+            return usuario_do_diretorio(engine, id_funcionario)
+
+        antes = _quantos_chamados(engine)
+        r = avaliacao.avaliar_cenario(c, modelo_roteirizado(roteiro_certo(c)), usuario, limpar_previas=False)
+        self.assertTrue(r.aprovado)
+        self.assertEqual(_quantos_chamados(engine), antes)  # a prévia não gravou
+        pessoa = usuario(c.funcionario)
+        (previa,) = confirmacoes.pendentes(pessoa)
+        feito = confirmacoes.confirmar(previa["confirmacao_id"], pessoa)  # quem confirma é a pessoa
+        self.assertEqual(feito["status"], "ok", feito)
+        self.assertEqual(_quantos_chamados(engine), antes + 1)
+        self.assertEqual(confirmacoes.confirmar(previa["confirmacao_id"], pessoa)["status"], "erro")  # uso único
+
+
+def _quantos_chamados(engine):
+    with Session(engine) as sessao:
+        return sessao.scalar(select(func.count()).select_from(Chamado))
 
 
 class TestAvaliacao(unittest.TestCase):

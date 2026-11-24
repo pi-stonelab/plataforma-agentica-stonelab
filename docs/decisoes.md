@@ -823,6 +823,24 @@ Escolhas do fechamento das ferramentas. Todas são do Pedro confirmar; os testes
 - No código: `ferramentas/catalogo.py` (`data_de_hoje`), `agentes/agente_atendimento/agente.py` (`montar_prompt`,
   `SISTEMA`), `agentes/agente_geral/agente.py` (`SISTEMA`); testes em `test_agente_data_de_hoje.py`.
 
+### F4. Cenários de avaliação das ferramentas novas e das escritas
+- Decisão: `agentes/avaliacao.py` passa de 10 para 27 cenários fixos. Entram uma pergunta por ferramenta nova de
+  leitura e cálculo, com o cargo que a alcança (§8.2): cobrança (saldo da agenda), disputas (chargeback), recebíveis
+  (depósito x agenda), coordenadora (acordos), atendente (nome do lojista, base de conhecimento, chamado, identidade,
+  antecipação, cotação com a data). O caso de §8.4 "o N1 pede ao agente para executar a antecipação" tem o seu: só
+  `simular_antecipacao` pode rodar e a resposta manda para o N2.
+- Escritas em duas fases: o cenário ganhou o campo `previas` (as escritas que precisam ter deixado a prévia esperando
+  confirmação). A avaliação confere que a fila de quem perguntou tem exatamente essas prévias e as descarta no fim
+  (quem confirma é a pessoa, nunca o agente nem a avaliação); `Resultado.previas_certas` entra em `aprovado`. Seis
+  escritas: `abrir_chamado`, `adicionar_nota_chamado`, `atualizar_situacao_chamado`, `enviar_email`,
+  `registrar_pedido_antecipacao` e `registrar_acordo`.
+- Fora de propósito: `executar_antecipacao` (precisa de um pedido já confirmado por outra pessoa, dois turnos) e as
+  ferramentas de Jira, Slack, Telegram, Google e Microsoft (dependem de conta; o agente de atendimento nem as lista).
+- A avaliação com o modelo real é do Pedro (`python -m agentes.avaliacao`). Aqui só se validou a estrutura e que o
+  modelo roteirizado atinge o gabarito (`test_agentes_avaliacao.py`). Os padrões do cenário da cotação não fixam o
+  valor, porque as APIs públicas são reais por padrão; só exigem a moeda, o valor em reais e uma data.
+- No código: `agentes/avaliacao.py` (`Cenario.previas`, `Resultado.previas_certas`, `limpar_previas`).
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que

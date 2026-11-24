@@ -127,8 +127,8 @@ do cartão de revisão da interface; o modelo nunca confirma (veja "Escrita em d
 
 ## Avaliação do uso de ferramentas
 
-Código em `agentes/avaliacao.py`. Roda 7 cenários fixos (uma, duas e três ferramentas no mesmo pedido, e um
-lojista de outra carteira que precisa ser negado) e mede, por pedido: se as ferramentas esperadas rodaram com
+Código em `agentes/avaliacao.py`. Roda 27 cenários fixos (uma, duas e três ferramentas no mesmo pedido, um
+lojista de outra carteira que precisa ser negado, as ferramentas novas por cargo e seis escritas em duas fases) e mede, por pedido: se as ferramentas esperadas rodaram com
 sucesso (lido do registro da governança, não do que o modelo diz), se a resposta traz o dado esperado, passos,
 chamadas ao modelo e tempo (total e dentro do modelo). Precisa de `LLM_URL` e das credenciais no `.env`:
 
@@ -136,9 +136,12 @@ chamadas ao modelo e tempo (total e dentro do modelo). Precisa de `LLM_URL` e da
     python -m agentes.avaliacao --cenario multa --cenario cadastro_e_transacoes
     python -m agentes.avaliacao --salvar avaliacao.json
 
+Nas escritas o cenário traz `previas`: a avaliação confere que a fila de quem perguntou tem exatamente aquelas prévias esperando
+confirmação e as descarta no fim; quem confirma é a pessoa, nunca o agente nem a avaliação.
+
 O arquivo salvo guarda só números e nomes (nunca pergunta, resposta ou dado de lojista). Limites: a resposta é
 conferida por expressões regulares sobre dados sintéticos fixos (semente 20261015), então é uma checagem
-simples, não uma nota de qualidade; os cenários usam a lista de 5 ferramentas de hoje (KAN-55); tokens por
+simples, não uma nota de qualidade; os cenários usam a lista de 33 ferramentas do agente de atendimento (F2); `executar_antecipacao` não tem cenário fixo (precisa de um pedido já confirmado); tokens por
 chamada ainda não entram (dependem do `LLMClient` do back-end). Os testes usam modelos roteirizados e provam
 a medição, não o modelo.
 
