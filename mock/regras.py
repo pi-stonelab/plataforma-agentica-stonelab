@@ -374,8 +374,7 @@ ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = {
 }
 MOTIVOS_DE_RECUSA_DA_ANTECIPACAO = tuple(ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO)
 
-# Alçadas do §7.9. ferramentas/financeiro/calcular_parcelas ainda tem as suas (sem o perdão de encargos e sem a
-# dupla aprovação): pendência do bloco C.
+# Alçadas do §7.9. `calcular_parcelas` usa estas, pela fachada (docs/decisoes.md, C15).
 ENTRADA_MINIMA_ANALISTA_PERCENTUAL = 20
 PARCELAS_MAXIMAS_ANALISTA = 6
 PARCELAS_MAXIMAS_COORDENADOR = 12

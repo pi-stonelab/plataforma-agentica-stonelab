@@ -434,7 +434,7 @@ Escolhas sem fonte no DOC-MOCK, tomadas para a fase 2 (plano `plano-ferramentas-
 - Decisão: `regras.alcada_do_acordo` aplica o §7.9 (dupla aprovação acima de R$ 10.000; coordenador para desconto no
   principal, mais de 6 parcelas, entrada abaixo de 20% ou perdão de encargos em dívida acima de R$ 2.000; acima de 12
   parcelas ou de 10% de desconto sobre o principal, proibido).
-  `calcular_parcelas` ainda tem as suas constantes, com os mesmos valores (pergunta aberta 7).
+  `calcular_parcelas` usa estas, pela fachada, desde o bloco C (C15); antes tinha as suas constantes.
 - No código: `mock/regras.py`, `acordos.alcada`.
 
 ### A7. Base analítica agregada
@@ -608,6 +608,13 @@ Aplicadas depois da revisão do bloco C. Ficam para o Pedro confirmar.
   de `test_ferramentas_campos_liberados.py` agora cobre também essas fichas (só texto da plataforma).
 - No código: `mock/regras.py` e as 11 fichas.
 
+### C15. Alçadas num lugar só e contagem de ferramentas
+- Decisão: `calcular_parcelas` já usava `regras.alcada_do_acordo` (inclui `dupla_aprovacao` e o perdão de encargos). Os
+  textos antigos (V1, A6, pergunta 7, o comentário em `mock/regras.py` e a primeira frase do `agents.md` da
+  ferramenta) diziam o contrário e foram corrigidos. Contagem hoje: 51 ferramentas, 33 ativas e 18 esqueletos
+  (`ferramentas/CLAUDE.md` e `ferramentas/agents.md`). O `CLAUDE.md` da raiz (do Marcelo) ainda diz "43 ferramentas, 11
+  ativas": não é nosso, vale avisar no Jira.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que
@@ -616,8 +623,9 @@ o código faz hoje e o que falta decidir.
 
 - V1. Alçadas e escrita (E15 a E20). A KAN-69 quer alçada testável. Sem escrita na Sprint 2, os casos N3, N6 e N7 valem
   "por construção" (a ferramenta não existe). A proposta P-1 (calcular quem aprova) foi atendida: `calcular_parcelas`
-  devolve `analista`, `coordenador` ou `proibido`. As alçadas moram em `ferramentas/financeiro/calcular_parcelas/func.py`,
-  não em `mock/regras.py`. O Pedro não registrou aprovação da P-1 (SEM FONTE).
+  devolve `alcada` (`analista`, `coordenador`, `dupla_aprovacao` ou `proibido`). As alçadas moram em
+  `mock/regras.py::alcada_do_acordo` (a ferramenta só explica a decisão em `motivo`; C15). O Pedro não registrou
+  aprovação da P-1 (SEM FONTE).
 - V2. Dado restrito completo para o N2. Adiado (O2). A demo deve avisar que o N2 também vê mascarado.
 - V3. "3 níveis da KAN-33" (E9). Superado pela regra por cargo (O1). O caso E9 vale como "cargo desconhecido é negado".
 - V4. Replicar e onboarding guiado. Fora da Sprint 2 (O6). Não há `REPLICAR` em `Acao`.
@@ -654,7 +662,7 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
 2. A entrada de 20% está dentro das parcelas ou vem antes? Hoje `calcular_parcelas` cobra a entrada à parte: do valor
    negociado tira a entrada e divide o resto em N parcelas. O DOC-MOCK §7.9 não diz qual é o certo (L2 da pesquisa),
    e o gabarito do cenário 3 depende disso.
-3. Quem aprova entrada abaixo de 20%? O código manda para o coordenador (`quem_aprova`). O DOC-MOCK só diz que o analista
+3. Quem aprova entrada abaixo de 20%? O código manda para o coordenador (`alcada`). O DOC-MOCK só diz que o analista
    exige 20% no mínimo. SEM FONTE sobre o aprovador da exceção.
 4. E-mail e telefone digitados em texto livre são mascarados? Hoje não. A máscara de texto livre só cobre sequências de
    11 dígitos (CPF) e de 13 a 19 dígitos (cartão); 12 dígitos ou mais de 19 viram `***`. O DOC-MOCK §8.3 só pede
@@ -662,8 +670,8 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
 5. `id_cliente` ou `codigo_lojista`? Decidido em H6: continua `id_cliente` para o modelo.
 6. Formato da máscara do nome do sócio. Hoje: inicial de cada parte e `***` (`J*** S***`). O DOC-MOCK §8.3 não define
    (SEM FONTE).
-7. Alçadas em `mock/regras.py`. Já existem lá (A6), mas `calcular_parcelas` ainda tem as suas, com os mesmos valores.
-   Trocar a ferramenta para as do mock deixa as regras num lugar só.
+7. Alçadas em `mock/regras.py`. Resolvida no bloco C (C15): `calcular_parcelas` usa `regras.alcada_do_acordo` pela
+   fachada, com `dupla_aprovacao` e o perdão de encargos, e as regras ficam num lugar só.
 8. Escopo por chamados atribuídos. O DOC-MOCK §3.2 fala em carteira, fila e chamados atribuídos; o código só usa as
    carteiras do time (L11 da pesquisa).
 9. Reativar um agente pausado. `Plataforma.deprecar` existe; não existe método que reative. Nenhuma fonte diz se pode.
@@ -673,3 +681,14 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
     em `governanca.py`) e nos cards (KAN-34, trava 8). SEM FONTE.
 12. Preço simulado por token e limite mensal por pessoa (Sprint 3). A regra vem da KAN-16; os números não.
 13. O prazo de 120 s por turno do agente vale? Foi escolhido para a demo e ainda não foi medido com o modelo real.
+14. Fatura com exatamente 15 dias de atraso bloqueia a antecipação? O §7.4 diz "fatura vencida há mais de 15 dias" (o
+    código usa isso: com 15 dias ainda antecipa, com 16 recusa) e a régua do §7.5 diz "15 dias: antecipação
+    bloqueada". As duas frases discordam no dia 15. Não mudamos: `test_fatura_com_15_dias_exatos_...` fixa o
+    comportamento atual. Se o Pedro escolher o §7.5, é trocar `<` por `<=` em `mock/consultas.py::
+    motivos_de_recusa_da_antecipacao` e o teste.
+15. Risco de oráculo em `verificar_identidade_contato`. A ferramenta responde só "confere" ou "não confere", mas quem
+    tem acesso ao agente pode chutar números de telefone ou e-mails de um lojista e ver qual confere, até achar um
+    contato cadastrado (e a resposta `confere` libera o resto do atendimento). Mitigações que não fizemos: limite de
+    tentativas por pessoa e por lojista (o registro já guarda quem chamou, sem o contato), alerta ao Monitoramento
+    depois de N falhas seguidas e confirmação do CNPJ junto (§6.6 já pede o CNPJ e o código no contato). O registro
+    nunca guarda o telefone nem o e-mail informados. Decisão e dono: Pedro com o Brenno (segurança) e o Enrico (alertas).

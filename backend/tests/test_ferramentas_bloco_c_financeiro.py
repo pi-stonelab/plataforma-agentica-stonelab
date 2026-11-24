@@ -458,3 +458,37 @@ def test_nenhuma_func_define_a_propria_conversao_para_centavos():
     for caminho in (Path(__file__).resolve().parents[2] / "ferramentas").glob("*/*/func.py"):
         nomes = {no.name for no in ast.walk(ast.parse(caminho.read_text(encoding="utf-8"))) if isinstance(no, ast.FunctionDef)}
         assert not nomes & {"em_centavos", "_centavos", "centavos"}, caminho
+
+
+# --- fronteira dos 15 dias de atraso (DOC-MOCK §7.4 "mais de 15" x §7.5 "15 dias: bloqueada") -----------
+
+
+@pytest.fixture
+def mundo_com_fatura_vencida(engine):
+    """Um mundo à parte (para não sujar o do módulo) e uma função que acrescenta uma fatura vencida há N dias."""
+    from datetime import timedelta
+
+    from mock.modelos import Fatura
+    from sqlalchemy.orm import Session
+
+    outro = mundo_do_mock()
+
+    def acrescentar(dias_de_atraso):
+        with Session(outro) as sessao:
+            sessao.add(Fatura(
+                codigo="I999999", id_lojista=g.C4_LOJISTA, tipo="aluguel", mes_referencia="2026-09",
+                vencimento=regras.HOJE_DO_MOCK - timedelta(days=dias_de_atraso), valor_centavos=3990, situacao="vencida",
+            ))
+            sessao.commit()
+
+    yield acrescentar
+    dados_sinteticos.configurar(engine)
+
+
+@pytest.mark.parametrize(("dias_de_atraso", "recusa"), [(14, False), (15, False), (16, True)])
+def test_fatura_com_15_dias_exatos_ainda_nao_recusa_a_antecipacao(mundo_com_fatura_vencida, dias_de_atraso, recusa):
+    """Decisão pendente (docs/decisoes.md, pergunta 14): o §7.4 diz "mais de 15 dias", o §7.5 diz "15 dias"."""
+    mundo_com_fatura_vencida(dias_de_atraso)
+    engine = dados_sinteticos._engine()
+    dados = chamar("simular_antecipacao", {"id_cliente": g.C4_LOJISTA}, usuario(engine, "analista_recebiveis"))["dados"]
+    assert dados["pode_antecipar"] is not recusa

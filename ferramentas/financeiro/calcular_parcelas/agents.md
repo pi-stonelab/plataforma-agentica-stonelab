@@ -1,6 +1,6 @@
 # calcular_parcelas
 
-Divide um valor em parcelas, com entrada, e diz quem pode aprovar o acordo: analista, coordenador ou ninguém.
+Divide um valor em parcelas, com entrada, e diz quem aprova o acordo: analista, coordenador, dupla aprovação ou ninguém.
 
 ## Quando usar
 

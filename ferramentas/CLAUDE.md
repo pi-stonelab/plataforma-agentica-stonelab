@@ -1,7 +1,7 @@
 # ferramentas/ (frente 4: Pedro)
 
 Catálogo das ações que o agente pode pedir, a regra de quem pode usar cada uma e a ligação com os dados da Stone
-simulada (`mock/`). Hoje são 49 ferramentas em 8 áreas. Trinta e uma estão ativas. As outras 18 são esqueletos: o
+simulada (`mock/`). Hoje são 51 ferramentas em 8 áreas. Trinta e três estão ativas. As outras 18 são esqueletos: o
 `func.py` existe, mas `rodar` só devolve `ferramenta_inativa` ("ainda sem lógica").
 
 Ativas:
@@ -9,8 +9,9 @@ Ativas:
   `consultar_chamado`, `consultar_historico_contato`, `consultar_base_conhecimento`, `verificar_identidade_contato` e
   `resumir_satisfacao`;
 - financeiro: `consultar_transacoes_cliente`, `consultar_liquidacoes_cliente`, `consultar_agenda_recebiveis`,
-  `conferir_liquidacoes`, `listar_contestacoes_cliente`, `listar_faturas_em_atraso`, `listar_acordos`,
-  `calcular_multa_atraso`, `calcular_parcelas` e `simular_antecipacao`;
+  `consultar_saldo_agenda`, `conferir_liquidacoes`, `listar_contestacoes_cliente`,
+  `consultar_taxa_contestacao_cliente`, `listar_faturas_em_atraso`, `listar_acordos`, `calcular_multa_atraso`,
+  `calcular_parcelas` e `simular_antecipacao`;
 - dados_e_indicadores: `resumir_receita_periodo`, `resumir_volume_chamados`, `consultar_taxa_contestacao_mensal`,
   `calcular_roi` e as quatro do dicionário (`buscar_conjuntos_dados`, `consultar_esquema_conjunto`,
   `consultar_responsavel_conjunto`, `consultar_linhagem_conjunto`);
