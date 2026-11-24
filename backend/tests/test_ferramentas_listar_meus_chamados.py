@@ -38,7 +38,7 @@ def test_a_fila_de_uma_pessoa_nao_traz_a_de_outra(engine):
 
 
 def test_o_argumento_nao_troca_de_pessoa(engine):
-    resposta = fila(engine, gab.ANA, **{"id_funcionario": "F0002"})
+    resposta = fila(engine, gab.ANA, id_funcionario="F0002")
     assert resposta["tipo_erro"] == "parametro_invalido"
 
 
