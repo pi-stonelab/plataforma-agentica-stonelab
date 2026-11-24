@@ -23,7 +23,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -445,3 +445,281 @@ def ambiente_do_google(servidor, **extra):
         "GOOGLE_REDIRECT_URI": GOOGLE_REDIRECT_URI, "GOOGLE_URL": servidor.url, "ESCRITORIO_DOMINIOS": DOMINIOS, **extra,
     }
 
+
+
+# --- Microsoft ---------------------------------------------------------------------------------------------------------
+
+GRAPH = "https://graph.microsoft.com/"
+LEITURA_DE_ARQUIVOS = {"Files.Read", "Files.ReadWrite", "Files.Read.All", "Files.ReadWrite.All"}
+ESCRITA_DE_ARQUIVOS = {"Files.ReadWrite", "Files.ReadWrite.All"}
+MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def docx_de_teste(paragrafos, tabela=()):
+    """Um .docx mínimo, montado na mão (sem biblioteca), com parágrafos e uma tabela."""
+    import io
+    import zipfile
+    from xml.sax.saxutils import escape
+
+    ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    corpo = "".join(f"<w:p><w:r><w:t>{escape(p)}</w:t></w:r></w:p>" for p in paragrafos)
+    if tabela:
+        corpo += "<w:tbl>" + "".join(
+            "<w:tr>" + "".join(f"<w:tc><w:p><w:r><w:t>{escape(c)}</w:t></w:r></w:p></w:tc>" for c in linha) + "</w:tr>"
+            for linha in tabela
+        ) + "</w:tbl>"
+    saida = io.BytesIO()
+    with zipfile.ZipFile(saida, "w", zipfile.ZIP_DEFLATED) as pacote:
+        pacote.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="xml" ContentType="application/xml"/></Types>',
+        )
+        pacote.writestr("word/document.xml", f'<?xml version="1.0"?><w:document xmlns:w="{ns}"><w:body>{corpo}</w:body></w:document>')
+    return saida.getvalue()
+
+
+def _colunas_do_endereco(coluna):
+    indice = 0
+    for letra in coluna:
+        indice = indice * 26 + ord(letra) - 64
+    return indice
+
+
+class MicrosoftDeTeste(ServicoOAuthDeTeste):
+    """Um Microsoft Graph em memória: agenda, OneDrive e pastas de trabalho do Excel de cada pessoa."""
+
+    def __init__(self):
+        super().__init__(MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_REDIRECT_URI, "EwB")
+        self.renova_o_refresh_token = True  # a Microsoft troca o token de renovação a cada uso
+        self.eventos = {}
+        self.itens = {
+            "01PLANILHAAAA": {
+                "nome": "Acompanhamento de testes.xlsx", "tipo": MIME_XLSX, "dono": "F0001", "modificado": "2026-10-14T09:00:00Z",
+                "abas": {
+                    "Resumo": [["Semana", "Abertos", "Fechados"], ["28/09", "10", "8"], ["05/10", "12", "11"]],
+                    "Outra aba": [["Fila", "Total"], ["Recebimento", "7"]],
+                    "Vazia": [],
+                },
+            },
+            "01DOCUMENTOAA": {
+                "nome": "Guia de testes.docx", "tipo": MIME_DOCX, "dono": "F0001", "modificado": "2026-10-13T10:00:00Z",
+                "docx": docx_de_teste(["Primeiro parágrafo do guia.", "Segundo parágrafo, com mais texto."], [["Passo", "Quem"], ["Abrir", "Ana"]]),
+            },
+            "01PASTAAAAAAA": {"nome": "Relatórios de teste", "tipo": None, "dono": "F0001", "modificado": "2026-10-01T10:00:00Z"},
+        }
+        self.formatos = {}  # (id, aba, linha, coluna) -> formato de número que o teste aplicou
+        self.url_de_download = None  # o outro servidor, que entrega o conteúdo do arquivo
+        self.downloads = {}
+        self.versao_do_link = 0
+
+    def erro_de_credencial(self):
+        erro = {"code": "InvalidAuthenticationToken", "message": "Access token has expired or is not yet valid."}
+        return resposta_json({"error": erro}, 401)
+
+    def erro_de_escopo(self):
+        return resposta_json({"error": {"code": "Authorization_RequestDenied", "message": "Insufficient privileges."}}, 403)
+
+    def erro_sem_acesso(self):
+        return resposta_json({"error": {"code": "accessDenied", "message": "Access denied."}}, 403)
+
+    def erro_de_limite(self):
+        return resposta_json({"error": {"code": "activityLimitReached", "message": "Throttled."}}, 429, {"Retry-After": "9"})
+
+    def _nao_achou(self):
+        return resposta_json({"error": {"code": "itemNotFound", "message": "The resource could not be found."}}, 404)
+
+    def _token(self, acesso, renovacao, escopos):
+        dados = super()._token(acesso, renovacao, escopos)
+        dados["scope"] = " ".join(sorted(GRAPH + e for e in escopos if e != "offline_access"))
+        return dados
+
+    def __call__(self, pedido):
+        rota = unquote(pedido.rota)
+        if rota.endswith("/oauth2/v2.0/token"):
+            return self.endereco_de_token(pedido)
+        forcada = self.forcada()
+        if forcada is not None:
+            return forcada
+        if rota == "/v1.0/me/calendarView" or rota == "/v1.0/me/events":
+            return self._agenda(pedido)
+        if rota.startswith("/v1.0/me/drive/"):
+            return self._drive(pedido, rota[len("/v1.0/me/drive/"):])
+        return self._nao_achou()
+
+    # Outlook
+    def _agenda(self, pedido):
+        escrita = pedido.metodo == "POST"
+        erro, token = self.autenticar(pedido, {"Calendars.ReadWrite"} if escrita else {"Calendars.Read", "Calendars.ReadWrite"})
+        if erro:
+            return erro
+        eventos = self.eventos.setdefault(token.usuario, [])
+        if escrita:
+            corpo = pedido.corpo
+            existente = next((e for e in eventos if e.get("transactionId") == corpo.get("transactionId")), None)
+            if existente is None:
+                eventos.append({**corpo, "id": f"AAMk{len(eventos)}", "isAllDay": False, "isCancelled": False})
+                existente = eventos[-1]
+            return resposta_json(existente, 201)
+        assert pedido.cabecalhos.get("prefer") == 'outlook.timezone="UTC"'
+        consulta = pedido.consulta
+        minimo = datetime.fromisoformat(consulta["startDateTime"]).astimezone(UTC).replace(tzinfo=None)
+        maximo = datetime.fromisoformat(consulta["endDateTime"]).astimezone(UTC).replace(tzinfo=None)
+        dentro = [e for e in eventos if minimo <= _inicio_graph(e) < maximo]
+        dentro.sort(key=_inicio_graph)
+        return resposta_json({"value": dentro[: int(consulta["$top"])]})
+
+    def evento(self, usuario, titulo, inicio, fim, **extra):
+        """Um evento do Graph. `inicio` e `fim` em UTC ("AAAA-MM-DDTHH:MM:SS"); `dia_inteiro=True`: meia-noite em UTC."""
+        dia_inteiro = extra.pop("dia_inteiro", False)
+        self.contador += 1
+        item = {
+            "id": f"AAMk{self.contador}", "subject": titulo, "isAllDay": dia_inteiro, "isCancelled": False,
+            "start": {"dateTime": inicio + ".0000000", "timeZone": "UTC"},
+            "end": {"dateTime": fim + ".0000000", "timeZone": "UTC"}, **extra,
+        }
+        self.eventos.setdefault(usuario, []).append(item)
+        return item
+
+    # OneDrive e Excel
+    def _drive(self, pedido, caminho):
+        escrita = pedido.metodo != "GET"
+        erro, token = self.autenticar(pedido, ESCRITA_DE_ARQUIVOS if escrita else LEITURA_DE_ARQUIVOS)
+        if erro:
+            return erro
+        if caminho.startswith("root/search("):
+            return self._buscar(token, re.fullmatch(r"root/search\(q='(.*)'\)", caminho).group(1).replace("''", "'"))
+        if caminho.startswith("root:/"):
+            return self._criar_arquivo(token, pedido, caminho)
+        partes = caminho.split("/")
+        if partes[0] != "items":
+            return self._nao_achou()
+        item = self.itens.get(partes[1])
+        if item is None or item["dono"] != token.usuario:
+            return self._nao_achou()
+        if len(partes) == 2:
+            return resposta_json(self._descrever(partes[1], item))
+        if partes[2] == "content":
+            self.versao_do_link += 1
+            return 302, {"Location": f"{self.url_de_download}/baixar/{partes[1]}/{self.versao_do_link}"}, b""
+        if partes[2] == "workbook" and item["tipo"] == MIME_XLSX:
+            return self._pasta_de_trabalho(pedido, partes[1], item, partes[3:])
+        return self._nao_achou()
+
+    def _descrever(self, id_item, item):
+        dados = {"id": id_item, "name": item["nome"], "lastModifiedDateTime": item["modificado"], "size": len(item.get("docx", b"")) or 5000}
+        if item["tipo"] is None:
+            dados["folder"] = {"childCount": 0}
+        else:
+            dados["file"] = {"mimeType": item["tipo"]}
+        return dados
+
+    def _buscar(self, token, texto):
+        achados = [
+            self._descrever(id_item, item) for id_item, item in self.itens.items()
+            if item["dono"] == token.usuario and texto.lower() in item["nome"].lower()
+        ]
+        return resposta_json({"value": achados})
+
+    def _criar_arquivo(self, token, pedido, caminho):
+        assert pedido.metodo == "PUT" and caminho.endswith(":/content")
+        assert pedido.consulta["@microsoft.graph.conflictBehavior"] == "rename"
+        assert pedido.cabecalhos["content-type"] == MIME_XLSX
+        from ferramentas.integracoes.formatos import ler_xlsx
+
+        nome = caminho[len("root:/"):-len(":/content")]
+        while any(i["nome"] == nome and i["dono"] == token.usuario for i in self.itens.values()):
+            nome = nome.replace(".xlsx", " 1.xlsx")  # `conflictBehavior=rename`
+        lido = ler_xlsx(pedido.bruto, limite_linhas=1000)
+        self.contador += 1
+        id_item = f"01NOVO{self.contador:06d}"
+        self.itens[id_item] = {
+            "nome": nome, "tipo": MIME_XLSX, "dono": token.usuario, "modificado": "2026-10-15T12:00:00Z",
+            "abas": {lido["aba"]: lido["linhas"]},
+        }
+        return resposta_json({**self._descrever(id_item, self.itens[id_item]), "webUrl": f"https://onedrive.example/{id_item}"}, 201)
+
+    def _pasta_de_trabalho(self, pedido, id_item, item, partes):
+        if partes == ["worksheets"]:
+            return resposta_json({"value": [{"name": nome, "position": i} for i, nome in enumerate(item["abas"])]})
+        aba = partes[1]
+        if aba not in item["abas"]:
+            return self._nao_achou()
+        linhas = item["abas"][aba]
+        funcao = partes[2]
+        if funcao.startswith("usedRange"):
+            return self._area_usada(aba, linhas)
+        endereco = re.fullmatch(r"range\(address='([A-Z$0-9:]+)'\)", funcao).group(1).replace("$", "")
+        inicio, _, fim = endereco.partition(":")
+        fim = fim or inicio
+        coluna_a, linha_a = re.fullmatch(r"([A-Z]+)(\d+)", inicio).groups()
+        coluna_b, linha_b = re.fullmatch(r"([A-Z]+)(\d+)", fim).groups()
+        primeira, ultima = _colunas_do_endereco(coluna_a), _colunas_do_endereco(coluna_b)
+        if pedido.metodo == "PATCH":
+            return self._gravar(pedido, id_item, linhas, aba, endereco, int(linha_a), primeira, ultima)
+        recorte = [
+            [str(c) for c in (linhas[n - 1] if n <= len(linhas) else [])[primeira - 1 : ultima]]
+            for n in range(int(linha_a), int(linha_b) + 1)
+        ]
+        largura = ultima - primeira + 1
+        return resposta_json({"text": [linha + [""] * (largura - len(linha)) for linha in recorte]})
+
+    def _area_usada(self, aba, linhas):
+        if not any(any(c != "" for c in linha) for linha in linhas):
+            return resposta_json({"address": f"{aba}!A1", "rowCount": 1, "columnCount": 1})
+        ultima = max(n for n, linha in enumerate(linhas, 1) if any(c != "" for c in linha))
+        largura = max(len(linha) for linha in linhas)
+        return resposta_json({"address": f"{aba}!A1:{_letra(largura)}{ultima}", "rowCount": ultima, "columnCount": largura})
+
+    def _gravar(self, pedido, id_item, linhas, aba, endereco, numero, primeira, ultima):
+        corpo = pedido.corpo
+        if "numberFormat" in corpo:
+            for coluna, formato in enumerate(corpo["numberFormat"][0], start=primeira):
+                self.formatos[(id_item, aba, numero, coluna)] = formato
+        if "values" in corpo:
+            while len(linhas) < numero:
+                linhas.append([])
+            linha = []
+            for coluna, valor in enumerate(corpo["values"][0], start=primeira):
+                if isinstance(valor, str) and valor.startswith("'"):  # o apóstrofo do Excel marca texto e não fica na célula
+                    valor = valor[1:]
+                elif isinstance(valor, str) and re.fullmatch(r"\d{1,2}/\d{1,2}", valor) and self.formatos.get((id_item, aba, numero, coluna)) != "@":
+                    valor = "45000"  # o Excel leria "12/10" como data
+                linha.append(valor)
+            linhas[numero - 1] = linha
+        return resposta_json({"address": f"{aba}!{endereco}"})
+
+
+def _letra(indice):
+    letras = ""
+    while indice:
+        indice, resto = divmod(indice - 1, 26)
+        letras = chr(65 + resto) + letras
+    return letras
+
+
+def _inicio_graph(evento):
+    return datetime.fromisoformat(evento["start"]["dateTime"].split(".")[0])
+
+
+class DownloadDeTeste:
+    """O servidor de download temporário (outro endereço), que nunca deve receber o token da pessoa."""
+
+    def __init__(self, graph):
+        self.graph = graph
+
+    def __call__(self, pedido):
+        partes = pedido.rota.split("/")
+        item = self.graph.itens.get(partes[2]) if len(partes) > 3 and partes[1] == "baixar" else None
+        if item is None or "docx" not in item:
+            return 404, {}, b""
+        return 200, {"Content-Type": MIME_DOCX}, item["docx"]
+
+
+def ambiente_da_microsoft(servidor, **extra):
+    return {
+        "MICROSOFT_MODO": "real", "MICROSOFT_CLIENT_ID": MICROSOFT_CLIENT_ID, "MICROSOFT_CLIENT_SECRET": MICROSOFT_CLIENT_SECRET,
+        "MICROSOFT_TENANT": MICROSOFT_TENANT, "MICROSOFT_REDIRECT_URI": MICROSOFT_REDIRECT_URI,
+        "MICROSOFT_URL": servidor.url, "ESCRITORIO_DOMINIOS": DOMINIOS, **extra,
+    }

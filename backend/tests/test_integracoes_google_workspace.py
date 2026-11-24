@@ -460,7 +460,7 @@ def test_adicionar_linha_anexa_como_texto_literal_na_aba_certa(conta_com_escrita
     assert len(dados.planilhas[PLANILHA]["abas"]["Resumo"]) == 3  # nada gravado na prévia
     resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
     assert resultado["dados"] == {"aba": "Resumo", "linhas_adicionadas": 1, "fonte": GOOGLE.fonte_real}
-    assert dados.planilhas[PLANILHA]["abas"]["Resumo"][-1] == ["12/10", "14", '=HYPERLINK("x")']
+    assert dados.planilhas[PLANILHA]["abas"]["Resumo"][-1] == ["12/10", 14, '=HYPERLINK("x")']  # 14 vai como número
     assert pedidos_a_apis(servidor)[-1].consulta["valueInputOption"] == "RAW"  # fórmula nunca é calculada
     lida = dados_de(LER_PLANILHA, {"id_arquivo": PLANILHA}, ana)
     assert lida["linhas"][-1][:2] == ["12/10", "14"]
