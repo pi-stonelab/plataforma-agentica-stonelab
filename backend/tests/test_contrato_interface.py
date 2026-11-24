@@ -20,7 +20,7 @@ from .apoio_ferramentas import (
 CAMPOS_DA_FERRAMENTA = [
     "nome", "area", "descricao", "acesso", "sensibilidade", "status", "integracoes", "liberada", "motivo",
 ]
-CAMPOS_DA_CONFIRMACAO = ["id", "ferramenta", "titulo", "campos", "situacao"]
+CAMPOS_DA_CONFIRMACAO = ["id", "ferramenta", "titulo", "campos", "situacao", "expira_em", "aviso"]
 ENVIAR = "enviar_email"
 AGENTE = (ENVIAR,)
 PEDIDO = {"id_cliente": "M00001", "assunto": "Liquidação de 14/10", "corpo": "Olá, a liquidação falhou."}
@@ -229,5 +229,6 @@ def test_envio_que_nao_saiu_nao_fica_marcado_como_confirmado(mundo, monkeypatch)
     confirmacao_id = preparar(ana, {"execucao_id": "ex-1"})
     monkeypatch.setenv("EMAIL_SMTP_PORTA", "1")  # porta local fechada: nada sai
     resultado = confirmacoes.confirmar(confirmacao_id, ana)
-    assert resultado["mensagem"] == confirmacoes.MENSAGEM_FORA_DO_AR
+    assert resultado["mensagem"] == confirmacoes.mensagem_nada_saiu(catalogo.carregar()[ENVIAR])
     assert confirmacoes.situacao_da_decisao(confirmacao_id, ana) is None
+    assert [c["id"] for c in confirmacoes.confirmacoes_da_execucao("ex-1", ana)] == [confirmacao_id]  # volta à fila

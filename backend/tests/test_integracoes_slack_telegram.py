@@ -10,8 +10,9 @@ import traceback
 
 import pytest
 from ferramentas import catalogo, confirmacoes, integracoes
-from ferramentas.confirmacoes import MENSAGEM_EFEITO_INCERTO, MENSAGEM_FORA_DO_AR
+from ferramentas.confirmacoes import MENSAGEM_EFEITO_INCERTO, mensagem_nada_saiu
 from ferramentas.integracoes.__main__ import principal
+from ferramentas.integracoes.conector import CredencialRecusada, LimiteDePedidos
 from ferramentas.integracoes.slack.conector import CONECTOR as SLACK
 from ferramentas.integracoes.slack.conector import FONTE_REAL as FONTE_SLACK
 from ferramentas.integracoes.slack.conector import FONTE_SIMULADA as SLACK_SIMULADO
@@ -92,13 +93,15 @@ def previa(nome, argumentos, usuario):
 def test_slack_publica_no_id_do_apelido_o_texto_mascarado_e_assinado(slack, ana):
     servidor, dados = slack
     preparada = previa(SLACK_FERRAMENTA, {"canal": "Financeiro", "texto": "Cartão 4111 1111 1111 1111 do lojista"}, ana)
-    assert preparada["canal"] == "financeiro"
+    assert preparada["canal"] == "#financeiro"
     assert preparada["texto"] == "Cartão **** **** **** 1111 do lojista" + ASSINATURA_DA_ANA  # a assinatura já na prévia
     assert servidor.pedidos == []
     resultado = confirmacoes.confirmar(preparada["confirmacao_id"], ana)
     assert resultado["dados"] == {"canal": "financeiro", "fonte": FONTE_SLACK}
     (publicada,) = dados.publicadas
-    assert publicada == {"channel": "C0123ABCD", "text": preparada["texto"], "unfurl_links": False, "unfurl_media": False}
+    assert publicada == {
+        "channel": "C0123ABCD", "text": preparada["texto"], "mrkdwn": False, "unfurl_links": False, "unfurl_media": False,
+    }
     assert servidor.pedidos[0].cabecalhos["authorization"] == f"Bearer {SLACK_TOKEN}"
 
 
@@ -124,13 +127,17 @@ def test_slack_canal_que_recusa_nao_publica_e_nao_pausa(slack, ana, monkeypatch,
     assert SLACK.saude() != "pausada"
 
 
-@pytest.mark.parametrize("erro", ["invalid_auth", "ratelimited", "erro_que_o_slack_inventou"])
-def test_slack_credencial_limite_e_recusa_desconhecida_dizem_que_nada_saiu(slack, ana, erro):
+@pytest.mark.parametrize(
+    ("erro", "falha"),
+    [("invalid_auth", CredencialRecusada()), ("ratelimited", LimiteDePedidos(segundos=30)), ("erro_que_o_slack_inventou", None)],
+)
+def test_slack_credencial_limite_e_recusa_desconhecida_dizem_que_nada_saiu(slack, ana, erro, falha):
     _, dados = slack
     confirmacao_id = previa(SLACK_FERRAMENTA, {"canal": "plantao", "texto": "oi"}, ana)["confirmacao_id"]
     dados.recusa_seguinte = erro
     resultado = confirmacoes.confirmar(confirmacao_id, ana)
-    assert (resultado["tipo_erro"], resultado["mensagem"]) == ("integracao_indisponivel", MENSAGEM_FORA_DO_AR)
+    esperada = mensagem_nada_saiu(catalogo.carregar()[SLACK_FERRAMENTA], falha)
+    assert (resultado["tipo_erro"], resultado["mensagem"]) == ("integracao_indisponivel", esperada)
     assert dados.publicadas == []
 
 
@@ -154,7 +161,8 @@ def test_slack_sem_resultado_legivel_pode_ter_publicado(slack, ana, responder):
 def test_slack_testar_confere_o_token_e_lista_os_canais(slack):
     linhas = []
     principal(["testar", "slack"], ambiente={**os.environ, "MODO_TERMINAL": "1"}, escrever=linhas.append)
-    assert "Canais liberados: arquivado, financeiro, plantao" in linhas[0]
+    assert "#financeiro: ok." in linhas[0] and "#plantao: ok." in linhas[0]
+    assert "#arquivado: existe, mas o bot não está nele" in linhas[0]
     with pytest.raises(SystemExit) as erro:
         principal(["testar", "slack"], ambiente={**os.environ, "SLACK_TOKEN": "xoxb-0000000000-errado", "MODO_TERMINAL": "1"})
     assert "recusou a credencial" in str(erro.value)
@@ -230,7 +238,8 @@ def test_token_do_telegram_nunca_aparece_em_log_erro_estado_nem_traceback(telegr
 def test_telegram_testar_diz_o_nome_do_bot(telegram):
     linhas = []
     principal(["testar", "telegram"], ambiente={**os.environ, "MODO_TERMINAL": "1"}, escrever=linhas.append)
-    assert "@stonelab_plataforma_bot" in linhas[0] and "coordenacao, plantao" in linhas[0]
+    assert "@stonelab_plataforma_bot" in linhas[0]
+    assert "coordenacao: ok." in linhas[0] and "plantao: ok." in linhas[0]
 
 
 # --- configuração, simulado e permissão ---------------------------------------------------------------------
@@ -277,7 +286,7 @@ def test_modo_simulado_guarda_em_memoria_e_diz_que_e_demonstracao(ana, monkeypat
         confirmacao_id = previa(nome, {**destino, "texto": "teste"}, ana)["confirmacao_id"]
         assert confirmacoes.confirmar(confirmacao_id, ana)["dados"]["fonte"] == fonte
     assert SLACK.simuladas.listar()[0]["texto"] == "teste" + ASSINATURA_DA_ANA
-    assert TELEGRAM.simulados.listar()[0]["chat"] == "plantao"
+    assert TELEGRAM.simuladas.listar()[0]["destino"] == "plantao"
 
 
 def test_canal_que_sai_da_lista_depois_da_previa_nao_publica(slack, ana, monkeypatch):

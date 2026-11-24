@@ -9,7 +9,7 @@ import os
 
 import pytest
 from ferramentas import catalogo, confirmacoes, integracoes
-from ferramentas.confirmacoes import MENSAGEM_EFEITO_INCERTO
+from ferramentas.confirmacoes import MENSAGEM_EFEITO_INCERTO, MENSAGEM_PREVIA_CONTINUA
 from ferramentas.integracoes.__main__ import principal
 from ferramentas.integracoes.jira.adf import adf_do_texto, texto_do_adf
 from ferramentas.integracoes.jira.conector import CONECTOR as JIRA
@@ -37,6 +37,7 @@ from .apoio_integracoes_externas import (
 
 CONSULTAR, ABRIR, COMENTAR = "consultar_chamado_jira", "abrir_chamado_jira", "comentar_chamado_jira"
 AGENTE = (CONSULTAR, ABRIR, COMENTAR)
+ASSINATURA_DA_ANA = "\n\n— Pedido por Ana, pela Plataforma Agêntica"
 
 
 @pytest.fixture(scope="module")
@@ -88,8 +89,8 @@ def test_adf_vira_texto_sem_url_e_texto_vira_adf_de_paragrafos():
         ],
     }
     texto = texto_do_adf(documento, 500)
-    assert texto == "Título\n\nLinha\n@Ana[link]\n\nitem"
-    assert "fora.example" not in texto
+    assert texto == "Título\n\nLinha\n[menção][link]\n\nitem"
+    assert "fora.example" not in texto and "Ana" not in texto  # nem a URL nem o nome do colega
     assert texto_do_adf(None, 10) == "" and texto_do_adf("lixo", 10) == ""
     assert texto_do_adf(adf_do_texto("a" * 50), 10) == "a" * 9 + "…"
     assert texto_do_adf(adf_do_texto("Um\nDois\n\nTrês"), 100) == "Um\nDois\n\nTrês"
@@ -165,13 +166,13 @@ def test_abrir_mostra_a_previa_mascarada_e_so_cria_ao_confirmar(jira, ana):
         ABRIR, {"resumo": "Painel lento", "descricao": "Sócio CPF 123.456.789-09 ligou\nduas vezes", "tipo": "bug"}, ana
     )
     assert (previa["projeto"], previa["tipo"]) == ("KAN", "Bug")  # o primeiro projeto e o tipo na grafia da lista
-    assert previa["texto"] == "Sócio CPF ***.456.789-** ligou\nduas vezes"
+    assert previa["texto"] == f"Sócio CPF ***.456.789-** ligou\nduas vezes{ASSINATURA_DA_ANA}"
     assert [p.metodo for p in servidor.pedidos] == ["POST"]  # a prévia não chamou o Jira
     assert resultado["status"] == "ok", resultado
     assert resultado["dados"] == {"chave_jira": "KAN-124", "fonte": FONTE_REAL}
     corpo = servidor.pedidos[0].corpo["fields"]
     assert corpo["project"] == {"key": "KAN"} and corpo["issuetype"] == {"name": "Bug"}
-    assert texto_do_adf(corpo["description"], 500) == "Sócio CPF ***.456.789-** ligou\nduas vezes"
+    assert texto_do_adf(corpo["description"], 500) == previa["texto"]
     assert "123.456" not in json.dumps(dados.chamados["KAN-124"], ensure_ascii=False)
 
 
@@ -193,7 +194,9 @@ def test_jira_que_recusa_o_chamado_nao_cria_nada_e_nao_pausa_a_integracao(jira, 
     dados.tipos_por_projeto["PLAT"] = set()  # o tipo da lista não existe mais no Jira
     for _ in range(4):
         _, resultado = previa_e_confirmacao(ABRIR, {"resumo": "x", "descricao": "y", "projeto": "PLAT"}, ana)
-        assert (resultado["tipo_erro"], resultado["mensagem"]) == ("parametro_invalido", MENSAGEM_RECUSA_AO_ABRIR)
+        assert (resultado["tipo_erro"], resultado["mensagem"]) == (
+            "parametro_invalido", f"{MENSAGEM_RECUSA_AO_ABRIR} {MENSAGEM_PREVIA_CONTINUA}"
+        )
     assert JIRA.saude() != "pausada"  # pedido recusado é erro nosso, não queda do Jira
 
 
@@ -235,11 +238,17 @@ def test_projeto_que_sai_da_lista_depois_da_previa_nao_e_criado(jira, ana, monke
 
 def test_comentar_mostra_o_resumo_do_chamado_e_grava_o_texto_mascarado_ao_confirmar(jira, ana):
     servidor, dados = jira
-    previa, resultado = previa_e_confirmacao(COMENTAR, {"chave": "KAN-7", "texto": "Lojista ligou do (21) 99999-8888"}, ana)
-    assert previa["resumo"] == "Painel de liquidações lento"
-    assert previa["texto"] == "Lojista ligou do (21) *****-8888"
+    contexto = {"execucao_id": "ex-1"}
+    previa = catalogo.executar(COMENTAR, {"chave": "KAN-7", "texto": "Lojista ligou do (21) 99999-8888"}, ana, AGENTE, contexto)
+    assert previa["status"] == "ok", previa
+    texto = f"Lojista ligou do (21) *****-8888{ASSINATURA_DA_ANA}"
+    assert previa["dados"]["texto"] == texto
+    assert "resumo" not in previa["dados"]  # texto vindo do Jira: a pessoa confere no cartão, o modelo não lê
+    (cartao,) = confirmacoes.confirmacoes_da_execucao("ex-1", ana)
+    assert {"rotulo": "Resumo do chamado", "valor": "Painel de liquidações lento"} in cartao["campos"]
+    resultado = confirmacoes.confirmar(previa["dados"]["confirmacao_id"], ana)
     assert resultado["dados"] == {"chave_jira": "KAN-7", "fonte": FONTE_REAL}
-    assert texto_do_adf(dados.chamados["KAN-7"]["comentarios"][-1]["body"], 100) == "Lojista ligou do (21) *****-8888"
+    assert texto_do_adf(dados.chamados["KAN-7"]["comentarios"][-1]["body"], 100) == texto
     assert [p.metodo for p in servidor.pedidos] == ["GET", "GET", "POST"]
 
 
@@ -248,7 +257,9 @@ def test_comentar_chamado_que_some_antes_de_confirmar_nao_grava(jira, ana):
     confirmacao_id = catalogo.executar(COMENTAR, {"chave": "KAN-7", "texto": "ok"}, ana, AGENTE)["dados"]["confirmacao_id"]
     del dados.chamados["KAN-7"]
     resultado = confirmacoes.confirmar(confirmacao_id, ana)
-    assert (resultado["tipo_erro"], resultado["mensagem"]) == ("nao_encontrado", "Chamado não encontrado no Jira. Nada foi gravado.")
+    assert (resultado["tipo_erro"], resultado["mensagem"]) == (
+        "nao_encontrado", f"Chamado não encontrado no Jira. Nada foi gravado. {MENSAGEM_PREVIA_CONTINUA}"
+    )
 
 
 # --- configuração, modo simulado, permissão e segredo ------------------------------------------------------
@@ -322,7 +333,8 @@ def test_token_e_email_da_conta_nunca_aparecem_no_estado_no_log_nem_no_erro(jira
 def test_testar_confere_a_conta_e_cada_projeto_liberado(jira):
     linhas = []
     principal(["testar", "jira"], ambiente={**os.environ, "MODO_TERMINAL": "1"}, escrever=linhas.append)
-    assert "Projetos liberados encontrados: KAN, PLAT." in linhas[0]
+    assert "KAN: ok (tipos Tarefa, Bug)." in linhas[0]
+    assert "PLAT: o tipo Bug não existe neste projeto" in linhas[0]  # o Jira de teste só tem Tarefa em PLAT
     with pytest.raises(SystemExit) as erro:
         principal(["testar", "jira"], ambiente={**os.environ, "JIRA_PROJETOS": "KAN,FIN", "MODO_TERMINAL": "1"})
     assert "Projeto FIN não encontrado" in str(erro.value)

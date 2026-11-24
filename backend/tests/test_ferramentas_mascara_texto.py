@@ -42,8 +42,6 @@ CASOS_DE_CPF = [
     ("CPF 111.444.777-00.", f"CPF {CPF}."),
     ("O CPF do sócio é 111.444.777-00 e foi só.", f"O CPF do sócio é {CPF} e foi só."),
     ("Caso não aceite com pontos: CPF 52998224700, cartão", f"Caso não aceite com pontos: CPF {CPF_2}, cartão"),
-    # Falso positivo aceito: celular de 11 dígitos vira CPF mascarado.
-    ("21999991234", "***.999.912-**"),
 ]
 
 CASOS_DE_CARTAO = [
@@ -297,10 +295,13 @@ def test_telefone_e_cpf_e_cartao_no_mesmo_texto_saem_cada_um_com_a_sua_mascara()
     assert livre(texto) == f"Tel (21) *****-8888, CPF {CPF}, cartão {CARTAO}."
 
 
-def test_formato_que_nao_e_telefone_inequivoco_continua_na_regra_de_cpf():
-    # Sem parênteses nem +55, 11 dígitos são tratados como CPF (do lado seguro), como antes.
-    assert livre("21 99999-8888") == "***.999.988-**"
-    assert livre("21999991234") == "***.999.912-**"
+def test_onze_digitos_com_cara_de_celular_ganham_a_mascara_de_telefone():
+    # DDD que existe e 9 no terceiro dígito, sem a pontuação de CPF: o cartão não mostra celular como se fosse CPF.
+    assert livre("21 99999-8888") == "(21) *****-8888"
+    assert livre("21999991234") == "(21) *****-1234"
+    assert livre("52998224700") == CPF_2  # DDD 52 não existe: continua CPF
+    assert livre("111.444.777-00") == CPF  # com a pontuação de CPF, é CPF mesmo com DDD válido e 9
+    assert livre("219.999.912-34") == "***.999.912-**"
 
 
 def test_cpf_escrito_como_telefone_mostra_no_maximo_seis_digitos():

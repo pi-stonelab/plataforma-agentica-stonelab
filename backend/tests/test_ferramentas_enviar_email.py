@@ -127,7 +127,7 @@ def test_previas_demais_esperando_param_no_limite(ana):
     for _ in range(confirmacoes.LIMITE_POR_USUARIO):
         assert preparar(ana)["status"] == "ok"
     resposta = preparar(ana)
-    assert resposta["tipo_erro"] == "integracao_indisponivel"
+    assert resposta["tipo_erro"] == "parametro_invalido"  # limite da pessoa, não queda do serviço
     assert resposta["mensagem"] == "Você já tem 5 prévias abertas. Confirme ou descarte uma antes de pedir outra."
 
 

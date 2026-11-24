@@ -13,7 +13,7 @@ from mock.regras import CAMPOS_NAO_RESTRITOS, CLASSIFICACAO_CAMPOS
 
 # Ferramenta -> campos que ela pode liberar. Só a escrita em duas fases devolve texto escrito pelo modelo
 # (a prévia), então só ela entra aqui. Leitura nunca libera: o texto dela é de lojista.
-CONFIRMACAO = frozenset({"confirmacao_id", "expira_em"})
+CONFIRMACAO = frozenset({"confirmacao_id", "expira_em", "aviso"})
 LIBERACOES_PERMITIDAS = {
     "enviar_email": CONFIRMACAO | {"assunto", "corpo", "id_mensagem"},
     "abrir_chamado_jira": CONFIRMACAO | {"projeto"},

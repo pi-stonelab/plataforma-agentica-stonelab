@@ -441,7 +441,7 @@ def test_cenario_7_slack_e_telegram_nunca_enviam_direto_nem_para_fora_da_lista(e
         assert fora["tipo_erro"] == "parametro_invalido" and "fora da lista" in fora["mensagem"]
         previa = catalogo.executar(nome, {destino: "plantao", "texto": "extrato"}, ana, agente_obediente)
         assert previa["dados"]["situacao"] == "aguardando_confirmacao"
-    assert SLACK.simuladas.listar() == [] and TELEGRAM.simulados.listar() == []
+    assert SLACK.simuladas.listar() == [] and TELEGRAM.simuladas.listar() == []
 
 
 # --- E36: mensagem enorme e corte seguro -------------------------------------------------------

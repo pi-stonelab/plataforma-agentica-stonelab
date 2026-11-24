@@ -7,10 +7,10 @@ conferir o que o conector mandou (inclusive o corpo: aqui os dados são sintéti
 
 Formatos, da documentação oficial (os valores são inventados):
 - Jira Cloud REST v3: https://developer.atlassian.com/cloud/jira/platform/rest/v3/ (issue, comment, myself,
-  project). Erros como {"errorMessages": [...], "errors": {...}}.
-- Slack Web API: https://docs.slack.dev/reference/methods/chat.postMessage e auth.test. Recusa com HTTP 200 e
-  {"ok": false, "error": "..."}; limite com HTTP 429 e Retry-After.
-- Telegram Bot API: https://core.telegram.org/bots/api (sendMessage e getMe). Recusa com
+  project, issue/createmeta/{projeto}/issuetypes). Erros como {"errorMessages": [...], "errors": {...}}.
+- Slack Web API: https://docs.slack.dev/reference/methods/chat.postMessage, auth.test e conversations.info.
+  Recusa com HTTP 200 e {"ok": false, "error": "..."}; limite com HTTP 429 e Retry-After.
+- Telegram Bot API: https://core.telegram.org/bots/api (sendMessage, getMe e getChat). Recusa com
   {"ok": false, "error_code": 400, "description": "Bad Request: chat not found"}.
 """
 
@@ -168,6 +168,12 @@ class JiraDeTeste:
             if partes[1] not in self.tipos_por_projeto:
                 return resposta_json({"errorMessages": ["No project could be found with key."]}, 404)
             return resposta_json({"id": "10000", "key": partes[1], "name": f"Projeto {partes[1]}"})
+        if partes[:2] == ["issue", "createmeta"] and len(partes) == 4 and partes[3] == "issuetypes":
+            tipos = self.tipos_por_projeto.get(partes[2])
+            if tipos is None:
+                return resposta_json({"errorMessages": ["No project could be found with key."]}, 404)
+            lista = [{"id": str(10001 + n), "name": nome} for n, nome in enumerate(sorted(tipos))]
+            return resposta_json({"startAt": 0, "maxResults": 50, "total": len(lista), "issueTypes": lista})
         if partes == ["issue"] and pedido.metodo == "POST":
             return self._criar(pedido.corpo)
         if len(partes) >= 2 and partes[0] == "issue":
@@ -230,6 +236,11 @@ class SlackDeTeste:
     def __init__(self):
         self.publicadas = []
         self.recusa_seguinte = None  # força um {"ok": false, "error": ...} no próximo chat.postMessage
+        self.canais = {
+            "C0123ABCD": {"name": "financeiro", "is_member": True, "is_archived": False},
+            "C0456EFGH": {"name": "plantao", "is_member": True, "is_archived": False},
+            "C0789IJKL": {"name": "arquivado", "is_member": False, "is_archived": True},
+        }
 
     def __call__(self, pedido):
         if pedido.cabecalhos.get("authorization") != f"Bearer {SLACK_TOKEN}":
@@ -237,6 +248,11 @@ class SlackDeTeste:
         if pedido.rota == "/auth.test":
             return resposta_json({"ok": True, "url": "https://stonelab.slack.com/", "team": "Stonelab", "user": "plataforma",
                                   "team_id": "T0001", "user_id": "U0001", "bot_id": "B0001"})
+        if pedido.rota == "/conversations.info":
+            canal = pedido.consulta.get("channel", [""])[0]
+            if canal not in self.canais:
+                return resposta_json({"ok": False, "error": "channel_not_found"})
+            return resposta_json({"ok": True, "channel": {"id": canal, **self.canais[canal]}})
         if pedido.rota == "/chat.postMessage" and pedido.metodo == "POST":
             if self.recusa_seguinte:
                 erro, self.recusa_seguinte = self.recusa_seguinte, None
@@ -275,6 +291,11 @@ class TelegramDeTeste:
         if metodo == "getMe":
             return resposta_json({"ok": True, "result": {"id": 123456789, "is_bot": True, "first_name": "Plataforma",
                                                          "username": "stonelab_plataforma_bot"}})
+        if metodo == "getChat":
+            chat_id = pedido.consulta.get("chat_id", [""])[0]
+            if chat_id not in ("-1001234567890", "987654321"):
+                return resposta_json({"ok": False, "error_code": 400, "description": "Bad Request: chat not found"}, 400)
+            return resposta_json({"ok": True, "result": {"id": int(chat_id), "type": "group", "title": "Plantão"}})
         if metodo == "sendMessage" and pedido.metodo == "POST":
             if str(pedido.corpo.get("chat_id")) not in ("-1001234567890", "987654321"):
                 return resposta_json({"ok": False, "error_code": 400, "description": "Bad Request: chat not found"}, 400)
