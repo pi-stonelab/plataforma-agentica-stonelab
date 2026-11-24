@@ -16,11 +16,12 @@ from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
-# As integrações externas (`apis_publicas`, `jira`, `slack`, `telegram` e `email_leitura`) não são sistemas da
+# As integrações externas (`apis_publicas`, `jira`, `slack`, `telegram`, `email_leitura`, `google_workspace`, `microsoft_365` e `anexos`) não são sistemas da
 # Stone: entram aqui só para a QA derrubar cada uma na demo (o conector responde "fora do ar" sem chamar nada).
 SISTEMAS = (
     "cadastro", "core", "cobranca", "crm", "diretorio", "email", "disputas", "analitica",
     "apis_publicas", "jira", "slack", "telegram", "email_leitura",
+    "google_workspace", "microsoft_365", "anexos",
 )
 FORA_DO_AR = "fora_do_ar"
 DESATUALIZADO = "desatualizado"

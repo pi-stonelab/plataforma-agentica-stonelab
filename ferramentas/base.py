@@ -89,7 +89,7 @@ def _converter(regra, valor):
         if decimal.is_finite():
             return decimal
     if tipo == "data" and isinstance(valor, str) and len(valor) == 10:
-        return datetime.strptime(valor, "%Y-%m-%d").date()
+        return datetime.strptime(valor, "%Y-%m-%d").date()  # noqa: DTZ007 (só a data, sem fuso)
     raise ValueError
 
 
@@ -120,6 +120,9 @@ class Ferramenta:
     mensagem_de_sucesso = "Concluído."
     acesso = "leitura"
     integracoes = ()
+    # True: as integrações da ficha são ALTERNATIVAS (Google OU Microsoft): a ferramenta só some do índice quando todas
+    # estão desligadas, e cada chamada usa a conta que a pessoa tem ligada. False: todas são necessárias.
+    integracoes_alternativas = False
     nivel_minimo = "N2"
     areas_permitidas = ()
     categorias_dados = ()

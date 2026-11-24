@@ -60,7 +60,13 @@ class ConfiguracaoInvalida(ConnectionError):
 
 
 class CredencialRecusada(ConnectionError):
-    """O serviço recusou a credencial do .env (401, 403, token revogado): errada, vencida ou sem permissão."""
+    """O serviço recusou a credencial do .env (401, 403, token revogado): errada, vencida ou sem permissão.
+
+    `status` e `dados` (o JSON da recusa) só existem quando a recusa veio do HTTP; servem ao conector para separar
+    token vencido, falta de permissão e limite de pedidos. Nunca entram em mensagem nem em log."""
+
+    status = None
+    dados = None
 
 
 class LimiteDePedidos(ConnectionError):

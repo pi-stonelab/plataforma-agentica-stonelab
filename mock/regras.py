@@ -57,6 +57,8 @@ CATEGORIAS_DADO = (
     "cambio",  # cotação de moeda (API pública do Banco Central)
     "chamado_interno",  # chamados internos da Stone no Jira (pedido a outro time, falha de sistema)
     "comunicacao_interna",  # mensagem num canal interno da lista permitida (Slack ou Telegram)
+    "agenda_pessoal",  # eventos da agenda do próprio funcionário (Google Calendar ou Outlook)
+    "documento_de_trabalho",  # planilhas, documentos e anexos do próprio funcionário (Google, Microsoft e anexos do chat)
 )
 
 # Categorias que não são dado de lojista: CEP público, pedido de ferramenta ausente, artigo público de ajuda
@@ -65,19 +67,21 @@ CATEGORIAS_COMUNS = frozenset({"endereco_publico", "pedido_plataforma", "base_co
 # Dado agregado ou sobre o próprio mock, sem lojista nem pessoa: vale para todo cargo que tem área
 # (decisão do bloco A, SEM FONTE para a lista exata; ver docs/decisoes.md).
 CATEGORIAS_DE_QUEM_TEM_AREA = frozenset({"indicador_agregado", "metadado"})
-# Trabalho interno do funcionário com os colegas: chamados internos (Jira) e avisos em canais internos (Slack e
-# Telegram). Vale para todo cargo que tem área; o destino é sempre um projeto, canal ou chat da lista do .env
-# (decisão do bloco E1, SEM FONTE para a lista exata; ver docs/decisoes.md).
-CATEGORIAS_DE_TRABALHO_INTERNO = frozenset({"chamado_interno", "comunicacao_interna"})
+# Trabalho interno do funcionário com os colegas: chamados internos (Jira), avisos em canais internos (Slack e
+# Telegram) e, no bloco E2, a agenda, as planilhas, os documentos e os anexos da PRÓPRIA conta dele (Google,
+# Microsoft e anexos do chat). Vale para todo cargo que tem área; o destino é sempre um projeto, canal ou chat da
+# lista do .env, e o que sai de dado de lojista passa pela máscara (decisões E1 e G1, SEM FONTE para a lista
+# exata; ver docs/decisoes.md).
+CATEGORIAS_DE_TRABALHO_INTERNO = frozenset(
+    {"chamado_interno", "comunicacao_interna", "agenda_pessoal", "documento_de_trabalho"}
+)
 
 # Nomes grossos que as fichas das ferramentas ainda planejadas usam. Nenhum cargo os permite, então
 # essas ferramentas ficam bloqueadas para todos até serem migradas para os nomes finos acima.
 CATEGORIAS_DE_FERRAMENTAS_PLANEJADAS = (
     "atendimento",
     "financeiro",
-    "agenda",
     "comunicacao",
-    "documento",
 )
 
 # DOC-MOCK §8.2: o atendimento vê o lojista inteiro (cadastro, contato, conta, vendas, agenda,
@@ -205,7 +209,13 @@ CLASSIFICACAO_CAMPOS = {
 
 # Campos de texto com formato fixo que parecem número restrito: o valor inteiro precisa casar o
 # formato para passar sem a máscara de texto livre (protocolo do chamado: AAAAMMDD-NNNNNN).
-FORMATO_DE_IDENTIFICADORES = {"protocolo": r"\d{8}-\d{6}"}
+FORMATO_DE_IDENTIFICADORES = {
+    "protocolo": r"\d{8}-\d{6}",
+    # Id de arquivo e link que o Google ou a Microsoft devolvem: texto técnico com dígitos no meio, que a máscara de
+    # texto livre estragaria (o id não serve mais). Não é dado de pessoa, e só o valor INTEIRO nesse formato passa.
+    "id_arquivo": r"[A-Za-z0-9!_-]{5,128}",
+    "link": r"https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]{4,500}",
+}
 
 # Campos que as consultas devolvem e que não são restritos (público, interno ou confidencial).
 # Inclui os montados pela fachada das ferramentas (valores em reais). Vale para TODAS as ferramentas.
@@ -250,6 +260,10 @@ CAMPOS_NAO_RESTRITOS = frozenset(
         # integrações externas: a chave de um chamado interno do Jira, a origem da resposta (real ou modo de
         # demonstração) e o período de uma busca
         "chave_jira", "fonte", "data_inicio", "data_fim",
+        # agenda, planilhas e documentos da conta do funcionário (bloco E2): nomes descritivos. O texto continua
+        # passando pela máscara de texto livre (CPF, cartão e telefone), só não vira "***". `id_arquivo` e `link` têm
+        # formato fixo (`FORMATO_DE_IDENTIFICADORES`).
+        "titulo", "inicio", "fim", "local", "aba", "intervalo", "linhas", "colunas", "modificado_em",
     }
 )
 

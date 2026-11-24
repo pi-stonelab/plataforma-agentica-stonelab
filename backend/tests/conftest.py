@@ -30,6 +30,9 @@ os.environ.update(
             "TELEGRAM_MODO", "TELEGRAM_TOKEN", "TELEGRAM_CHATS", "TELEGRAM_URL",
             "EMAIL_LEITURA_MODO", "EMAIL_IMAP_HOST", "EMAIL_IMAP_PORTA", "EMAIL_IMAP_SEGURANCA",
             "EMAIL_IMAP_USUARIO", "EMAIL_IMAP_SENHA", "EMAIL_IMAP_PASTA",
+            "GOOGLE_MODO", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "GOOGLE_URL",
+            "MICROSOFT_MODO", "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET", "MICROSOFT_REDIRECT_URI",
+            "MICROSOFT_TENANT", "MICROSOFT_URL", "ESCRITORIO_DOMINIOS", "ANEXOS_MODO", "ANEXOS_DIRETORIO",
         ),
         "",
     )
@@ -39,12 +42,15 @@ from ferramentas.dados_sinteticos import HOJE_DO_MOCK
 from ferramentas.integracoes.apis_publicas.conector import CONECTOR as _APIS_PUBLICAS
 from ferramentas.integracoes.apis_publicas.conector import FUSO_DA_COTACAO
 from ferramentas.integracoes.email_leitura.conector import CONECTOR as _EMAIL_LEITURA
+from ferramentas.integracoes.google_workspace.conector import CONECTOR as _GOOGLE
 
 # No modo real, a cotação usa o dia de verdade. Na suíte, esse relógio fica parado no HOJE_DO_MOCK: o servidor
 # de teste só tem boletins até esse dia, e o resultado não pode depender do dia em que alguém roda os testes.
 _APIS_PUBLICAS.agora_real = lambda: datetime.combine(HOJE_DO_MOCK, time(12), FUSO_DA_COTACAO)
 # O mesmo para a caixa de e-mail real: o período padrão conta do dia de verdade.
 _EMAIL_LEITURA.agora_real = lambda: datetime.combine(HOJE_DO_MOCK, time(12), FUSO_DA_COTACAO)
+# E a agenda das contas Google e Microsoft: o período padrão e a data mínima de um evento contam do HOJE_DO_MOCK.
+_GOOGLE.agora_real = lambda: datetime.combine(HOJE_DO_MOCK, time(12), FUSO_DA_COTACAO)
 
 _CONECTAR = socket.socket.connect
 _CONECTAR_EX = socket.socket.connect_ex

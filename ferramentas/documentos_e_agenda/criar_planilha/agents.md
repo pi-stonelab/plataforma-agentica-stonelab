@@ -1,31 +1,43 @@
 # criar_planilha
 
-[preencher: o que faz, em uma frase. Sugestão: cria uma planilha nova]
+Prepara uma planilha nova na conta do próprio funcionário (Google ou Microsoft) e deixa a prévia esperando a confirmação dele; nesta etapa nada é criado.
 
 ## Quando usar
 
-[preencher]
+Use quando o funcionário pedir uma planilha nova com colunas e, se quiser, algumas linhas já preenchidas (uma lista,
+um acompanhamento). Depois de usar, responda com FINAL dizendo que a prévia está esperando a confirmação na
+tela. Nunca diga que a planilha foi criada: quem confirma é o funcionário.
 
 ## Quando não usar
 
-[preencher: quando outra ferramenta serve melhor, citando qual]
+Não use para acrescentar uma linha a uma planilha que já existe (`adicionar_linha_planilha`), para gerar um arquivo
+para baixar na conversa (`entregar_arquivo`) nem para exportar dado pessoal de lojista (CPF, cartão, conta,
+telefone, e-mail): cite o código do lojista, como `M00001`. O que for sensível sai mascarado.
 
 ## Parâmetros
 
-[preencher: um por linha, com o significado e um exemplo]
+- `titulo` (texto, obrigatório, uma linha, até 100 caracteres): o nome da planilha.
+- `colunas` (texto, obrigatório): os cabeçalhos separados por `|`. Exemplo: `Data | Chamado | Situação`.
+- `linhas` (texto, opcional): uma linha por quebra de linha, as células separadas por `|`. Até 50 linhas, 20
+  colunas e 200 caracteres por célula. Número com ponto decimal (`12.5`) vira número; o resto, texto.
+- `servico` (texto, opcional): `google` ou `microsoft`. Só use se a ferramenta pedir.
 
 ## O que devolve
 
-[preencher: campos de `dados` quando dá certo e os erros possíveis]
+Em `dados`: `confirmacao_id`, `situacao` (`aguardando_confirmacao`), `expira_em` (a prévia vale 15 minutos),
+`servico`, `titulo`, `colunas`, `tamanho`, `linhas` (as 10 primeiras, já mascaradas) e `aviso`. Depois da
+confirmação, a pessoa recebe o `id_arquivo` e o `link` da planilha.
+
+Erros possíveis: `parametro_invalido` (título vazio, mais células que colunas, linhas demais),
+`integracao_indisponivel` (conta não ligada, sem a permissão de escrever em planilhas, serviço fora do ar ou
+prévias demais esperando confirmação).
 
 ## Para quem mantém
 
-- Área: `documentos_e_agenda`.
-- Acesso: escrita.
-- Integração:
-  - `google_workspace` (ver `integracoes/google_workspace/README.md`): [preencher: como a conta de cada pessoa é ligada]
-  - `microsoft_365` (ver `integracoes/microsoft_365/README.md`): [preencher: como a conta de cada pessoa é ligada]
-- Permissão: provisória na ficha em func.py [aqui conectamos com Brenno: níveis e áreas oficiais, KAN-62].
-- Escrita: fica inativa até a confirmação em duas etapas existir.
-- Conteúdo de terceiros na saída: não.
-- Situação: esqueleto em func.py, sem lógica.
+- Área: `documentos_e_agenda`. Acesso: escrita em duas fases, em `governanca.ESCRITA_COM_CONFIRMACAO`. Categoria
+  `documento_de_trabalho`.
+- Fase 2: Google `spreadsheets.create` (valores como texto ou número, nunca fórmula); Microsoft envia um .xlsx
+  gerado aqui (`formatos.xlsx_de`) para o OneDrive (`Files.ReadWrite`). O registro guarda o `id_arquivo` como
+  referência externa.
+- Integração: `google_workspace` ou `microsoft_365`, alternativas; conta OAuth de cada pessoa.
+- Situação: ativa. Nos testes, servidores locais no formato das duas APIs.

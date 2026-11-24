@@ -3,6 +3,7 @@
 import os
 
 from ferramentas import catalogo, confirmacoes, dados_sinteticos, governanca, integracoes
+from ferramentas.integracoes import credenciais, oauth
 from mock.banco import criar_engine
 from mock.consultas import buscar_funcionario
 from mock.falhas import desligar_todas
@@ -90,6 +91,8 @@ def limpar_estado():
     pedidos_em_memoria.clear()
     confirmacoes.limpar()
     limpar_enviadas()
+    credenciais.usar(credenciais.ProvedorEmMemoria())  # nenhuma conta de pessoa fica ligada de um teste para o outro
+    oauth.PEDIDOS_PENDENTES.limpar()
     integracoes.reiniciar()  # disjuntores e saúde: a falha de um teste não pausa a integração no seguinte
 
 

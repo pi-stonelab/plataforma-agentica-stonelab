@@ -20,6 +20,5 @@ class ConectorPlanejado(Conector):
         super().__init__()
 
 
-GOOGLE_WORKSPACE = registrar(ConectorPlanejado("google_workspace", "Google Workspace"))
 MICROSOFT_365 = registrar(ConectorPlanejado("microsoft_365", "Microsoft 365"))
 ANEXOS = registrar(ConectorPlanejado("anexos", "Anexos do chat"))

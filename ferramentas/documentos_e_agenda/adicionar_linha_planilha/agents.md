@@ -1,31 +1,41 @@
 # adicionar_linha_planilha
 
-[preencher: o que faz, em uma frase. Sugestão: acrescenta uma linha a uma planilha]
+Prepara uma linha nova no fim de uma planilha do próprio funcionário e deixa a prévia esperando a confirmação dele; nesta etapa nada é gravado.
 
 ## Quando usar
 
-[preencher]
+Use quando o funcionário pedir para registrar algo numa planilha que ele já tem (um acompanhamento, uma lista de
+pendências). Pegue o `id_arquivo` com `buscar_arquivos`. Depois de usar, responda com FINAL dizendo que a prévia
+está esperando a confirmação na tela. Nunca diga que a linha foi gravada: quem confirma é o funcionário.
 
 ## Quando não usar
 
-[preencher: quando outra ferramenta serve melhor, citando qual]
+Não use para criar uma planilha (`criar_planilha`), para mudar ou apagar linhas que já existem nem para guardar
+dado pessoal de lojista (CPF, cartão, conta, telefone, e-mail): cite o código do lojista, como `M00001`.
 
 ## Parâmetros
 
-[preencher: um por linha, com o significado e um exemplo]
+- `id_arquivo` (texto, obrigatório): o id que `buscar_arquivos` devolveu.
+- `valores` (texto, obrigatório): as células da linha separadas por `|`, até 20 células de 200 caracteres.
+  Exemplo: `19/10 | 100 | 90 | 2`. O que for escrito fica como texto (uma célula `=SOMA(A1)` não vira fórmula).
+- `aba` (texto, opcional): o nome da aba. Padrão: a primeira.
+- `servico` (texto, opcional): `google` ou `microsoft`. Só use se a ferramenta pedir.
 
 ## O que devolve
 
-[preencher: campos de `dados` quando dá certo e os erros possíveis]
+Em `dados`: `confirmacao_id`, `situacao` (`aguardando_confirmacao`), `expira_em` (a prévia vale 15 minutos),
+`servico`, `planilha` (o título), `aba`, `valores` (cada célula já mascarada) e `aviso`.
+
+Erros possíveis: `parametro_invalido` (id fora do formato, linha vazia ou grande demais), `nao_encontrado`
+(planilha ou aba que não existe; a mensagem lista as abas), `integracao_indisponivel` (conta não ligada, sem a
+permissão de escrever em planilhas, serviço fora do ar ou prévias demais esperando confirmação).
 
 ## Para quem mantém
 
-- Área: `documentos_e_agenda`.
-- Acesso: escrita.
-- Integração:
-  - `google_workspace` (ver `integracoes/google_workspace/README.md`): [preencher: como a conta de cada pessoa é ligada]
-  - `microsoft_365` (ver `integracoes/microsoft_365/README.md`): [preencher: como a conta de cada pessoa é ligada]
-- Permissão: provisória na ficha em func.py [aqui conectamos com Brenno: níveis e áreas oficiais, KAN-62].
-- Escrita: fica inativa até a confirmação em duas etapas existir.
-- Conteúdo de terceiros na saída: não.
-- Situação: esqueleto em func.py, sem lógica.
+- Área: `documentos_e_agenda`. Acesso: escrita em duas fases, em `governanca.ESCRITA_COM_CONFIRMACAO`. Categoria
+  `documento_de_trabalho`.
+- Fase 1 lê o título e as abas (escopo de leitura) para a prévia; a fase 2 grava com o escopo de escrita
+  (`spreadsheets` no Google, `Files.ReadWrite` na Microsoft). Google: `valueInputOption=RAW`; Microsoft: célula que
+  começa com `= + - @` recebe um apóstrofo, para nunca virar fórmula.
+- Integração: `google_workspace` ou `microsoft_365`, alternativas; conta OAuth de cada pessoa.
+- Situação: ativa. Nos testes, servidores locais no formato das duas APIs.
