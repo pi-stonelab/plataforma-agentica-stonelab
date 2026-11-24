@@ -7,12 +7,15 @@ login e o Graph e outro, em outra porta, para o download temporário que o Graph
 import io
 import json
 import logging
+import threading
 from datetime import timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from ferramentas import catalogo, confirmacoes
+from ferramentas.confirmacoes import MENSAGEM_EFEITO_INCERTO
 from ferramentas.integracoes import credenciais, formatos
+from ferramentas.integracoes.conector import FALHAS_PARA_PAUSAR
 from ferramentas.integracoes.google_workspace.conector import CONECTOR as GOOGLE
 from ferramentas.integracoes.microsoft_365 import conector as microsoft
 from ferramentas.integracoes.microsoft_365.conector import CONECTOR as MICROSOFT
@@ -366,7 +369,8 @@ def test_aba_pelo_nome_com_espaco_intervalo_e_aba_inexistente(conta, ana):
     resultado = dados_de(LER_PLANILHA, {"id_arquivo": PLANILHA, "aba": "Outra aba", "intervalo": "A1:B2"}, ana)
     assert resultado["linhas"] == [["Fila", "Total"], ["Recebimento", "7"]]
     resposta = usar(LER_PLANILHA, {"id_arquivo": PLANILHA, "aba": "Nada"}, ana)
-    assert resposta["tipo_erro"] == "nao_encontrado" and "Resumo, Outra aba, Vazia" in resposta["mensagem"]
+    assert resposta["tipo_erro"] == "nao_encontrado" and "Resumo" not in resposta["mensagem"]
+    assert resposta["dados"] == {"conteudo_de_terceiros": {"abas": ["Resumo", "Outra aba", "Vazia"]}}
 
 
 def test_planilha_longa_vem_truncada_e_celula_com_cpf_sai_mascarada(conta, ana):
@@ -544,3 +548,68 @@ def test_sem_configuracao_o_conector_fica_desligado(monkeypatch):
     monkeypatch.delenv("MICROSOFT_CLIENT_ID", raising=False)
     assert MICROSOFT.saude() == "desligada"
     assert microsoft.ESCOPOS_DE_LEITURA.isdisjoint(microsoft.ESCOPOS_DE_ESCRITA)
+
+
+# --- escrita concorrente e resposta estranha (achados 4 e 6 da revisão) ----------------------------------------------
+
+
+def test_duas_linhas_ao_mesmo_tempo_da_mesma_pessoa_ficam_cada_uma_na_sua_linha(conta_com_escrita, ana):
+    _, dados = conta_com_escrita
+    previas = [
+        dados_de(ADICIONAR_LINHA, {"id_arquivo": PLANILHA, "valores": f"linha {n} | x", "aba": "Resumo"}, ana)
+        for n in range(4)
+    ]
+    resultados = []
+    largada = threading.Barrier(len(previas))
+
+    def confirmar(previa):
+        largada.wait()
+        resultados.append(confirmacoes.confirmar(previa["confirmacao_id"], ana))
+
+    linhas = [threading.Thread(target=confirmar, args=(previa,)) for previa in previas]
+    for linha in linhas:
+        linha.start()
+    for linha in linhas:
+        linha.join()
+    assert [r["status"] for r in resultados] == ["ok"] * 4, resultados
+    gravadas = sorted(linha[0] for linha in dados.itens[PLANILHA]["abas"]["Resumo"][3:])
+    assert gravadas == ["linha 0", "linha 1", "linha 2", "linha 3"]  # nenhuma sobrescreveu a outra
+
+
+def test_linha_sobrescrita_por_outra_pessoa_no_meio_da_escrita_nao_vira_pronto_falso(conta_com_escrita, ana):
+    servidor, dados = conta_com_escrita
+    previa = dados_de(ADICIONAR_LINHA, {"id_arquivo": PLANILHA, "valores": "minha | x", "aba": "Resumo"}, ana)
+
+    def responder(pedido):
+        resposta = dados(pedido)
+        if pedido.metodo == "PATCH" and "values" in (pedido.corpo or {}):  # outra pessoa grava na mesma linha em seguida
+            dados.itens[PLANILHA]["abas"]["Resumo"][3] = ["da outra pessoa", "y"]
+        return resposta
+
+    servidor.responder = responder
+    resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
+    assert resultado["tipo_erro"] == "integracao_indisponivel" and resultado["mensagem"] == MENSAGEM_EFEITO_INCERTO
+
+
+def test_escrita_aceita_com_resposta_fora_do_formato_diz_que_pode_ter_acontecido(conta_com_escrita, ana):
+    servidor, dados = conta_com_escrita
+    previa = dados_de(CRIAR_PLANILHA, {"titulo": "Fechamento", "colunas": "A|B", "linhas": "a|b"}, ana)
+
+    def responder(pedido):
+        resposta = dados(pedido)
+        if pedido.metodo == "PUT":
+            return 201, {"Content-Type": "application/json"}, b"{}"  # criou, mas a resposta não traz id nem link
+        return resposta
+
+    servidor.responder = responder
+    resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
+    assert resultado["mensagem"] == MENSAGEM_EFEITO_INCERTO
+
+
+def test_documento_enorme_vira_parametro_invalido_e_nao_pausa_a_integracao(conta, ana):
+    servidor, dados = conta
+    dados.itens[DOCUMENTO]["docx"] = b"x" * (formatos.BYTES_NO_MAXIMO)  # o tamanho declarado cabe; o download passa do teto
+    servidor.download.responder = lambda pedido: (200, {"Content-Type": "application/octet-stream"}, b"x" * (formatos.BYTES_NO_MAXIMO + 10))
+    for _ in range(FALHAS_PARA_PAUSAR + 2):
+        assert usar(LER_DOCUMENTO, {"id_arquivo": DOCUMENTO}, ana)["tipo_erro"] == "parametro_invalido"
+    assert MICROSOFT.saude() != "pausada"

@@ -2,6 +2,7 @@
 `entregar_arquivo`). A pasta é uma pasta temporária; arquivos hostis são montados aqui, na mão.
 """
 
+import errno
 import io
 import json
 import os
@@ -17,7 +18,7 @@ from ferramentas.integracoes import formatos
 from ferramentas.integracoes.__main__ import principal
 from ferramentas.integracoes.anexos import conector as anexos
 from ferramentas.integracoes.anexos.conector import CONECTOR as ANEXOS
-from ferramentas.integracoes.conector import ConfiguracaoInvalida
+from ferramentas.integracoes.conector import FALHAS_PARA_PAUSAR, ConfiguracaoInvalida
 from ferramentas.integracoes.formatos import ArquivoInvalido
 from ferramentas.integracoes.registro import estado_integracoes
 
@@ -201,9 +202,11 @@ def test_link_simbolico_na_pasta_nao_e_listado_nem_aberto(pasta, tmp_path, ana):
 
 def test_id_de_pessoa_estranho_nunca_chega_ao_disco(pasta):
     for id_usuario in ("../outra", "a/b", "", "x" * 41, "F0001\x00"):
-        with pytest.raises(ValueError, match="pessoa"):
+        with pytest.raises(ErroFerramenta) as erro:  # pedido errado (parametro_invalido), não queda do armazenamento
             ANEXOS.guardar_entrada(id_usuario, "a.txt", b"x")
+        assert erro.value.tipo_erro == "parametro_invalido"
     assert not pasta.exists() or arquivos_em(pasta) == []
+    assert ANEXOS.saude() != "pausada"  # e nenhuma dessas entradas contou no disjuntor
 
 
 def test_gravacoes_simultaneas_da_mesma_pessoa_nao_se_misturam(pasta):
@@ -254,7 +257,8 @@ def test_xlsx_com_varias_abas_le_a_pedida_e_diz_a_que_nao_existe(pasta, ana):
     identificador = anexar("u.xlsx", pacote)
     assert dados_de(LER, {"anexo_id": identificador, "aba": "Unica"}, ana)["aba"] == "Unica"
     resposta = usar(LER, {"anexo_id": identificador, "aba": "Nada"}, ana)
-    assert resposta["tipo_erro"] == "nao_encontrado" and "Unica" in resposta["mensagem"]
+    assert resposta["tipo_erro"] == "nao_encontrado" and "Unica" not in resposta["mensagem"]  # título é texto do arquivo
+    assert resposta["dados"] == {"conteudo_de_terceiros": {"abas": ["Unica"]}}
 
 
 def test_csv_longo_vem_truncado_com_aviso_e_o_limite_vale(pasta, ana):
@@ -500,3 +504,37 @@ def test_real_e_simulado_devolvem_as_mesmas_chaves(pasta, ana, monkeypatch):
 def test_estado_das_integracoes_inclui_os_anexos_com_as_duas_ferramentas(pasta):
     linha = {i["nome"]: i for i in estado_integracoes()}["anexos"]
     assert linha["tipo"] == "interno" and linha["modo"] == "real" and sorted(linha["ferramentas"]) == [ENTREGAR, LER]
+
+
+# --- erro de entrada não pausa o armazenamento de todo mundo (achados 3 e 20 da revisão) -----------------------------
+
+
+def test_nome_com_letras_de_quatro_bytes_e_cortado_por_bytes_e_o_arquivo_e_gravado(pasta, ana):
+    nome_longo = "\U0001f600" * 120 + ".txt"  # 120 letras, 480 bytes: passaria dos 255 bytes do sistema de arquivos
+    raiz, extensao = anexos.nome_seguro(nome_longo)
+    assert len(raiz.encode()) <= anexos.TAMANHO_DO_NOME and extensao == "txt"
+    identificador = anexar(nome_longo, b"conteudo")
+    assert dados_de(LER, {"anexo_id": identificador}, ana)["texto"] == "conteudo"
+
+
+def test_nome_longo_demais_para_o_disco_vira_parametro_invalido_sem_contar_no_disjuntor(pasta, monkeypatch):
+    def abrir_com_nome_longo(*argumentos, **opcoes):
+        raise OSError(errno.ENAMETOOLONG, "File name too long")
+
+    monkeypatch.setattr(anexos.os, "open", abrir_com_nome_longo)
+    for _ in range(FALHAS_PARA_PAUSAR + 2):
+        with pytest.raises(ErroFerramenta) as erro:
+            ANEXOS.guardar_entrada(ANA_ID, "a.txt", b"x")
+        assert erro.value.tipo_erro == "parametro_invalido"
+    assert ANEXOS.saude() != "pausada"
+
+
+def test_falha_de_disco_de_verdade_continua_contando_no_disjuntor(pasta, monkeypatch):
+    def disco_cheio(*argumentos, **opcoes):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(anexos.os, "open", disco_cheio)
+    for _ in range(FALHAS_PARA_PAUSAR):
+        with pytest.raises(ConnectionError):
+            ANEXOS.guardar_entrada(ANA_ID, "a.txt", b"x")
+    assert ANEXOS.saude() == "pausada"

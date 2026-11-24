@@ -25,10 +25,15 @@ MENSAGEM_FORA_DO_AR = "Integração fora do ar."
 
 
 class ErroFerramenta(Exception):
-    def __init__(self, tipo_erro, mensagem):
+    """Erro que a ferramenta responde como `{status: "erro", tipo_erro, mensagem}`. `dados`, quando existe, é texto de
+    terceiros que ajuda a corrigir (os títulos das abas de uma planilha): sai mascarado e sob o invólucro de terceiros,
+    nunca dentro da `mensagem`."""
+
+    def __init__(self, tipo_erro, mensagem, dados=None):
         super().__init__(mensagem)
         self.tipo_erro = tipo_erro
         self.mensagem = mensagem
+        self.dados = dados
 
 
 class EfeitoIncerto(Exception):
@@ -177,6 +182,12 @@ class Ferramenta:
         registro = montar_registro(self, usuario, contexto, resposta("iniciada"), None, inicio)
         governanca.registrar(registro)
 
+    def _dados_do_erro(self, erro):
+        if erro.dados is None:
+            return None
+        dados = mascara.mascarar(erro.dados, self.categorias_dados, self.campos_liberados)
+        return {"conteudo_de_terceiros": tamanho.limitar(dados)}
+
     def executar(self, argumentos, usuario, contexto=None):
         inicio = time.monotonic()
         camada = None
@@ -200,7 +211,7 @@ class Ferramenta:
             if self.conteudo_terceiros:
                 resultado = resposta("ok", {"conteudo_de_terceiros": dados}, MENSAGEM_TERCEIROS)
         except ErroFerramenta as erro:
-            resultado = resposta("erro", None, erro.mensagem, erro.tipo_erro)
+            resultado = resposta("erro", self._dados_do_erro(erro), erro.mensagem, erro.tipo_erro)
         except governanca.RegistroIndisponivel:  # O9, MED-1: sem rastro da intenção, nada é gravado
             return resposta("erro", None, MENSAGEM_REGISTRO, "integracao_indisponivel")
         except (ConnectionError, TimeoutError) as erro:

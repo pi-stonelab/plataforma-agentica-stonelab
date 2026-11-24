@@ -23,6 +23,7 @@ import zipfile
 from ferramentas.base import ErroFerramenta
 
 MENSAGEM_ARQUIVO_INVALIDO = "O arquivo está corrompido, protegido ou fora do formato aceito."
+MENSAGEM_ABA_NAO_ENCONTRADA = "Aba não encontrada neste arquivo. As abas que existem vêm em dados."
 MENSAGEM_COM_MACRO = "Arquivos com macro não são aceitos."
 MENSAGEM_PDF_INDISPONIVEL = "A leitura de PDF não está instalada nesta plataforma."
 BYTES_NO_MAXIMO = 5_000_000
@@ -267,7 +268,7 @@ def ler_xlsx(conteudo, aba=None, limite_linhas=LINHAS_PADRAO, limite_colunas=COL
     nomes = [nome for nome, _ in abas]
     escolhida = nomes[0] if aba is None else aba
     if escolhida not in nomes:
-        raise ErroFerramenta("nao_encontrado", f"Aba não encontrada. Abas do arquivo: {', '.join(nomes)}.")
+        raise ErroFerramenta("nao_encontrado", MENSAGEM_ABA_NAO_ENCONTRADA, {"abas": nomes})
     caminho = dict(abas)[escolhida]
     textos = _textos_compartilhados(pacote)
     linhas, truncado = [], False
@@ -410,7 +411,8 @@ def escrever_txt(texto):
     return _sem_controle(str(texto).replace("\r\n", "\n").replace("\r", "\n")).encode("utf-8")
 
 
-def _letra_da_coluna(indice):
+def letra_da_coluna(indice):
+    """0 -> "A", 25 -> "Z", 26 -> "AA"."""
     letras = ""
     indice += 1
     while indice:
@@ -441,7 +443,7 @@ def escrever_xlsx(linhas, aba="Planilha"):
     """Bytes de um .xlsx com uma aba. Texto fica texto (nada vira fórmula, nem o que começa com `=`); número vira número."""
     corpo = "".join(
         f'<row r="{numero}">'
-        + "".join(_celula_xlsx(f"{_letra_da_coluna(coluna)}{numero}", valor) for coluna, valor in enumerate(linha))
+        + "".join(_celula_xlsx(f"{letra_da_coluna(coluna)}{numero}", valor) for coluna, valor in enumerate(linha))
         + "</row>"
         for numero, linha in enumerate(linhas, start=1)
     )

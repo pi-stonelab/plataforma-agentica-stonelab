@@ -79,6 +79,13 @@ class RespostaInvalida(ConnectionError):
     """O serviço respondeu algo que não dá para usar: grande demais, JSON quebrado ou campo fora do formato."""
 
 
+class RespostaGrandeDemais(RespostaInvalida):
+    """A resposta passou do limite de bytes. Não é queda do serviço (ele respondeu o que a pessoa pediu): não conta no
+    disjuntor, e quem chamou diz à pessoa para pedir menos."""
+
+    culpa_do_pedido = True
+
+
 class PedidoRecusado(ErroFerramenta):
     """4xx (fora 401, 403, 404 e 429): o serviço recusou o pedido. `dados`: o JSON da recusa, só para o conector."""
 
@@ -158,12 +165,12 @@ def montar_url(base, *segmentos, seguros=""):
 def _ler_corpo(resposta, limite_de_bytes, prazo):
     tamanho = resposta.headers.get("content-length", "")
     if tamanho.isdigit() and int(tamanho) > limite_de_bytes:
-        raise RespostaInvalida(MENSAGEM)
+        raise RespostaGrandeDemais(MENSAGEM)
     corpo = bytearray()
     for pedaco in resposta.iter_bytes():
         corpo.extend(pedaco)
         if len(corpo) > limite_de_bytes:
-            raise RespostaInvalida(MENSAGEM)
+            raise RespostaGrandeDemais(MENSAGEM)
         if time.monotonic() > prazo:
             raise _PrazoTotal()
     return bytes(corpo)

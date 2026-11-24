@@ -10,13 +10,14 @@ from ferramentas.escritorio import (
     mascarar_celula,
 )
 from ferramentas.integracoes import conector
+from ferramentas.integracoes.escritorio import MENSAGEM_ABA_NAO_ENCONTRADA
 
 
 class AdicionarLinhaPlanilha(EscritaDeEscritorio):
     nome = "adicionar_linha_planilha"
     area = "documentos_e_agenda"
     categorias_dados = ("documento_de_trabalho",)
-    campos_liberados = (*EscritaDeEscritorio.campos_liberados, "planilha", "valores", "linhas_adicionadas", "aba")
+    campos_liberados = (*EscritaDeEscritorio.campos_liberados, "planilha", "valores", "linhas_adicionadas", "aba", "abas")
     status = "ativa"
     titulo = "Adicionar linha à planilha"
     descricao_para_pessoa = (
@@ -38,7 +39,7 @@ class AdicionarLinhaPlanilha(EscritaDeEscritorio):
         titulos = [aba["titulo"] for aba in planilha["abas"]]
         aba = argumentos.get("aba") or titulos[0]
         if aba not in titulos:
-            raise ErroFerramenta("nao_encontrado", f"Aba não encontrada. Abas da planilha: {', '.join(titulos)}.")
+            raise ErroFerramenta("nao_encontrado", MENSAGEM_ABA_NAO_ENCONTRADA, {"abas": titulos})
         titulo = mascarar_celula(planilha["titulo"])
         conteudo = {"servico": conta.nome, "id_arquivo": id_arquivo, "aba": aba, "valores": valores}
         previa = {

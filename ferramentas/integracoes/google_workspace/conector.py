@@ -33,7 +33,7 @@ import os
 import re
 from datetime import datetime, time, timedelta
 
-from ferramentas.base import ErroFerramenta
+from ferramentas.base import EfeitoIncerto, ErroFerramenta
 from ferramentas.integracoes import cliente_http
 from ferramentas.integracoes.cliente_http import PedidoRecusado, RespostaInvalida, montar_url
 from ferramentas.integracoes.conector import ConfiguracaoInvalida, ler_lista
@@ -238,15 +238,6 @@ class ConectorGoogleWorkspace(ConectorDeEscritorio):
 
     # --- chamadas ------------------------------------------------------------------------------------------------
 
-    def _chamar_api(self, ambiente, id_usuario, servico, escopos, metodo, url, **pedido):
-        """O pedido com o token da pessoa; devolve o JSON. 404 vira `nao_encontrado`; resposta que não é objeto, inválida."""
-        resposta = self._pedir_da_pessoa(ambiente, id_usuario, servico, escopos, metodo, url, **pedido)
-        if resposta.status == 404:
-            raise ErroFerramenta("nao_encontrado", MENSAGEM_NAO_ENCONTRADO)
-        if not isinstance(resposta.dados, dict):
-            raise RespostaInvalida("resposta fora do formato")
-        return resposta.dados
-
     def eventos_real(self, ambiente, id_usuario, data_inicio, data_fim, limite):
         url = montar_url(self._urls(ambiente)["calendar"], "calendars", "primary", "events")
         parametros = {
@@ -361,14 +352,6 @@ class ConectorGoogleWorkspace(ConectorDeEscritorio):
     def descrever_planilha_real(self, ambiente, id_usuario, id_arquivo):
         return self._planilha(ambiente, id_usuario, id_arquivo, PLANILHAS_LEITURA)
 
-    def _aba_existente(self, planilha, aba):
-        titulos = [a["titulo"] for a in planilha["abas"]]
-        if aba is None:
-            return titulos[0]
-        if aba not in titulos:
-            raise ErroFerramenta("nao_encontrado", f"Aba não encontrada. Abas da planilha: {', '.join(titulos)}.")
-        return aba
-
     def ler_planilha_real(self, ambiente, id_usuario, id_arquivo, aba, intervalo, limite):
         planilha = self._planilha(ambiente, id_usuario, id_arquivo, PLANILHAS_LEITURA)
         aba = self._aba_existente(planilha, aba)
@@ -398,7 +381,7 @@ class ConectorGoogleWorkspace(ConectorDeEscritorio):
         )
         atualizacao = dados.get("updates")
         if not isinstance(atualizacao, dict) or atualizacao.get("updatedRows") != 1:
-            raise RespostaInvalida("resposta fora do formato")
+            raise EfeitoIncerto()  # o Google aceitou a escrita, mas a resposta não confirma a linha
         return {"linhas_adicionadas": 1}
 
     def criar_planilha_real(self, ambiente, id_usuario, titulo, linhas):
@@ -413,7 +396,7 @@ class ConectorGoogleWorkspace(ConectorDeEscritorio):
         )
         id_arquivo, link = dados.get("spreadsheetId"), dados.get("spreadsheetUrl")
         if not isinstance(id_arquivo, str) or not isinstance(link, str) or not link.startswith("https://"):
-            raise RespostaInvalida("resposta fora do formato")
+            raise EfeitoIncerto()  # a planilha pode ter sido criada: a resposta não diz qual
         return {"id_arquivo": id_arquivo, "titulo": titulo, "link": link}
 
     def documento_real(self, ambiente, id_usuario, id_arquivo, limite):

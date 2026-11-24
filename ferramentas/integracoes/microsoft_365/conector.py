@@ -39,7 +39,7 @@ import re
 from datetime import UTC, date, datetime, time, timedelta
 from urllib.parse import urlsplit
 
-from ferramentas.base import ErroFerramenta
+from ferramentas.base import EfeitoIncerto, ErroFerramenta
 from ferramentas.integracoes import cliente_http, formatos
 from ferramentas.integracoes.cliente_http import PedidoRecusado, RespostaInvalida, montar_url
 from ferramentas.integracoes.conector import ConfiguracaoInvalida, ler_lista
@@ -122,16 +122,6 @@ def nome_do_arquivo(titulo):
     limpo = CARACTERES_PROIBIDOS_NO_NOME.sub(" ", titulo)
     limpo = re.sub(r"\s+", " ", limpo).strip(" .")
     return limpo[:TAMANHO_DO_NOME_DO_ARQUIVO].strip(" .") or NOME_PADRAO_DO_ARQUIVO
-
-
-def _coluna(indice):
-    """0 -> "A", 25 -> "Z", 26 -> "AA"."""
-    letras = ""
-    indice += 1
-    while indice:
-        indice, resto = divmod(indice - 1, 26)
-        letras = chr(65 + resto) + letras
-    return letras
 
 
 class ConectorMicrosoft365(ConectorDeEscritorio):
@@ -224,15 +214,6 @@ class ConectorMicrosoft365(ConectorDeEscritorio):
         return "acesso"
 
     # --- chamadas ------------------------------------------------------------------------------------------------
-
-    def _chamar_api(self, ambiente, id_usuario, servico, escopos, metodo, url, **pedido):
-        """O pedido com o token da pessoa; devolve o JSON (objeto). 404 vira `nao_encontrado`."""
-        resposta = self._pedir_da_pessoa(ambiente, id_usuario, servico, escopos, metodo, url, **pedido)
-        if resposta.status == 404:
-            raise ErroFerramenta("nao_encontrado", MENSAGEM_NAO_ENCONTRADO)
-        if not isinstance(resposta.dados, dict):
-            raise RespostaInvalida("resposta fora do formato")
-        return resposta.dados
 
     def _lista(self, dados, chave="value"):
         itens = dados.get(chave)
@@ -364,14 +345,6 @@ class ConectorMicrosoft365(ConectorDeEscritorio):
     def descrever_planilha_real(self, ambiente, id_usuario, id_arquivo):
         return self._planilha(ambiente, id_usuario, id_arquivo, ARQUIVOS_LEITURA)
 
-    def _aba_existente(self, planilha, aba):
-        titulos = [a["titulo"] for a in planilha["abas"]]
-        if aba is None:
-            return titulos[0]
-        if aba not in titulos:
-            raise ErroFerramenta("nao_encontrado", f"Aba não encontrada. Abas da planilha: {', '.join(titulos)}.")
-        return aba
-
     def ler_planilha_real(self, ambiente, id_usuario, id_arquivo, aba, intervalo, limite):
         planilha = self._planilha(ambiente, id_usuario, id_arquivo, ARQUIVOS_LEITURA)
         aba = self._aba_existente(planilha, aba)
@@ -417,11 +390,12 @@ class ConectorMicrosoft365(ConectorDeEscritorio):
         return ultima + 1
 
     def adicionar_linha_real(self, ambiente, id_usuario, id_arquivo, aba, valores):
+        """Escreve a linha logo abaixo do que já existe. O Graph não tem "acrescentar" para um intervalo comum (só para
+        tabelas do Excel, que a planilha da pessoa pode não ter), então: as escritas da mesma pessoa na mesma aba andam
+        uma de cada vez aqui, e a linha é lida de volta no fim. Se outra pessoa escreveu na mesma linha ao mesmo tempo,
+        a leitura não bate e o resultado é `EfeitoIncerto` (a pessoa confere na planilha), nunca um "pronto" falso."""
         planilha = self._planilha(ambiente, id_usuario, id_arquivo, ARQUIVOS_ESCRITA)
         aba = self._aba_existente(planilha, aba)
-        linha = self._primeira_linha_livre(ambiente, id_usuario, id_arquivo, aba)
-        endereco = f"A{linha}:{_coluna(len(valores) - 1)}{linha}"
-        url = montar_url(self._url_da_aba(ambiente, id_arquivo, aba), f"range(address='{endereco}')", seguros="()'=:")
         celulas = [formatos.celula_como_texto(valor) for valor in valores]
         gravaveis = [valor_da_celula(celula) for celula in celulas]
         # O Excel lê o que chega como se fosse digitado ("12/10" vira data, "=1+1" vira fórmula): células de texto
@@ -430,17 +404,35 @@ class ConectorMicrosoft365(ConectorDeEscritorio):
             "@" if isinstance(gravavel, str) and not celula.startswith("'") else "General"
             for gravavel, celula in zip(gravaveis, celulas, strict=True)
         ]
-        if "@" in formatos_das_celulas:
-            self._chamar_api(
-                ambiente, id_usuario, "planilhas", {ARQUIVOS_ESCRITA}, "PATCH", url,
-                corpo={"numberFormat": [formatos_das_celulas]},
+        with self._travas_de_escrita.da((id_usuario, id_arquivo, aba)):
+            linha = self._primeira_linha_livre(ambiente, id_usuario, id_arquivo, aba)
+            endereco = f"A{linha}:{formatos.letra_da_coluna(len(valores) - 1)}{linha}"
+            url = montar_url(self._url_da_aba(ambiente, id_arquivo, aba), f"range(address='{endereco}')", seguros="()'=:")
+            if "@" in formatos_das_celulas:
+                self._chamar_api(
+                    ambiente, id_usuario, "planilhas", {ARQUIVOS_ESCRITA}, "PATCH", url,
+                    corpo={"numberFormat": [formatos_das_celulas]},
+                )
+            resposta = self._chamar_api(
+                ambiente, id_usuario, "planilhas", {ARQUIVOS_ESCRITA}, "PATCH", url, corpo={"values": [gravaveis]}
             )
-        resposta = self._chamar_api(
-            ambiente, id_usuario, "planilhas", {ARQUIVOS_ESCRITA}, "PATCH", url, corpo={"values": [gravaveis]}
-        )
-        if not isinstance(resposta.get("address"), str):
-            raise RespostaInvalida("resposta fora do formato")
+            if not isinstance(resposta.get("address"), str):
+                raise EfeitoIncerto()
+            self._conferir_linha_gravada(ambiente, id_usuario, url, celulas)
         return {"linhas_adicionadas": 1}
+
+    def _conferir_linha_gravada(self, ambiente, id_usuario, url, celulas):
+        """Lê a linha de volta e compara a primeira célula (a leitura devolve o texto exibido, então só ela é
+        comparada). Não bateu, ou a leitura falhou: `EfeitoIncerto`."""
+        try:
+            dados = self._chamar_api(
+                ambiente, id_usuario, "planilhas", {ARQUIVOS_ESCRITA}, "GET", url, parametros={"$select": "text"}
+            )
+            lido = dados["text"][0][0]
+        except (ErroFerramenta, ConnectionError, TimeoutError, KeyError, IndexError, TypeError):
+            raise EfeitoIncerto() from None
+        if str(lido).strip() != celulas[0].removeprefix("'").strip():
+            raise EfeitoIncerto()
 
     def criar_planilha_real(self, ambiente, id_usuario, titulo, linhas):
         nome = nome_do_arquivo(titulo)
@@ -452,7 +444,7 @@ class ConectorMicrosoft365(ConectorDeEscritorio):
         )
         id_arquivo, link = dados.get("id"), dados.get("webUrl")
         if not isinstance(id_arquivo, str) or not isinstance(link, str) or not link.startswith("https://"):
-            raise RespostaInvalida("resposta fora do formato")
+            raise EfeitoIncerto()  # a planilha pode ter sido criada: a resposta não diz qual
         return {"id_arquivo": id_arquivo, "titulo": titulo, "link": link}
 
     def documento_real(self, ambiente, id_usuario, id_arquivo, limite):

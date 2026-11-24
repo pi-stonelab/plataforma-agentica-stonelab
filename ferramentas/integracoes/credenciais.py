@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from ferramentas.base import ErroFerramenta
+from ferramentas.integracoes.conector import TravasPorChave
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +89,7 @@ class ProvedorDeCredencial(ABC):
     """Onde ficam as credenciais. A subclasse escreve só `ler`, `guardar` e `apagar`; o resto é daqui."""
 
     def __init__(self):
-        self._trava_geral = threading.Lock()
-        self._travas = {}
+        self._travas = TravasPorChave()
 
     @abstractmethod
     def ler(self, id_usuario, servico):
@@ -108,8 +108,7 @@ class ProvedorDeCredencial(ABC):
         return self.ler(id_usuario, servico) is not None
 
     def _trava_da_conta(self, id_usuario, servico):
-        with self._trava_geral:
-            return self._travas.setdefault((id_usuario, servico), threading.Lock())
+        return self._travas.da((id_usuario, servico))
 
     def token_de_acesso(self, id_usuario, fluxo, escopos, recusado=None):
         """Um token que vale agora para `id_usuario` com os `escopos`, ou `ContaNaoLigada` / `PermissaoInsuficiente`.

@@ -143,7 +143,8 @@ def test_xlsx_escolhe_a_aba_e_diz_quais_existem():
     assert formatos.ler_xlsx(pacote, aba="Primeira")["aba"] == "Primeira"
     with pytest.raises(ErroFerramenta) as erro:
         formatos.ler_xlsx(pacote, aba="Nada")
-    assert erro.value.tipo_erro == "nao_encontrado" and "Primeira" in erro.value.mensagem
+    assert erro.value.tipo_erro == "nao_encontrado" and "Primeira" not in erro.value.mensagem
+    assert erro.value.dados == {"abas": ["Primeira"]}  # os títulos vão em dados, não na mensagem
 
 
 def test_xlsx_corta_linhas_e_colunas_e_diz_que_cortou():

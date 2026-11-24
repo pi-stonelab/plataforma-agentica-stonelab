@@ -8,6 +8,8 @@ Falha de rede vira `ConnectionError` ou `TimeoutError`, que a `Ferramenta.execut
 `integracao_indisponivel` sem repassar o texto. O log leva só a integração, o serviço, a etapa e o tipo do erro.
 Credencial recusada (401/403) e limite de pedidos (429) também são `ConnectionError`, mas NÃO contam no
 disjuntor: não são queda do serviço, e pausar não ajudaria (a credencial continua errada; o limite passa sozinho).
+Também não conta o que é culpa do pedido (`culpa_do_pedido = True` na exceção, como a resposta grande demais de um
+documento enorme): o disjuntor é de todas as pessoas, e a entrada de uma não pode pausar a integração das outras.
 
 Conector novo (bloco E): uma subclasse com `nome`, `rotulo`, `tipo`, `variaveis`, `credencial` e, se tiver,
 `variavel_modo`, `servicos` e `mensagem_desligada`; `conferir_configuracao(ambiente)` levanta
@@ -137,6 +139,24 @@ def sem_acento(texto):
     """Minúsculas e sem acento: "Plantão" e "plantao" são o mesmo apelido."""
     decomposto = unicodedata.normalize("NFKD", texto.strip().casefold())
     return "".join(c for c in decomposto if not unicodedata.combining(c))
+
+
+class TravasPorChave:
+    """Uma trava por chave (por exemplo, pessoa e serviço) sem crescer para sempre: passando de `limite` chaves, as
+    travas livres mais antigas saem. Trava em uso nunca sai, e quem a pedir de novo recebe a mesma."""
+
+    def __init__(self, limite=1000):
+        self._limite = limite
+        self._geral = threading.Lock()
+        self._travas = {}
+
+    def da(self, chave):
+        with self._geral:
+            trava = self._travas.pop(chave, None) or threading.Lock()
+            self._travas[chave] = trava  # a mais recente fica no fim
+            for antiga in [c for c, t in self._travas.items() if not t.locked()][: max(0, len(self._travas) - self._limite)]:
+                del self._travas[antiga]
+            return trava
 
 
 class Disjuntor:
@@ -344,6 +364,9 @@ class Conector:
             )
             raise
         except FALHAS_DE_REDE as erro:
+            if getattr(erro, "culpa_do_pedido", False):  # a entrada era grande demais: o serviço está bem
+                disjuntor.neutro()
+                raise
             abriu = disjuntor.falha()
             logger.warning(
                 "integracao falhou: integracao=%s servico=%s etapa=%s tipo=%s",

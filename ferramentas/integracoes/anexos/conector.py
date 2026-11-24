@@ -25,6 +25,7 @@ respondendo com `Content-Disposition: attachment`, o tipo do arquivo e `X-Conten
 do arquivo que o agente entrega, com o `arquivo_id` que vem na resposta da ferramenta]
 """
 
+import errno
 import os
 import re
 import secrets
@@ -51,7 +52,7 @@ TIPOS_DE_OFFICE = ("xlsx", "docx")
 ARQUIVOS_POR_PESSOA = 30
 BYTES_POR_PESSOA = 50_000_000
 RETENCAO = timedelta(days=7)
-TAMANHO_DO_NOME = 80
+TAMANHO_DO_NOME = 80  # BYTES do nome sem extensão (o limite do sistema de arquivos é em bytes, não em letras)
 NOME_PADRAO = "arquivo"
 TAMANHO_DO_ID = 16  # "ANX-" + 12 letras
 PASTAS = ("entrada", "saida")
@@ -59,13 +60,14 @@ MENSAGEM_TIPO_NAO_ACEITO = f"Tipo de arquivo não aceito. Aceitos: {', '.join(TI
 MENSAGEM_LIMITE_DA_PESSOA = "Há arquivos demais guardados para esta pessoa. Eles são apagados depois de 7 dias."
 MENSAGEM_NAO_ENCONTRADO = "Arquivo não encontrado."
 MENSAGEM_ARMAZENAMENTO = "armazenamento de anexos indisponível"
+MENSAGEM_PEDIDO_INVALIDO = "O nome do arquivo ou a pessoa não são aceitos pelo armazenamento de anexos."
 ID_DO_SIMULADO = {  # anexos de exemplo (o "hoje" do mock): letras, como os ids de verdade
     "csv": "ANX-SIMULADOCSVX", "txt": "ANX-SIMULADOTXTX", "xlsx": "ANX-SIMULADOXLSX",
 }
 
 
 def nome_seguro(nome):
-    """O nome como a plataforma guarda: sem pasta, sem caractere de controle ou especial, até 80 caracteres.
+    """O nome como a plataforma guarda: sem pasta, sem caractere de controle ou especial, até 74 bytes.
 
     Devolve `(raiz, extensao)`: a extensão em minúsculas (vazia se não tem). O nome só serve de rótulo."""
     base = re.split(r"[\\/]", str(nome))[-1]
@@ -75,8 +77,13 @@ def nome_seguro(nome):
     raiz, ponto, extensao = base.rpartition(".")
     if not ponto:
         raiz, extensao = extensao, ""
-    raiz = raiz.strip(" .")[: TAMANHO_DO_NOME - 6] or NOME_PADRAO
-    return raiz, extensao.lower()[:5]
+    raiz = _cortar_em_bytes(raiz.strip(" ."), TAMANHO_DO_NOME - 6).strip(" .") or NOME_PADRAO
+    return raiz, _cortar_em_bytes(extensao.lower()[:5], 10)
+
+
+def _cortar_em_bytes(texto, limite):
+    """O começo de `texto` com no máximo `limite` bytes em UTF-8, sem partir uma letra no meio."""
+    return texto.encode("utf-8")[:limite].decode("utf-8", "ignore")
 
 
 def _sortear(prefixo):
@@ -319,7 +326,11 @@ class ConectorAnexos(Conector):
         def chamada():
             try:
                 return funcao(armazenamento)
-            except OSError:
+            except ValueError:  # pessoa ou pasta fora do formato: o pedido está errado, o disco está bem
+                raise ErroFerramenta("parametro_invalido", MENSAGEM_PEDIDO_INVALIDO) from None
+            except OSError as erro:
+                if erro.errno == errno.ENAMETOOLONG:  # nome grande demais: culpa do arquivo, não do armazenamento
+                    raise ErroFerramenta("parametro_invalido", MENSAGEM_PEDIDO_INVALIDO) from None
                 raise ConnectionError(MENSAGEM_ARMAZENAMENTO) from None
 
         return self.chamar(etapa, chamada, servico="armazenamento")

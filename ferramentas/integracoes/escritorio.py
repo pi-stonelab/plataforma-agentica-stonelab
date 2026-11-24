@@ -32,14 +32,20 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from ferramentas import dados_sinteticos
-from ferramentas.base import ErroFerramenta
+from ferramentas.base import EfeitoIncerto, ErroFerramenta
 from ferramentas.integracoes import cliente_http, credenciais
-from ferramentas.integracoes.cliente_http import PedidoRecusado, pedir
+from ferramentas.integracoes.cliente_http import (
+    PedidoRecusado,
+    RespostaGrandeDemais,
+    RespostaInvalida,
+    pedir,
+)
 from ferramentas.integracoes.conector import (
     Conector,
     CredencialRecusada,
     DestinoNaoPermitido,
     LimiteDePedidos,
+    TravasPorChave,
     ler_lista,
 )
 from ferramentas.integracoes.escritorio_simulado import MundoSimulado
@@ -50,10 +56,13 @@ FUSO = ZoneInfo("America/Sao_Paulo")
 PADRAO_ID_ARQUIVO = re.compile(r"[A-Za-z0-9!_-]{5,128}")
 PADRAO_DOMINIO = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?){1,4}")
 PADRAO_INTERVALO = re.compile(r"([A-Za-z]{1,3})([1-9][0-9]{0,5}):([A-Za-z]{1,3})([1-9][0-9]{0,5})")
+METODOS_DE_LEITURA = ("GET", "HEAD")
 TIPOS_DE_ARQUIVO = ("planilha", "documento", "qualquer")
 DOMINIOS_SIMULADOS = ("stonesim.example",)  # o domínio do diretório do mock (DOC-MOCK §3.3)
 MENSAGEM_SEM_ACESSO = "A conta {rotulo} desta pessoa não tem acesso a este item."
 MENSAGEM_NAO_ENCONTRADO = "Arquivo não encontrado, ou a sua conta não tem acesso a ele."
+MENSAGEM_GRANDE_DEMAIS = "O conteúdo é grande demais para ler por aqui. Peça um trecho menor (menos linhas ou um intervalo)."
+MENSAGEM_ABA_NAO_ENCONTRADA = "Aba não encontrada nesta planilha. As abas que existem vêm em dados."  # títulos são texto de terceiros
 
 
 def limitar_intervalo(intervalo, limite):
@@ -90,6 +99,7 @@ class ConectorDeEscritorio(Conector):
     def __init__(self):
         super().__init__()
         self.mundo = MundoSimulado()
+        self._travas_de_escrita = TravasPorChave()  # escritas da mesma pessoa no mesmo arquivo andam uma de cada vez
 
     # --- o que a subclasse escreve ------------------------------------------------------------------------------
 
@@ -173,7 +183,37 @@ class ConectorDeEscritorio(Conector):
             except CredencialRecusada as recusa:
                 raise self._traduzir(recusa, fluxo, escopos) from None
 
-        return self.chamar(metodo.lower(), chamada, servico=servico)
+        try:
+            return self.chamar(metodo.lower(), chamada, servico=servico)
+        except RespostaGrandeDemais:  # a culpa é do pedido, não do serviço: a pessoa pede menos
+            raise ErroFerramenta("parametro_invalido", MENSAGEM_GRANDE_DEMAIS) from None
+
+    def _chamar_api(self, ambiente, id_usuario, servico, escopos, metodo, url, **pedido):
+        """O pedido com o token da pessoa; devolve o JSON (objeto). 404 vira `nao_encontrado`.
+
+        Resposta que não é um objeto: numa leitura, `RespostaInvalida`; numa escrita, `EfeitoIncerto` (o serviço aceitou
+        o pedido, então a ação pode ter acontecido, e "nada foi feito" seria mentira)."""
+        resposta = self._pedir_da_pessoa(ambiente, id_usuario, servico, escopos, metodo, url, **pedido)
+        if resposta.status == 404:
+            raise ErroFerramenta("nao_encontrado", MENSAGEM_NAO_ENCONTRADO)
+        if not isinstance(resposta.dados, dict):
+            raise self.resposta_fora_do_formato(metodo)
+        return resposta.dados
+
+    @staticmethod
+    def resposta_fora_do_formato(metodo):
+        """A exceção para uma resposta 2xx que não dá para usar: `RespostaInvalida` na leitura, `EfeitoIncerto` na escrita."""
+        return RespostaInvalida("resposta fora do formato") if metodo.upper() in METODOS_DE_LEITURA else EfeitoIncerto()
+
+    def _aba_existente(self, planilha, aba):
+        """O nome da aba pedida (ou da primeira). Aba que não existe: `nao_encontrado` com a mensagem fixa e os títulos
+        em `dados` (texto da planilha vem sob o invólucro de terceiros e passa pela máscara; nunca na mensagem)."""
+        titulos = [a["titulo"] for a in planilha["abas"]]
+        if aba is None:
+            return titulos[0]
+        if aba not in titulos:
+            raise ErroFerramenta("nao_encontrado", MENSAGEM_ABA_NAO_ENCONTRADA, {"abas": titulos})
+        return aba
 
     def _traduzir(self, recusa, fluxo, escopos):
         tipo = self.classificar_recusa(recusa)

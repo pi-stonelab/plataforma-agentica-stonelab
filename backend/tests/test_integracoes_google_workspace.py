@@ -12,6 +12,7 @@ from ferramentas import catalogo, confirmacoes, governanca, integracoes
 from ferramentas.confirmacoes import MENSAGEM_EFEITO_INCERTO
 from ferramentas.integracoes import credenciais
 from ferramentas.integracoes.__main__ import principal
+from ferramentas.integracoes.conector import FALHAS_PARA_PAUSAR
 from ferramentas.integracoes.google_workspace import conector as google
 from ferramentas.integracoes.google_workspace.conector import CONECTOR as GOOGLE
 from ferramentas.integracoes.registro import estado_integracoes
@@ -468,7 +469,8 @@ def test_adicionar_linha_anexa_como_texto_literal_na_aba_certa(conta_com_escrita
 
 def test_adicionar_linha_com_aba_inexistente_lista_as_abas(conta_com_escrita, ana):
     resposta = usar(ADICIONAR_LINHA, {"id_arquivo": PLANILHA, "valores": "a|b", "aba": "Nada"}, ana)
-    assert resposta["tipo_erro"] == "nao_encontrado" and "Resumo, Outra aba" in resposta["mensagem"]
+    assert resposta["tipo_erro"] == "nao_encontrado" and "Resumo" not in resposta["mensagem"]
+    assert resposta["dados"] == {"conteudo_de_terceiros": {"abas": ["Resumo", "Outra aba"]}}
 
 
 def test_adicionar_linha_com_dado_pessoal_mostra_a_previa_mascarada(conta_com_escrita, ana):
@@ -597,3 +599,47 @@ def test_o_horario_do_evento_vem_com_fuso_e_o_dia_inteiro_sem_hora(conta, ana):
     (evento,) = dados_de(EVENTOS, {"data_fim": "2026-10-15"}, ana)["eventos"]
     assert evento["inicio"].startswith("2026-10-15T09:00") and evento["dia_inteiro"] is False
     assert timedelta(minutes=30) == google.datetime.fromisoformat(evento["fim"]) - google.datetime.fromisoformat(evento["inicio"])
+
+
+# --- disjuntor compartilhado e escrita com resposta estranha (achados 3 e 6 da revisão) -------------------------------
+
+
+def test_documento_enorme_vira_parametro_invalido_e_nao_pausa_a_integracao_das_outras_pessoas(conta, ana):
+    _, dados = conta
+    dados.documentos[DOCUMENTO]["paragrafos"] = ["palavra " * 400_000 + "\n"]  # passa dos 2 MB que a plataforma lê
+    for _ in range(FALHAS_PARA_PAUSAR + 2):
+        resposta = usar(LER_DOCUMENTO, {"id_arquivo": DOCUMENTO}, ana)
+        assert resposta["tipo_erro"] == "parametro_invalido" and "grande demais" in resposta["mensagem"]
+    assert GOOGLE.saude() != "pausada"
+    assert usar(EVENTOS, {}, ana)["status"] == "ok"  # a agenda (e a integração toda) segue de pé para todo mundo
+
+
+def test_escrita_aceita_com_resposta_fora_do_formato_diz_que_pode_ter_acontecido(conta_com_escrita, ana):
+    servidor, dados = conta_com_escrita
+    previa = dados_de(ADICIONAR_LINHA, {"id_arquivo": PLANILHA, "valores": "a|b"}, ana)
+
+    def responder(pedido):
+        resposta = dados(pedido)
+        if pedido.metodo == "POST" and pedido.rota.endswith(":append"):
+            return 200, {"Content-Type": "application/json"}, b"{}"  # gravou, mas a resposta não confirma a linha
+        return resposta
+
+    servidor.responder = responder
+    resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
+    assert resultado["tipo_erro"] == "integracao_indisponivel" and resultado["mensagem"] == MENSAGEM_EFEITO_INCERTO
+    assert len(dados.planilhas[PLANILHA]["abas"]["Resumo"]) == 4  # a linha entrou: "nada foi enviado" seria mentira
+
+
+def test_criar_planilha_com_resposta_sem_id_diz_que_pode_ter_criado(conta_com_escrita, ana):
+    servidor, dados = conta_com_escrita
+    previa = dados_de(CRIAR_PLANILHA, {"titulo": "Fechamento", "colunas": "A|B", "linhas": "a|b"}, ana)
+
+    def responder(pedido):
+        resposta = dados(pedido)
+        if pedido.metodo == "POST" and pedido.rota == "/v4/spreadsheets":
+            return 200, {"Content-Type": "application/json"}, b"[]"
+        return resposta
+
+    servidor.responder = responder
+    resultado = confirmacoes.confirmar(previa["confirmacao_id"], ana)
+    assert resultado["mensagem"] == MENSAGEM_EFEITO_INCERTO
