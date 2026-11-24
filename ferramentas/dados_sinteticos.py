@@ -175,6 +175,12 @@ def buscar_chamados(codigo, limite):
     ]
 
 
+def buscar_chamados_do_responsavel(id_responsavel, carteiras, limite):
+    """Chamados abertos de quem é o responsável, atrasados primeiro: (lista, total). `carteiras` None = todas."""
+    resposta = _ler(consultas.buscar_chamados_do_responsavel, id_responsavel, carteiras, limite)
+    return resposta["itens"], resposta["total"]
+
+
 def chamado_e_do_lojista(codigo, id_chamado):
     """Diz se o chamado pertence ao lojista. Chamado de outro lojista e inexistente dão False."""
     return _ler(consultas.chamado_e_do_lojista, codigo, id_chamado)

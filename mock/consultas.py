@@ -21,6 +21,7 @@ from .modelos import (
     ORIGEM_DAS_TABELAS_ANALITICAS,
     SISTEMA_DONO_DA_TABELA,
     SITUACOES_RECEBIVEL,
+    SITUACOES_RESOLVIDAS,
     Acordo,
     AnaliticaAtualizacao,
     AnaliticaChamadosDiarios,
@@ -217,6 +218,38 @@ def buscar_chamados(origem: Session | Engine, codigo: str, limite: int | None = 
         aberto = (regras.HOJE_DO_MOCK - item["aberto_em"].date()).days
         item["dias_em_aberto"] = aberto if item["situacao"] != "fechado" else None
         item["aberto_em"] = _iso(item["aberto_em"])
+        return item
+
+    with _sessao_de(origem) as sessao:
+        return _lista(sessao, consulta, limite, formatar)
+
+
+def buscar_chamados_do_responsavel(
+    origem: Session | Engine, id_responsavel: str, carteiras: tuple[str, ...] | None, limite: int | None = None
+) -> dict:
+    """Chamados ainda não resolvidos de quem é o responsável, do prazo mais curto para o mais longo.
+
+    `carteiras` restringe aos lojistas do time (None = todas as carteiras). Os atrasados vêm primeiro.
+    """
+    falhas.verificar("crm")
+    consulta = (
+        select(
+            Chamado.codigo, Chamado.protocolo, Chamado.id_lojista, Chamado.categoria, Chamado.prioridade,
+            Chamado.situacao, Chamado.aberto_em, Chamado.prazo_em,
+        )
+        .join(Lojista, Lojista.codigo == Chamado.id_lojista)
+        .where(Chamado.id_responsavel == id_responsavel, Chamado.situacao.not_in(SITUACOES_RESOLVIDAS))
+        .order_by(Chamado.prazo_em, Chamado.codigo)
+    )
+    if carteiras is not None:
+        consulta = consulta.where(Lojista.carteira.in_(carteiras))
+
+    def formatar(linha) -> dict:
+        item = dict(linha._mapping)
+        item["dias_em_aberto"] = (regras.HOJE_DO_MOCK - item["aberto_em"].date()).days
+        item["prazo_estourado"] = item["prazo_em"] < regras.AGORA_DO_MOCK
+        item["aberto_em"] = _iso(item["aberto_em"])
+        item["prazo_em"] = _iso(item["prazo_em"])
         return item
 
     with _sessao_de(origem) as sessao:

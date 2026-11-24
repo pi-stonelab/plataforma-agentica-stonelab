@@ -40,7 +40,7 @@ Tudo abaixo desta linha o código descarta antes de entregar o texto ao agente.
   áreas.
 - `integracoes/` guarda uma pasta por sistema externo, com a descrição e a
   lista das ferramentas que o usam. O agente não lê essa pasta.
-- Situação hoje: 8 áreas e 56 ferramentas. Todas estão ativas: as de leitura e cálculo sobre os dados
+- Situação hoje: 8 áreas e 59 ferramentas. Todas estão ativas: as de leitura e cálculo sobre os dados
   sintéticos do mock (atendimento: `consultar_cliente`, `buscar_clientes`, `consultar_contatos_lojista`,
   `listar_chamados_cliente`, `consultar_chamado`, `consultar_historico_contato`, `consultar_base_conhecimento`,
   `verificar_identidade_contato`, `resumir_satisfacao`; financeiro: `consultar_transacoes_cliente`,
@@ -50,7 +50,8 @@ Tudo abaixo desta linha o código descarta antes de entregar o texto ao agente.
   `resumir_volume_chamados`, `consultar_taxa_contestacao_mensal`, `calcular_roi` e as quatro do dicionário;
   plataforma: `solicitar_ferramenta_ausente`), as escritas em duas fases sobre o mock (atendimento: `abrir_chamado`,
   `adicionar_nota_chamado`, `atualizar_situacao_chamado`, `registrar_pedido_antecipacao`; financeiro:
-  `executar_antecipacao`, `reprocessar_liquidacao`, `registrar_acordo`, `aprovar_acordo`), as de comunicação e chamados
+  `executar_antecipacao`, `reprocessar_liquidacao`, `registrar_acordo`, `aprovar_acordo`, `retirar_acordo`,
+  `registrar_defesa_chargeback`), mais a fila `listar_meus_chamados` (atendimento, leitura), as de comunicação e chamados
   internos (`enviar_email` por SMTP, `enviar_mensagem_slack`, `enviar_aviso_telegram`, `abrir_chamado_jira`,
   `comentar_chamado_jira`, `consultar_chamado_jira`, `buscar_emails`) e duas que consultam APIs públicas de verdade
   (`consultar_endereco_cep`, no ViaCEP, e `consultar_cotacao_moeda`, na PTAX do Banco Central), mais as nove de

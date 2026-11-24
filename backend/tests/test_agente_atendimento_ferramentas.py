@@ -48,8 +48,10 @@ DE_OUTRO_PAPEL = {  # segregação de funções, DOC-MOCK §8.1: quem pede não 
     "retirar_acordo",  # é da cobrança: quem pediu o acordo o retira
     "registrar_defesa_chargeback",  # é de Disputas: confere os documentos do lojista e registra a defesa
 }
+CANDIDATAS_AO_AGENTE = {"listar_meus_chamados"}  # fora até Christopher e Isack decidirem (mensagem do grupo)
 FORA_DO_AGENTE = (
     INDICADORES_GERENCIAIS | DICIONARIO_DE_DADOS | BASTIDOR_INTERNO | CONTA_PESSOAL_DO_FUNCIONARIO | DE_OUTRO_PAPEL
+    | CANDIDATAS_AO_AGENTE
 )
 
 

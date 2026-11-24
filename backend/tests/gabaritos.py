@@ -49,6 +49,7 @@ CONSULTAR_CLIENTE = "consultar_cliente"
 CONSULTAR_TRANSACOES = "consultar_transacoes_cliente"
 CONSULTAR_LIQUIDACOES = "consultar_liquidacoes_cliente"
 LISTAR_CHAMADOS = "listar_chamados_cliente"
+LISTAR_MEUS_CHAMADOS = "listar_meus_chamados"
 CONSULTAR_HISTORICO = "consultar_historico_contato"
 LISTAR_FATURAS = "listar_faturas_em_atraso"
 CALCULAR_MULTA = "calcular_multa_atraso"
@@ -361,7 +362,7 @@ _ATENDIMENTO |= _COMUNS
 # Escritas no mock por cargo (DOC-MOCK §6.5, §7.3, §7.4, §7.9 e §8.2): quem atende chamados abre, escreve e muda a
 # situação; o pedido de antecipação é de quem vê a agenda; executar é do N2; reprocessar, dos recebíveis; acordo, da
 # cobrança; aprovar, do coordenador.
-_CHAMADOS = {ABRIR_CHAMADO, ADICIONAR_NOTA, ATUALIZAR_CHAMADO}
+_CHAMADOS = {ABRIR_CHAMADO, ADICIONAR_NOTA, ATUALIZAR_CHAMADO, LISTAR_MEUS_CHAMADOS}
 FERRAMENTAS_DO_CARGO = {
     "atendente_n1": _ATENDIMENTO | _CHAMADOS | {REGISTRAR_PEDIDO_ANTECIPACAO},
     "especialista_n2": _ATENDIMENTO

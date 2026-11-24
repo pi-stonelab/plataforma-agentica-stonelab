@@ -21,7 +21,7 @@ usuário]
 ## Para quem mantém
 
 - Integrações da área: `crm`.
-- Ferramentas (13):
+- Ferramentas (14):
   - `consultar_cliente` (leitura)
   - `buscar_clientes` (leitura)
   - `listar_chamados_cliente` (leitura)
@@ -35,3 +35,4 @@ usuário]
   - `atualizar_situacao_chamado` (escrita com confirmação, ativa)
   - `adicionar_nota_chamado` (escrita com confirmação, ativa)
   - `registrar_pedido_antecipacao` (escrita com confirmação, ativa)
+  - `listar_meus_chamados` (leitura; a fila de quem pergunta, pelo prazo)
