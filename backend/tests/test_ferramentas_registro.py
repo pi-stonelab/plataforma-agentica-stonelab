@@ -135,7 +135,8 @@ def test_falha_do_core_nao_derruba_quem_so_usa_o_cadastro(ana):
 
 def test_ferramentas_sem_banco_continuam_funcionando_com_o_mock_fora_do_ar(ana):
     for sistema in SISTEMAS:
-        ligar(sistema)
+        if sistema != "apis_publicas":  # não é sistema do mock: derrubá-la tira o CEP do ar de propósito
+            ligar(sistema)
     assert executar("calcular_multa_atraso", {"valor_fatura": 100, "dias_atraso": 1}, ana)["status"] == "ok"
     assert executar("consultar_endereco_cep", {"cep": "01310100"}, ana)["status"] == "ok"
 

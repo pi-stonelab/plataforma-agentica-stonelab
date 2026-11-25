@@ -126,7 +126,9 @@ def test_lojista_fora_da_carteira_e_cargo_sem_contato_nao_preparam(engine, ana):
 def test_previas_demais_esperando_param_no_limite(ana):
     for _ in range(confirmacoes.LIMITE_POR_USUARIO):
         assert preparar(ana)["status"] == "ok"
-    assert preparar(ana)["tipo_erro"] == "integracao_indisponivel"
+    resposta = preparar(ana)
+    assert resposta["tipo_erro"] == "parametro_invalido"  # limite da pessoa, não queda do serviço
+    assert resposta["mensagem"] == "Você já tem 5 prévias abertas. Confirme ou descarte uma antes de pedir outra."
 
 
 # --- fase 2: a confirmação -----------------------------------------------------------------------
@@ -136,7 +138,7 @@ def test_quem_pediu_confirma_uma_vez_e_o_conteudo_some_da_fila(ana):
     confirmacao_id = preparar(ana)["dados"]["confirmacao_id"]
     pedido = confirmacoes.PEDIDOS[confirmacao_id]
     resposta = confirmacoes.confirmar(confirmacao_id, ana)
-    assert resposta["status"] == "ok" and re.fullmatch(r"MSG-[0-9A-F]{12}", resposta["dados"]["id_mensagem"])
+    assert resposta["status"] == "ok" and re.fullmatch(r"MSG-[B-Z]{12}", resposta["dados"]["id_mensagem"])
     (enviada,) = enviadas()
     assert enviada["para"] == email_real("M00001", "financeiro")
     assert enviada["de"].endswith(f" via Stone <{REMETENTE_DA_SUITE}>")

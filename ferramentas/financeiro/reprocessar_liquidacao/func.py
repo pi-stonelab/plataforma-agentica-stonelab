@@ -1,0 +1,79 @@
+"""Prepara uma nova tentativa da liquidação que falhou; agenda no core simulado só quando quem pediu confirma."""
+
+from ferramentas import dados_sinteticos, escritas_sinteticas, lojista
+from ferramentas.apresentacao import data_br
+from ferramentas.base import ErroFerramenta
+from ferramentas.confirmacoes import FerramentaComConfirmacao
+
+LIMITE_DE_LIQUIDACOES = 50
+ROTULOS_DO_MOTIVO = {
+    "conta_invalida": "Conta de recebimento inválida",
+    "recusa_do_banco": "O banco do lojista recusou o crédito",
+}
+
+
+class ReprocessarLiquidacao(FerramentaComConfirmacao):
+    nome = "reprocessar_liquidacao"
+    area = "financeiro"
+    integracoes = ("sql",)
+    nivel_minimo = "N1"
+    areas_permitidas = ("financeiro",)
+    categorias_dados = ("liquidacao",)
+    campos_liberados = (*FerramentaComConfirmacao.campos_liberados, "nova_tentativa_em")
+    sensibilidade = "interna"
+    conteudo_terceiros = False
+    status = "ativa"
+    onde_conferir = "nas liquidações do lojista"
+    frase_de_nada_feito = "Nada foi gravado."
+    titulo = "Reprocessar liquidação"
+    mensagem_feito = "Nova tentativa agendada."
+    descricao_para_pessoa = (
+        "Prepara uma nova tentativa da liquidação que falhou, para o próximo dia útil; nada é agendado antes da "
+        "sua confirmação."
+    )
+    rotulos_da_previa = {
+        "id_cliente": "Lojista",
+        "id_liquidacao": "Liquidação",
+        "data": "Data original",
+        "valor": "Valor",
+        "motivo_falha": "Motivo da falha",
+        "nova_tentativa_em": "Nova tentativa em",
+    }
+    parametros = {
+        "id_cliente": {"tipo": "texto", "obrigatorio": True},
+        "id_liquidacao": {"tipo": "inteiro", "obrigatorio": True},
+    }
+
+    def montar(self, argumentos, usuario):
+        codigo, id_liquidacao = argumentos["id_cliente"], argumentos["id_liquidacao"]
+        lojista.exigir_acesso(usuario, codigo)
+        liquidacoes, _ = dados_sinteticos.buscar_liquidacoes(codigo, None, None, LIMITE_DE_LIQUIDACOES)
+        liquidacao = next((item for item in liquidacoes if item["id_liquidacao"] == id_liquidacao), None)
+        if liquidacao is None:
+            raise ErroFerramenta("nao_encontrado", "Liquidação não encontrada para este lojista.")
+        if liquidacao["situacao"] not in escritas_sinteticas.SITUACOES_DE_LIQUIDACAO_QUE_REPROCESSAM:
+            raise ErroFerramenta("parametro_invalido", "Só a liquidação que falhou é reprocessada.")
+        conteudo = {"codigo": codigo, "id_liquidacao": id_liquidacao}
+        previa = {
+            "id_cliente": codigo,
+            "id_liquidacao": id_liquidacao,
+            "data": data_br(liquidacao["data"]),
+            "valor": liquidacao["valor"],
+            "motivo_falha": ROTULOS_DO_MOTIVO.get(liquidacao["motivo_falha"], "Falha na liquidação"),
+            "nova_tentativa_em": data_br(escritas_sinteticas.proximo_dia_util()),
+        }
+        escritas_sinteticas.ensaiar(self._gravar, conteudo, usuario)  # o que a confirmação recusaria, já recusa
+        return conteudo, previa
+
+    def referencia_do_resultado(self, dados):
+        return f"liquidacao-{dados['id_nova_tentativa']}"  # id neutro da nova tentativa: liga a escrita a quem confirmou
+
+    def efetivar(self, conteudo, usuario):
+        return self._gravar(conteudo, usuario)
+
+    def _gravar(self, conteudo, usuario):
+        lojista.exigir_acesso(usuario, conteudo["codigo"])
+        return escritas_sinteticas.reprocessar_liquidacao(conteudo["codigo"], conteudo["id_liquidacao"], usuario.id_usuario)
+
+
+FERRAMENTA = ReprocessarLiquidacao()

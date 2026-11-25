@@ -97,7 +97,7 @@ def test_classificacao_de_campos_aponta_para_colunas_reais():
     exigidos = {
         "nome": "nome", "cpf": "cpf", "telefone": "telefone", "email": "email",
         "conta": "conta", "agencia": "conta", "ultimos4": "cartao", "texto": "texto_livre",
-        "resumo": "texto_livre",
+        "resumo": "texto_livre", "comentario": "texto_livre",
     }
     assert CLASSIFICACAO_CAMPOS == exigidos
 
@@ -164,4 +164,11 @@ def test_criar_tabelas_cria_so_as_tabelas_do_mock():
     assert set(inspect(engine).get_table_names()) == {
         "times", "funcionarios", "lojistas", "contatos_lojista", "contas_recebimento",
         "vendas", "liquidacoes", "faturas", "chamados", "interacoes",
+        # fase 2 do DOC-MOCK
+        "recebiveis", "acordos", "chargebacks", "casos_pix", "pesquisas_satisfacao", "artigos_ajuda",
+        # só a escrita da plataforma preenche (mock/escritas.py)
+        "antecipacoes", "escritas_aplicadas",
+        # base analítica
+        "analitica_atualizacao", "analitica_vendas_diarias", "analitica_chamados_diarios",
+        "analitica_contestacoes_mensais", "analitica_resultado_diario",
     }

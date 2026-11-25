@@ -6,7 +6,9 @@ Runtime dos agentes. Roda no mesmo processo do back-end. O agente só pede ferra
 ## Arquivos
 
 - `agente_atendimento/agente.py`: o motor (`rodar_turno`, `Turno`, `Atendimento`, `Rodada`) e a configuração
-  do agente de atendimento (`AGENTE_ID`, `FERRAMENTAS_DO_AGENTE`, `SISTEMA`). Não importa `mock/`, SQLAlchemy,
+  do agente de atendimento (`AGENTE_ID`, `FERRAMENTAS_DO_AGENTE`, `SISTEMA`). A lista tem 33 das 59 ferramentas do
+  catálogo (decisão F2; o agente geral tem todas) e `test_agente_atendimento_ferramentas.py` obriga cada ferramenta nova
+  a entrar nela ou a ter motivo para ficar de fora. Não importa `mock/`, SQLAlchemy,
   `requests` nem `dotenv` (tem teste); só `ferramentas/`.
 - `agente_geral/agente.py`: o agente padrão do chat. Só configuração, sobre o mesmo motor. Veja o README dele.
 - `terminal.py`: modo terminal dos dois agentes, com o diretório de funcionários e a chamada direta ao
@@ -14,8 +16,8 @@ Runtime dos agentes. Roda no mesmo processo do back-end. O agente só pede ferra
   `ferramentas.dados_sinteticos`. Veja "Modo terminal".
 - `avaliacao.py`: mede quantas vezes o agente escolhe as ferramentas certas (cenários fixos, modelo real).
   Veja "Avaliação do uso de ferramentas".
-- Testes: `backend/tests/test_agente_*.py` (motor, geral, terminal), `test_agentes_avaliacao.py` e
-  `test_agente_varias_ferramentas.py`, com os apoios em `backend/tests/apoio_agente.py`.
+- Testes: `backend/tests/test_agente_*.py` (motor, geral, terminal, lista de ferramentas, data de hoje),
+  `test_agentes_avaliacao.py`, `test_catalogo_indice.py` e `test_agente_varias_ferramentas.py`, com os apoios em `backend/tests/apoio_agente.py`.
 
 ## Como o motor funciona
 
@@ -34,9 +36,15 @@ roda um turno e devolve um `Turno(resposta, tipo, trajetoria, estado, motivo)`.
   lida e estava liberada; `FINAL` antes de ler o índice é recusado.
   `USAR` de ferramenta não lida não chega a executar, mas deixa registro de recusa (`catalogo.registrar_bloqueio`,
   `camada_bloqueio="agente"`, sem argumentos nem dados); a resposta à pessoa é a mesma de antes (MED-2).
-- O índice lista as ferramentas liberadas como `area/nome: primeira frase`. Os prompts mandam escolher nessa
+- O índice lista as ferramentas liberadas como `area/nome: primeira frase`. O catálogo (`catalogo._indice`) mede o
+  texto e encurta as frases para ele caber em 5800 caracteres, abaixo do corte do motor (`MAX_CHARS_MD`, 6000); com
+  50 ferramentas a frase fica em ~40 caracteres, e a frase inteira está em `LER: <area>`. O motor não mudou: se alguém
+  mexer em `MAX_CHARS_MD`, `catalogo.LIMITE_DO_INDICE` precisa ficar abaixo dele (`test_catalogo_indice.py` confere). Os prompts mandam escolher nessa
   lista e ler a ficha (`LER: <area>/<ferramenta>`) direto; ler a área é opcional. Os nomes para log vêm de
   `catalogo.nomes_e_areas()` e a lista do agente geral de `catalogo.nomes()`: o agente nunca pega a ferramenta.
+- A data de hoje (`catalogo.data_de_hoje()`) entra no prompt do turno, antes da pergunta (`montar_prompt`): o modelo
+  não tem relógio. Simulado, 15/10/2026 21h; com uma integração com relógio em modo real, o dia de Brasília (F3). Os
+  dois `SISTEMA` mandam dizer a data da cotação ou da consulta.
 - `Turno.tipo`: `"final"`, `"pergunta"` ou `"limite"`. No limite, `motivo` é `"max_passos"`, `"repeticao"`,
   `"tempo"` ou `"modelo_indisponivel"`. Em todos a resposta é uma mensagem fixa, sem conteúdo.
 - Prazo do turno: `SEGUNDOS_POR_TURNO` (300 s). SEM FONTE: o valor não vem de requisito nem de medição, foi
@@ -121,8 +129,8 @@ do cartão de revisão da interface; o modelo nunca confirma (veja "Escrita em d
 
 ## Avaliação do uso de ferramentas
 
-Código em `agentes/avaliacao.py`. Roda 7 cenários fixos (uma, duas e três ferramentas no mesmo pedido, e um
-lojista de outra carteira que precisa ser negado) e mede, por pedido: se as ferramentas esperadas rodaram com
+Código em `agentes/avaliacao.py`. Roda 27 cenários fixos (uma, duas e três ferramentas no mesmo pedido, um
+lojista de outra carteira que precisa ser negado, as ferramentas novas por cargo e seis escritas em duas fases) e mede, por pedido: se as ferramentas esperadas rodaram com
 sucesso (lido do registro da governança, não do que o modelo diz), se a resposta traz o dado esperado, passos,
 chamadas ao modelo e tempo (total e dentro do modelo). Precisa de `LLM_URL` e das credenciais no `.env`:
 
@@ -130,9 +138,12 @@ chamadas ao modelo e tempo (total e dentro do modelo). Precisa de `LLM_URL` e da
     python -m agentes.avaliacao --cenario multa --cenario cadastro_e_transacoes
     python -m agentes.avaliacao --salvar avaliacao.json
 
+Nas escritas o cenário traz `previas`: a avaliação confere que a fila de quem perguntou tem exatamente aquelas prévias esperando
+confirmação e as descarta no fim; quem confirma é a pessoa, nunca o agente nem a avaliação.
+
 O arquivo salvo guarda só números e nomes (nunca pergunta, resposta ou dado de lojista). Limites: a resposta é
 conferida por expressões regulares sobre dados sintéticos fixos (semente 20261015), então é uma checagem
-simples, não uma nota de qualidade; os cenários usam a lista de 5 ferramentas de hoje (KAN-55); tokens por
+simples, não uma nota de qualidade; os cenários usam a lista de 33 ferramentas do agente de atendimento (F2); `executar_antecipacao` não tem cenário fixo (precisa de um pedido já confirmado); tokens por
 chamada ainda não entram (dependem do `LLMClient` do back-end). Os testes usam modelos roteirizados e provam
 a medição, não o modelo.
 

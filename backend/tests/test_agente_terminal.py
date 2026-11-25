@@ -264,7 +264,7 @@ class TestPreviasNoTerminal(unittest.TestCase):
     def test_s_envia_pelo_smtp(self):
         texto = self.conversar(["s"])
         self.assertIn("=== PRÉVIA CONF-", texto)
-        self.assertRegex(texto, r"MSG-[0-9A-F]{12}, enviado por SMTP\)")
+        self.assertRegex(texto, r"MSG-[B-Z]{12}, enviado por SMTP\)")
         self.assertEqual(len(enviadas()), 1)
         self.assertEqual(confirmacoes.pendentes(self.ana), [])
 

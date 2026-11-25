@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from . import modelos
 
 VARIAVEL_DO_BANCO = "MOCK_DATABASE_URL"
+VARIAVEL_DO_BANCO_DE_ESCRITA = "MOCK_ESCRITA_DATABASE_URL"
 VARIAVEL_DA_PLATAFORMA = "DATABASE_URL"
 
 # Relativo à raiz do repositório (não ao diretório onde o comando roda).
@@ -117,6 +118,25 @@ def url_padrao() -> str:
         return declarada
     PASTA_LOCAL.mkdir(exist_ok=True)
     return f"sqlite:///{CAMINHO_LOCAL_PADRAO.as_posix()}"
+
+
+def url_de_escrita() -> str:
+    """URL com que as ferramentas de escrita gravam no mock (`mock/escritas.py`), depois da confirmação da pessoa.
+
+    `MOCK_ESCRITA_DATABASE_URL`, se declarada (no Postgres, a do papel `mock_escrita`). Sem ela, só no SQLite
+    local, que é de uma pessoa só: a mesma URL da leitura. Postgres sem a URL de escrita levanta `ValueError`: o
+    papel de leitura não grava, e o dono nunca é usado pelas ferramentas.
+    """
+    declarada = os.environ.get(VARIAVEL_DO_BANCO_DE_ESCRITA, "").strip()
+    if declarada:
+        da_plataforma = os.environ.get(VARIAVEL_DA_PLATAFORMA, "").strip()
+        if da_plataforma and e_o_banco_da_plataforma(declarada, da_plataforma):
+            raise ValueError(f"{VARIAVEL_DO_BANCO_DE_ESCRITA} não pode ser o banco da plataforma.")
+        return declarada
+    leitura = url_padrao()
+    if eh_sqlite(leitura):
+        return leitura
+    raise ValueError(f"Defina {VARIAVEL_DO_BANCO_DE_ESCRITA} para gravar no mock em Postgres.")
 
 
 def eh_sqlite(url: str) -> bool:

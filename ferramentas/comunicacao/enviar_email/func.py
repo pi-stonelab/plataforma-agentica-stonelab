@@ -3,6 +3,7 @@
 from ferramentas import dados_sinteticos, email_smtp, lojista
 from ferramentas.base import ErroFerramenta
 from ferramentas.confirmacoes import FerramentaComConfirmacao
+from ferramentas.integracoes.email.conector import CONECTOR as EMAIL
 from ferramentas.mascara import mascarar_valor
 
 # Sem `papel_contato`: o financeiro e, se o lojista não tiver, o sócio.
@@ -10,13 +11,12 @@ PAPEIS_SEM_ESCOLHA = ("financeiro", "socio")
 TAMANHO_ASSUNTO = 120
 TAMANHO_CORPO = 2000
 LIVRE = "texto_livre"
-ESPACO = 32  # abaixo disso são caracteres de controle, como a quebra de linha
 
 
 class EnviarEmail(FerramentaComConfirmacao):
     nome = "enviar_email"
     area = "comunicacao"
-    integracoes = ("google_workspace", "microsoft_365")  # o envio de hoje é por SMTP (email_smtp)
+    integracoes = ("email",)
     nivel_minimo = "N1"
     areas_permitidas = ("atendimento", "financeiro")
     categorias_dados = ("contato",)
@@ -24,6 +24,9 @@ class EnviarEmail(FerramentaComConfirmacao):
     sensibilidade = "pessoal"
     conteudo_terceiros = False
     status = "ativa"
+    titulo = "Enviar e-mail"
+    descricao_para_pessoa = "Prepara um e-mail para um contato do lojista; ele só sai depois que você confirma."
+    rotulos_da_previa = {"para": "Para", "assunto": "Assunto", "corpo": "Mensagem"}
     parametros = {
         "id_cliente": {"tipo": "texto", "obrigatorio": True},
         "assunto": {"tipo": "texto", "obrigatorio": True, "tamanho_maximo": TAMANHO_ASSUNTO},
@@ -38,8 +41,10 @@ class EnviarEmail(FerramentaComConfirmacao):
         corpo = mascarar_valor(LIVRE, argumentos["corpo"])
         if not assunto or not corpo:
             raise ErroFerramenta("parametro_invalido", "Assunto e corpo não podem ficar vazios.")
-        if any(ord(caractere) < ESPACO for caractere in assunto):  # quebra de linha no assunto injeta cabeçalho
-            raise ErroFerramenta("parametro_invalido", "O assunto deve ter uma linha só.")
+        if not email_smtp.assunto_valido(assunto):  # a mesma regra do envio: quebra de linha injeta cabeçalho
+            raise ErroFerramenta("parametro_invalido", email_smtp.MENSAGEM_ASSUNTO_INVALIDO)
+        if not email_smtp.corpo_valido(corpo):
+            raise ErroFerramenta("parametro_invalido", email_smtp.MENSAGEM_CORPO_INVALIDO)
         if papel is not None and papel not in dados_sinteticos.PAPEIS_CONTATO:
             raise ErroFerramenta("parametro_invalido", "Papel de contato desconhecido.")
         lojista.exigir_acesso(usuario, codigo)
@@ -52,13 +57,19 @@ class EnviarEmail(FerramentaComConfirmacao):
         previa = {"para": para, "assunto": assunto, "corpo": corpo}
         return conteudo, previa
 
+    def texto_do_campo(self, campo, valor):
+        if campo == "para" and isinstance(valor, dict):
+            return f"{valor.get('email')} ({valor.get('papel')} do {valor.get('codigo')})"
+        return super().texto_do_campo(campo, valor)
+
     def efetivar(self, conteudo, usuario):
         # A carteira pode ter mudado desde a prévia: confere de novo antes de enviar.
         lojista.exigir_acesso(usuario, conteudo["codigo"])
         config = email_smtp.exigir_configuracao()
         funcionario = dados_sinteticos.contato_do_funcionario(usuario.id_usuario)  # o lojista responde a ele
-        id_mensagem = email_smtp.enviar(
-            conteudo["email"], conteudo["assunto"], conteudo["corpo"], config, funcionario
+        id_mensagem = EMAIL.chamar(  # o disjuntor e a saúde da integração contam este envio
+            "enviar",
+            lambda: email_smtp.enviar(conteudo["email"], conteudo["assunto"], conteudo["corpo"], config, funcionario),
         )
         para = {"codigo": conteudo["codigo"], "papel": conteudo["papel"]}
         return {"id_mensagem": id_mensagem, "para": para}

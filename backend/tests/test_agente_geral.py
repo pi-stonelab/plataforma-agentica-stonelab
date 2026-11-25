@@ -5,7 +5,7 @@ import unittest
 
 from agentes.agente_atendimento import agente as motor
 from agentes.agente_geral import agente as geral
-from ferramentas import catalogo, governanca
+from ferramentas import catalogo, governanca, integracoes
 from mock.regras import CARGOS
 
 from . import apoio_agente as apoio
@@ -115,7 +115,8 @@ def liberadas(usuario):
 
 
 def esperadas_pelo_cargo(cargo):
-    """O que o cargo pode usar, escrito direto da ficha da ferramenta e da regra do cargo (mock)."""
+    """O que o cargo pode usar, escrito direto da ficha da ferramenta e da regra do cargo (mock), com a
+    integração ligada (Jira, Slack e Telegram começam desligados na suíte)."""
     regra = CARGOS[cargo]
     if regra.nivel_ferramenta is None:  # auditor e admin: sem ferramentas na Sprint 2
         return set()
@@ -130,6 +131,7 @@ def esperadas_pelo_cargo(cargo):
             or regra.area in ficha.areas_permitidas
         )
         and set(ficha.categorias_dados) <= regra.categorias_dado
+        and all(integracoes.conector(integracao).configurado() for integracao in ficha.integracoes)
     }
 
 
@@ -166,7 +168,13 @@ class TestSoOQueOCargoLibera(unittest.TestCase):
             "analista_ouvidoria",
         ):
             usuario = apoio.usuario_do_cargo(cargo)
-            proibidas = set(geral.FERRAMENTAS_DO_AGENTE) - liberadas(usuario)
+            fichas = catalogo.carregar()
+            # Só as que o CARGO não libera; a ferramenta liberada com a integração desligada é outro teste.
+            proibidas = {
+                nome
+                for nome in geral.FERRAMENTAS_DO_AGENTE
+                if governanca.motivo_bloqueio(fichas[nome], usuario) is not None or not fichas[nome].esta_ativa()
+            }
             self.assertTrue(proibidas)
             for nome in sorted(proibidas):
                 del governanca.REGISTROS[:]
