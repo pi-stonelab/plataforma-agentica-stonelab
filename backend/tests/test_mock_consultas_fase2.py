@@ -1,0 +1,527 @@
+"""Leituras da fase 2 e da base analítica: o conector do mock (consultas) e a fachada (dados_sinteticos).
+
+Roda sobre o mundo gerado de verdade, em SQLite na memória. Os valores esperados estão em `gabaritos.py`.
+"""
+
+from datetime import date, timedelta
+
+import pytest
+from ferramentas import dados_sinteticos
+from ferramentas.mascara import mascarar
+from mock import consultas, regras  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
+from mock.banco import criar_engine
+from mock.falhas import SistemaIndisponivel, desligar_todas, ligar
+from mock.gerar import CHAMADOS_CRITICOS_CENARIO_11, COMENTARIO_ARMADILHA, recriar
+from mock.modelos import BaseMock
+from mock.regras import CAMPOS_NAO_RESTRITOS, CLASSIFICACAO_CAMPOS
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from tests import gabaritos as gab
+
+
+@pytest.fixture(scope="module")
+def engine():
+    engine = criar_engine("sqlite://")
+    recriar(engine)
+    return engine
+
+
+@pytest.fixture
+def sessao(engine):
+    with Session(engine) as sessao_do_teste:
+        yield sessao_do_teste
+
+
+@pytest.fixture(autouse=True)
+def sem_falhas(monkeypatch):
+    monkeypatch.delenv("MOCK_FALHAS", raising=False)
+    desligar_todas()
+    yield
+    desligar_todas()
+
+
+@pytest.fixture
+def fachada(engine, monkeypatch):
+    """A fachada lendo o mesmo mundo em memória (sem o arquivo local do mock)."""
+    monkeypatch.setitem(dados_sinteticos._CONEXAO, "engine", engine)
+    return dados_sinteticos
+
+
+def _todas_as_leituras(sessao):
+    """Uma chamada de cada leitura nova, com o lojista do cenário que tem dado nela."""
+    return [
+        consultas.buscar_chamado(sessao, gab.C9_LOJISTA, gab.C9_CHAMADO_OUVIDORIA),
+        *consultas.buscar_recebiveis(sessao, gab.C4_LOJISTA)["itens"],
+        *consultas.recebiveis_para_antecipacao(sessao, gab.C4_LOJISTA),
+        *consultas.buscar_acordos(sessao)["itens"],
+        *consultas.buscar_chargebacks(sessao, gab.C2_LOJISTA)["itens"],
+        *consultas.buscar_casos_pix(sessao, gab.C10_LOJISTA)["itens"],
+        *consultas.buscar_pesquisas(sessao)["itens"],
+        consultas.resumo_satisfacao(sessao),
+        *consultas.buscar_artigos(sessao)["itens"],
+        consultas.contato_confere(sessao, gab.C6_LOJISTA, telefone=gab.C6_TELEFONE_NAO_CADASTRADO),
+        *consultas.totais_de_vendas(sessao)["itens"],
+        *consultas.vendas_por_dia(sessao)["itens"],
+        *consultas.chamados_por_fila(sessao)["itens"],
+        *consultas.contestacoes_por_mes(sessao)["itens"],
+        consultas.resultado_por_periodo(sessao),
+    ]
+
+
+# --- contrato: campos classificados, teto e falha do sistema dono --------------------------------
+
+
+def test_todo_campo_das_leituras_novas_esta_classificado(sessao):
+    devolvidos = {campo for resposta in _todas_as_leituras(sessao) for campo in resposta}
+    nao_classificados = devolvidos - set(CLASSIFICACAO_CAMPOS) - CAMPOS_NAO_RESTRITOS
+    assert not nao_classificados, sorted(nao_classificados)
+
+
+LEITURAS_POR_SISTEMA = [
+    ("crm", lambda s: consultas.buscar_chamado(s, gab.C9_LOJISTA, gab.C9_CHAMADO_OUVIDORIA)),
+    ("core", lambda s: consultas.buscar_recebiveis(s, gab.C4_LOJISTA)),
+    ("core", lambda s: consultas.resumo_da_agenda(s, gab.C4_LOJISTA)),
+    ("core", lambda s: consultas.recebiveis_para_antecipacao(s, gab.C4_LOJISTA)),
+    ("cadastro", lambda s: consultas.motivos_de_recusa_da_antecipacao(s, gab.C4_LOJISTA)),
+    ("cobranca", lambda s: consultas.motivos_de_recusa_da_antecipacao(s, gab.C4_LOJISTA)),
+    ("cobranca", lambda s: consultas.buscar_acordos(s)),
+    ("disputas", lambda s: consultas.buscar_chargebacks(s, gab.C2_LOJISTA)),
+    ("disputas", lambda s: consultas.buscar_casos_pix(s, gab.C10_LOJISTA)),
+    ("crm", lambda s: consultas.buscar_pesquisas(s)),
+    ("crm", lambda s: consultas.resumo_satisfacao(s)),
+    ("crm", lambda s: consultas.buscar_artigos(s, "antecipação")),
+    ("cadastro", lambda s: consultas.contato_confere(s, gab.C6_LOJISTA, telefone="(21) 0000-0000")),
+    ("analitica", lambda s: consultas.totais_de_vendas(s)),
+    ("analitica", lambda s: consultas.vendas_por_dia(s)),
+    ("analitica", lambda s: consultas.chamados_por_fila(s)),
+    ("analitica", lambda s: consultas.contestacoes_por_mes(s)),
+    ("analitica", lambda s: consultas.resultado_por_periodo(s)),
+]
+
+
+@pytest.mark.parametrize(("sistema", "leitura"), LEITURAS_POR_SISTEMA)
+def test_leitura_levanta_quando_o_sistema_dono_esta_fora_do_ar(sessao, sistema, leitura):
+    leitura(sessao)
+    ligar(sistema)
+    with pytest.raises(SistemaIndisponivel) as erro:
+        leitura(sessao)
+    assert erro.value.sistema == sistema
+
+
+def test_fachada_transforma_a_queda_em_connection_error(fachada):
+    ligar("disputas")
+    with pytest.raises(ConnectionError) as erro:
+        fachada.buscar_chargebacks(gab.C2_LOJISTA, None)
+    assert "M0000" not in str(erro.value)
+
+
+def test_listas_respeitam_o_teto(sessao):
+    resposta = consultas.buscar_recebiveis(sessao, gab.C4_LOJISTA, limite=3)
+    assert len(resposta["itens"]) == 3 and resposta["total"] > 3
+
+
+# --- chamado em detalhe (KAN-14 caso 2, cenário 9) ------------------------------------------------
+
+
+def test_chamado_da_ouvidoria_com_dois_dias_uteis(sessao):
+    chamado = consultas.buscar_chamado(sessao, gab.C9_LOJISTA, gab.C9_CHAMADO_OUVIDORIA)
+    assert chamado["fila"] == regras.FILA_OUVIDORIA
+    assert chamado["aberto_em"] == gab.C9_ABERTURA and chamado["prazo_em"] == gab.C9_PRAZO
+    assert chamado["dias_uteis_restantes"] == gab.C9_DIAS_UTEIS_RESTANTES
+    assert chamado["prazo_estourado"] is False
+
+
+def test_chamado_de_outro_lojista_nao_aparece(sessao):
+    assert consultas.buscar_chamado(sessao, gab.C2_LOJISTA, gab.C9_CHAMADO_OUVIDORIA) is None
+
+
+def test_chamado_resolvido_nao_tem_dias_restantes(sessao):
+    chamado = consultas.buscar_chamado(sessao, gab.C9_LOJISTA, gab.C9_CHAMADOS_FECHADOS[0])
+    assert chamado["resolvido_em"] is not None and chamado["dias_uteis_restantes"] is None
+
+
+@pytest.mark.parametrize(("indice", "estourado"), [(0, True), (1, False), (2, True)])
+def test_prazo_dos_criticos_da_semana(sessao, indice, estourado):
+    lojista = CHAMADOS_CRITICOS_CENARIO_11[indice][0]
+    chamado = consultas.buscar_chamado(sessao, lojista, gab.C11_CHAMADOS_CRITICOS[indice])
+    assert chamado["prioridade"] == "crítica" and chamado["prazo_estourado"] is estourado
+
+
+# --- agenda e antecipação (cenário 4) -------------------------------------------------------------
+
+
+def test_agenda_futura_do_cenario_4(fachada):
+    resumo = fachada.resumo_da_agenda(gab.C4_LOJISTA)
+    assert resumo["previsto"]["valor"] == gab.C4_AGENDA_FUTURA_TEXTO
+    assert "pago" not in resumo
+
+
+def test_agenda_por_periodo_e_situacao(sessao):
+    hoje = regras.HOJE_DO_MOCK
+    futuras = consultas.buscar_recebiveis(sessao, gab.C4_LOJISTA, data_inicio=hoje, situacao="previsto")
+    assert futuras["itens"] and all(p["data_prevista"] >= hoje.isoformat() for p in futuras["itens"])
+    datas = [p["data_prevista"] for p in futuras["itens"]]
+    assert datas == sorted(datas)
+
+
+def test_parcelas_antecipaveis_sao_a_agenda_futura_menos_a_que_ja_cai_no_credito(fachada):
+    parcelas = fachada.recebiveis_para_antecipacao(gab.C4_LOJISTA)
+    assert sum(p["valor_centavos"] for p in parcelas) == gab.C4_ANTECIPAVEL_CENTAVOS
+    assert gab.C4_AGENDA_FUTURA_CENTAVOS - gab.C4_ANTECIPAVEL_CENTAVOS == gab.C4_PARCELA_QUE_JA_CAI_NO_CREDITO_CENTAVOS
+    assert all(p["data_prevista"] > gab.C4_DATA_DO_CREDITO for p in parcelas)
+    assert regras.data_de_credito_da_antecipacao().isoformat() == gab.C4_DATA_DO_CREDITO
+
+
+def test_desconto_da_antecipacao_pela_formula_do_doc_mock():
+    assert regras.desconto_da_antecipacao_centavos(100000, 30, 299) == 2990  # R$ 1.000 por 30 dias a 2,99%
+    assert regras.desconto_da_antecipacao_centavos(100000, 15, 299) == 1495
+    assert regras.desconto_da_antecipacao_centavos(100000, 0, 299) == 0
+
+
+def test_simulacao_do_cenario_4_confere_com_a_conta_feita_a_mao(fachada):
+    simulacao = fachada.simulacao_de_antecipacao(gab.C4_LOJISTA)
+    assert simulacao == gab.C4_SIMULACAO
+    credito = date.fromisoformat(gab.C4_DATA_DO_CREDITO)
+    parcelas = fachada.recebiveis_para_antecipacao(gab.C4_LOJISTA)
+    taxa = gab.C4_TAXA_MENSAL_PONTOS_BASE
+    a_mao = sum(round(p["valor_centavos"] * taxa / 10000 * (date.fromisoformat(p["data_prevista"]) - credito).days / 30)
+                for p in parcelas)
+    assert fachada.reais(a_mao) == gab.C4_SIMULACAO["desconto"]
+    assert fachada.simulacao_de_antecipacao("M99999") is None
+
+
+def test_percentual_em_texto(fachada):
+    assert (fachada.taxa_percentual(299), fachada.taxa_percentual(2000), fachada.taxa_percentual(5)) == (2.99, 20.0, 0.05)
+    assert fachada.taxa_percentual(None) is None
+
+
+def test_antecipacao_recusada_para_quem_tem_fatura_vencida_ha_mais_de_15_dias(fachada):
+    assert fachada.motivos_de_recusa_da_antecipacao(gab.C4_LOJISTA_RECUSADO) == [gab.C4_MOTIVO_DA_RECUSA_TEXTO]
+    assert consultas.motivos_de_recusa_da_antecipacao(fachada._engine(), gab.C4_LOJISTA_RECUSADO) == [
+        gab.C4_MOTIVO_DA_RECUSA]
+    assert fachada.motivos_de_recusa_da_antecipacao(gab.C4_LOJISTA) == []
+    assert fachada.motivos_de_recusa_da_antecipacao("M99999") is None
+
+
+def test_taxa_de_antecipacao_do_plano(fachada):
+    assert fachada.taxa_de_antecipacao(gab.C4_LOJISTA) == gab.C4_TAXA_MENSAL_PONTOS_BASE
+    assert fachada.taxa_de_antecipacao("M99999") is None
+
+
+def test_retida_nao_entra_na_antecipacao(sessao):
+    retidas = consultas.buscar_recebiveis(sessao, gab.C2_LOJISTA, situacao="retido")["itens"]
+    assert retidas and all(p["id_venda"] == gab.C2_VENDA for p in retidas)
+    antecipaveis = consultas.recebiveis_para_antecipacao(sessao, gab.C2_LOJISTA)
+    credito = regras.data_de_credito_da_antecipacao()
+    previstas = consultas.buscar_recebiveis(sessao, gab.C2_LOJISTA, data_inicio=credito + timedelta(days=1),
+                                            situacao="previsto", limite=50)
+    assert sum(p["valor_centavos"] for p in antecipaveis) == sum(
+        p["valor_parcela_centavos"] for p in previstas["itens"])
+    assert previstas["total"] == len(antecipaveis)
+
+
+# --- acordos (onboarding 8) -----------------------------------------------------------------------
+
+
+def test_acordos_pendentes_do_maior_para_o_menor(fachada):
+    acordos, total = fachada.buscar_acordos(None, "pendente_aprovacao", None)
+    assert total == len(gab.O8_PENDENTES_DO_MAIOR_PARA_O_MENOR)
+    assert tuple(a["codigo"] for a in acordos) == gab.O8_PENDENTES_DO_MAIOR_PARA_O_MENOR
+    assert tuple(a["valor_renegociado"] for a in acordos) == gab.O8_VALORES_RENEGOCIADOS
+    assert tuple(a["alcada"] for a in acordos) == gab.O8_ALCADAS
+    assert all(len(a["faturas"]) == 1 and a["id_aprovador"] is None for a in acordos)
+
+
+def test_acordos_de_um_lojista_so_trazem_as_faturas_dele(sessao):
+    codigo, situacao_esperada = gab.O8_ACORDO_NA_ALCADA_DA_ANALISTA[0], gab.O8_ACORDO_NA_ALCADA_DA_ANALISTA[2]
+    todos = {a["codigo"]: a for a in consultas.buscar_acordos(sessao)["itens"]}
+    lojista = todos[codigo]["id_lojista"]
+    do_lojista = consultas.buscar_acordos(sessao, lojista)["itens"]
+    assert [a["codigo"] for a in do_lojista] == [codigo]
+    assert do_lojista[0]["faturas"] == todos[codigo]["faturas"] and do_lojista[0]["situacao"] == situacao_esperada
+
+
+# --- disputas (cenários 2 e 10) -------------------------------------------------------------------
+
+
+def test_chargeback_do_cenario_2_vence_amanha_com_os_documentos_do_motivo(fachada):
+    chargebacks, total = fachada.buscar_chargebacks(gab.C2_LOJISTA, None)
+    assert total == 1
+    (caso,) = chargebacks
+    assert (caso["codigo"], caso["id_venda"], caso["motivo"]) == (gab.C2_CHARGEBACK, gab.C2_VENDA, gab.C2_MOTIVO_TEXTO)
+    assert (caso["data_notificacao"], caso["prazo_defesa"]) == (gab.C2_AVISO, gab.C2_PRAZO_DA_DEFESA)
+    assert caso["dias_para_o_prazo"] == gab.C2_DIAS_PARA_O_PRAZO and caso["valor"] == gab.C2_VALOR_TEXTO
+    assert caso["valor_retido"] == gab.C2_VALOR_RETIDO_TEXTO
+    assert tuple(caso["documentos_exigidos"]) == gab.C2_DOCUMENTOS_EXIGIDOS
+    assert caso["documentos_enviados"] == []
+
+
+def test_caso_pix_do_cenario_10(fachada):
+    casos, total = fachada.buscar_casos_pix(gab.C10_LOJISTA, None)
+    assert total == 1
+    (caso,) = casos
+    assert (caso["codigo"], caso["id_venda"], caso["valor"]) == (gab.C10_CASO_PIX, gab.C10_VENDA, gab.C10_VALOR_TEXTO)
+    assert (caso["data_abertura"], caso["prazo_contestacao"]) == (gab.C10_ABERTURA, gab.C10_PRAZO_PARA_CONTESTAR)
+    assert caso["tem_comprovante_entrega"] is True
+    assert caso["dias_para_o_prazo"] == (date.fromisoformat(gab.C10_PRAZO_PARA_CONTESTAR) - regras.HOJE_DO_MOCK).days
+
+
+def test_lojista_sem_disputa_tem_listas_vazias(fachada):
+    assert fachada.buscar_chargebacks("M00001", None) == ([], 0)
+    assert fachada.buscar_casos_pix("M00001", None) == ([], 0)
+
+
+# --- satisfação (KAN-14 caso 3) -------------------------------------------------------------------
+
+
+def test_resumo_de_satisfacao_bate_com_as_respostas(sessao):
+    resumo = consultas.resumo_satisfacao(sessao)
+    total = consultas.buscar_pesquisas(sessao, limite=1)["total"]
+    assert resumo["respostas"] == total == sum(resumo["notas"].values())
+    soma = sum(nota * quantidade for nota, quantidade in resumo["notas"].items())
+    assert abs(resumo["media_centesimos"] - 100 * soma / total) <= 0.5
+
+
+def test_resumo_vazio_nao_divide_por_zero(sessao):
+    vazio = consultas.resumo_satisfacao(sessao, data_inicio=date(2020, 1, 1), data_fim=date(2020, 1, 2))
+    assert vazio == {"respostas": 0, "notas": {n: 0 for n in range(1, 6)}, "media_centesimos": None}
+
+
+def test_comentarios_de_nota_baixa_trazem_o_da_ouvidoria_e_a_armadilha_como_dado(fachada):
+    comentarios, _ = fachada.buscar_comentarios_satisfacao(None, None, None, 2, 50)
+    assert all(c["nota"] <= 2 for c in comentarios)
+    chamados = {c["id_chamado"] for c in comentarios}
+    assert set(gab.C9_CHAMADOS_FECHADOS) <= chamados
+    armadilha = [c for c in comentarios if c["id_chamado"] == gab.C11_COMENTARIO_ARMADILHA_NO_CHAMADO]
+    assert armadilha and armadilha[0]["comentario"] == COMENTARIO_ARMADILHA
+
+
+def test_chargeback_encerrado_nao_tem_prazo_correndo(fachada):
+    ganhos = [c for c in fachada.buscar_chargebacks("M00010", None)[0] if c["situacao"] == "ganho"]
+    assert ganhos and all(c["dias_para_o_prazo"] is None and c["valor_retido"] == "R$ 0,00" for c in ganhos)
+
+
+def test_comentarios_so_com_comentario_e_no_escopo_da_carteira(fachada, sessao):
+    todos, total = fachada.buscar_comentarios_satisfacao(None, None, None, None, 50)
+    assert total == len(todos) and all(c["comentario"] for c in todos)
+    da_pme, _ = fachada.buscar_comentarios_satisfacao(None, None, None, None, 50, "pme")
+    lojistas_da_pme = {codigo for codigo, in sessao.execute(text("SELECT codigo FROM lojistas WHERE carteira = 'pme'"))}
+    chamados_da_pme = {codigo for codigo, in sessao.execute(text(
+        "SELECT codigo FROM chamados WHERE id_lojista IN (SELECT codigo FROM lojistas WHERE carteira = 'pme')"))}
+    assert lojistas_da_pme and {c["id_chamado"] for c in da_pme} <= chamados_da_pme
+    assert len(da_pme) < len(todos)
+
+
+def test_media_da_satisfacao_e_numero_com_duas_casas(fachada):
+    resumo = fachada.resumo_satisfacao(None, None, None)
+    assert set(resumo) == {"respostas", "notas", "media"} and isinstance(resumo["media"], float)
+    soma = sum(nota * quantidade for nota, quantidade in resumo["notas"].items())
+    assert abs(resumo["media"] - soma / resumo["respostas"]) <= 0.005
+    assert fachada.resumo_satisfacao(date(2020, 1, 1), date(2020, 1, 2), None)["media"] is None
+
+
+def test_relatorio_semanal_de_receitas_e_perdas(fachada):
+    inicio, fim = (date.fromisoformat(dia) for dia in gab.K4_SEMANA)
+    assert fachada.resumo_de_resultado(inicio, fim) == gab.K4_RESUMO_DA_SEMANA
+
+
+def test_resultado_confere_com_as_tabelas_de_origem(sessao):
+    """A base analítica do resultado soma o que as tabelas de origem dizem, até o corte."""
+    corte = regras.HOJE_DO_MOCK - timedelta(days=1)
+    resultado = consultas.resultado_por_periodo(sessao, date(2026, 1, 1), corte)
+    aluguel = sessao.scalar(text(
+        "SELECT SUM(valor_centavos) FROM faturas WHERE tipo IN ('aluguel', 'tarifa') AND situacao <> 'cancelada'"
+        " AND vencimento <= :corte"), {"corte": corte.isoformat()})
+    vencidas = sessao.scalar(text(
+        "SELECT SUM(valor_centavos) FROM faturas WHERE situacao = 'vencida' AND vencimento <= :corte"), {"corte": corte.isoformat()})
+    concessao = sessao.scalar(text(
+        "SELECT SUM(perdao_encargos_centavos + desconto_principal_centavos) FROM acordos"
+        " WHERE situacao IN ('ativo', 'quitado', 'quebrado') AND criado_em <= :corte"), {"corte": corte.isoformat()})
+    assert resultado["receita_aluguel_e_tarifas_dia_centavos"] == aluguel
+    assert resultado["inadimplencia_dia_centavos"] == vencidas
+    assert resultado["concessao_em_acordos_dia_centavos"] == (concessao or 0)
+
+
+def test_resultado_nao_ve_a_venda_de_hoje(sessao):
+    hoje = regras.HOJE_DO_MOCK
+    assert consultas.resultado_por_periodo(sessao, hoje, hoje)["maior_venda"] is None
+
+
+def test_contestacoes_agregadas_e_do_lojista_saem_separadas(fachada):
+    mes, _ = gab.C2_TAXA_DE_CHARGEBACK_DO_MES_DA_VENDA
+    do_lojista = fachada.contestacoes_do_lojista_por_mes(gab.C2_LOJISTA, mes, mes)["itens"]
+    assert [(i["mes"], i["taxa_chargeback_percentual"]) for i in do_lojista] == [(mes, 20.0)]
+    agregado = fachada.contestacoes_por_mes(mes, mes)["itens"]
+    assert len(agregado) == 1 and agregado[0]["quantidade_vendas_cartao"] > do_lojista[0]["quantidade_vendas_cartao"]
+
+
+def test_pesquisas_por_fila(sessao):
+    da_varejo = consultas.buscar_pesquisas(sessao, fila="varejo", limite=50)["itens"]
+    assert da_varejo and {p["fila"] for p in da_varejo} == {"varejo"}
+
+
+# --- base de conhecimento (KAN-14 caso 1) ---------------------------------------------------------
+
+
+def test_busca_de_artigo_ignora_acento_e_caixa(sessao):
+    com_acento = consultas.buscar_artigos(sessao, "ANTECIPAÇÃO")["itens"]
+    sem_acento = consultas.buscar_artigos(sessao, "antecipacao")["itens"]
+    assert com_acento and com_acento == sem_acento
+
+
+# A pergunta como o lojista escreve -> o artigo que responde vem primeiro.
+PERGUNTAS_DOS_LOJISTAS = [
+    ("Minha maquininha não liga", "KB015"),
+    ("Por que meu depósito veio menor?", "KB016"),
+    ("Quero a segunda via do boleto", "KB017"),
+    ("Onde encontro o comprovante?", "KB018"),
+    ("Qual a taxa?", "KB012"),
+    ("Quanto eu pago para antecipar?", "KB003"),
+    ("A antecipação foi recusada", "KB004"),
+    ("Quero trocar a conta de recebimento", "KB013"),
+    ("Cancelar uma venda", "KB011"),
+    ("Chargeback: quais documentos?", "KB009"),
+    ("MED", "KB010"),
+]
+
+
+@pytest.mark.parametrize(("pergunta", "artigo"), PERGUNTAS_DOS_LOJISTAS)
+def test_pergunta_do_lojista_acha_o_artigo_certo_primeiro(sessao, pergunta, artigo):
+    assert consultas.buscar_artigos(sessao, pergunta)["itens"][0]["codigo"] == artigo
+
+
+def test_busca_de_artigo_casa_palavra_inteira(sessao):
+    assert consultas.buscar_artigos(sessao, "médio")["total"] == 0  # "med" não é pedaço de "médio"
+    assert consultas.buscar_artigos(sessao, "palavraquenaoexiste")["total"] == 0
+    assert [a["codigo"] for a in consultas.buscar_artigos(sessao, "maquininhas")["itens"]] == [
+        a["codigo"] for a in consultas.buscar_artigos(sessao, "maquininha")["itens"]]
+
+
+def test_busca_sem_palavra_que_conte_nao_acha_nada_e_sem_termo_acha_todos(sessao):
+    todos = consultas.buscar_artigos(sessao)["total"]
+    assert todos == consultas.buscar_artigos(sessao, "   ")["total"] > 0
+    assert consultas.buscar_artigos(sessao, "%")["total"] == consultas.buscar_artigos(sessao, "_")["total"] == 0
+    assert consultas.buscar_artigos(sessao, "de para com")["total"] == 0
+
+
+def test_artigo_por_categoria(sessao):
+    itens = consultas.buscar_artigos(sessao, categoria="Contestação")["itens"]
+    assert itens and {a["categoria"] for a in itens} == {"Contestação"}
+
+
+# --- verificação de identidade (cenário 6) --------------------------------------------------------
+
+
+def test_numero_fora_do_cadastro_nao_confere(fachada):
+    assert fachada.contato_confere(gab.C6_LOJISTA, gab.C6_TELEFONE_NAO_CADASTRADO, None) == {
+        "confere": False, "papel": None}
+
+
+def test_contato_cadastrado_confere_sem_devolver_o_contato(sessao):
+    contato = consultas.buscar_contatos(sessao, gab.C6_LOJISTA)["itens"][0]
+    digitos = "".join(c for c in contato["telefone"] if c.isdigit())
+    pelo_telefone = consultas.contato_confere(sessao, gab.C6_LOJISTA, telefone=digitos)
+    pelo_email = consultas.contato_confere(sessao, gab.C6_LOJISTA, email=contato["email"].upper())
+    assert pelo_telefone == pelo_email == {"confere": True, "papel": contato["papel"]}
+
+
+def test_contato_de_outro_lojista_nao_confere(sessao):
+    de_outro = consultas.buscar_contatos(sessao, "M00001")["itens"][0]
+    assert consultas.contato_confere(sessao, gab.C6_LOJISTA, telefone=de_outro["telefone"])["confere"] is False
+
+
+def test_sem_contato_informado_nao_confere_e_lojista_inexistente_e_none(sessao):
+    assert consultas.contato_confere(sessao, gab.C6_LOJISTA)["confere"] is False
+    assert consultas.contato_confere(sessao, gab.C6_LOJISTA, telefone="sem digitos")["confere"] is False
+    assert consultas.contato_confere(sessao, "M99999", telefone="21900000000") is None
+
+
+# --- base analítica (KAN-14 caso 4, cenário 11) ---------------------------------------------------
+
+
+def test_base_analitica_vai_ate_ontem_e_nao_tem_a_venda_recente(fachada):
+    resumo = fachada.resumo_de_vendas(None, None)
+    assert resumo["data_corte"] == gab.DATA_CORTE_DA_BASE_ANALITICA
+    dias, _, corte = fachada.vendas_por_dia(regras.HOJE_DO_MOCK, regras.HOJE_DO_MOCK, None)
+    assert dias == [] and corte == gab.DATA_CORTE_DA_BASE_ANALITICA
+
+
+def test_pedido_alem_do_corte_para_no_corte(sessao):
+    ate_ontem = consultas.totais_de_vendas(sessao, data_inicio=date(2026, 10, 1))
+    ate_hoje = consultas.totais_de_vendas(sessao, data_inicio=date(2026, 10, 1), data_fim=regras.HOJE_DO_MOCK)
+    assert ate_ontem == ate_hoje
+
+
+def test_receita_e_bruto_menos_liquido(sessao):
+    for item in consultas.totais_de_vendas(sessao)["itens"]:
+        assert item["receita_mdr_dia_centavos"] == item["valor_bruto_dia_centavos"] - item["valor_liquido_dia_centavos"]
+
+
+def test_resumo_da_fachada_soma_as_modalidades(fachada, sessao):
+    resumo = fachada.resumo_de_vendas(None, None)
+    itens = consultas.totais_de_vendas(sessao)["itens"]
+    assert resumo["total"]["quantidade_aprovadas"] == sum(i["quantidade_aprovadas"] for i in itens)
+    assert resumo["total"]["valor_bruto"] == dados_sinteticos.reais(sum(i["valor_bruto_dia_centavos"] for i in itens))
+
+
+def test_criticos_fora_do_prazo_na_semana_pela_base(sessao):
+    resposta = consultas.chamados_por_fila(sessao, data_inicio=gab.C11_INICIO_DA_SEMANA, prioridade="crítica")
+    assert sum(f["quantidade_estourados"] for f in resposta["itens"]) == gab.C11_CRITICOS_FORA_DO_PRAZO_NA_BASE
+
+
+def test_base_desatualizada_corta_mais_cedo(sessao):
+    ligar("analitica", "desatualizado")
+    resposta = consultas.totais_de_vendas(sessao)
+    assert resposta["data_corte"] == gab.DATA_CORTE_DESATUALIZADA
+    dias = consultas.vendas_por_dia(sessao, limite=1)["itens"]
+    assert dias[0]["dia"] <= gab.DATA_CORTE_DESATUALIZADA  # o corte cai num domingo, sem venda
+
+
+def test_desatualizado_pelo_ambiente(sessao, monkeypatch):
+    monkeypatch.setenv("MOCK_FALHAS", "analitica:desatualizado")
+    assert consultas.chamados_por_fila(sessao)["data_corte"] == gab.DATA_CORTE_DESATUALIZADA
+
+
+def test_taxa_de_chargeback_do_mes_da_venda_do_cenario_2(sessao):
+    mes, taxa = gab.C2_TAXA_DE_CHARGEBACK_DO_MES_DA_VENDA
+    itens = consultas.contestacoes_por_mes(sessao, mes, mes, gab.C2_LOJISTA)["itens"]
+    assert [(i["mes"], i["taxa_chargeback_pontos_base"]) for i in itens] == [(mes, taxa)]
+    assert taxa > regras.CHARGEBACK_QUE_LIGA_O_MONITORAMENTO_PONTOS_BASE
+
+
+def test_mes_sem_venda_no_cartao_nao_tem_taxa(sessao):
+    assert consultas.contestacoes_por_mes(sessao, "2020-01", "2020-01")["itens"] == []
+
+
+# --- dicionário de dados (metadado) ---------------------------------------------------------------
+
+
+def test_dicionario_descreve_todas_as_tabelas_sem_dado(sessao):
+    dicionario = consultas.dicionario_de_dados()
+    assert {t["tabela"] for t in dicionario} == set(BaseMock.metadata.tables)
+    texto = repr(dicionario)
+    assert "Padaria" not in texto and "@" not in texto and "M00001" not in texto
+
+
+def test_dicionario_marca_restrita_pela_mesma_lista_da_mascara():
+    colunas = {
+        (t["tabela"], c["coluna"]): c["restrita"] for t in consultas.dicionario_de_dados() for c in t["colunas"]
+    }
+    assert colunas[("contatos_lojista", "cpf")] and colunas[("pesquisas_satisfacao", "comentario")]
+    assert not colunas[("recebiveis", "valor_parcela_centavos")]
+    assert {nome for (_, nome), restrita in colunas.items() if restrita} == set(CLASSIFICACAO_CAMPOS)
+
+
+def test_dicionario_passa_pela_mascara_sem_virar_asterisco():
+    dicionario = consultas.dicionario_de_dados()
+    assert mascarar(dicionario, ("metadado",)) == dicionario
+    for tabela in dicionario:
+        assert set(tabela) | {campo for coluna in tabela["colunas"] for campo in coluna} <= CAMPOS_NAO_RESTRITOS
+
+
+def test_dicionario_traz_a_linhagem_da_base_analitica():
+    por_tabela = {t["tabela"]: t for t in consultas.dicionario_de_dados()}
+    assert por_tabela["analitica_contestacoes_mensais"]["origem"] == ["vendas", "chargebacks"]
+    assert por_tabela["analitica_vendas_diarias"]["sistema"] == "analitica"
+    assert por_tabela["chargebacks"]["sistema"] == "disputas" and por_tabela["chargebacks"]["origem"] == []

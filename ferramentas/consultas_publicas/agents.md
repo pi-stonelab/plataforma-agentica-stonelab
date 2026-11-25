@@ -4,7 +4,8 @@ Consultas a fontes públicas, como CEP e cotação de moedas.
 
 ## Como escolher
 
-[preencher: como decidir entre as ferramentas desta área]
+Endereço de um CEP: `consultar_endereco_cep`. Quanto vale uma moeda estrangeira em reais: `consultar_cotacao_moeda`.
+Nenhuma das duas traz dado de lojista.
 
 ## Ferramentas
 
@@ -13,8 +14,7 @@ usuário]
 
 ## Para quem mantém
 
-- Integrações da área: `apis_publicas`.
-- Ferramentas planejadas (2):
+- Integrações da área: `apis_publicas` (ViaCEP e PTAX do Banco Central, ver `integracoes/apis_publicas/README.md`).
+- Ferramentas ativas (2):
   - `consultar_endereco_cep` (leitura)
   - `consultar_cotacao_moeda` (leitura)
-- [preencher: pendências da área]

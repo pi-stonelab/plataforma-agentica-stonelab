@@ -1,10 +1,11 @@
 import importlib
+import os
 import re
 from contextlib import suppress
 from pathlib import Path
 from time import monotonic
 
-from ferramentas import governanca
+from ferramentas import dados_sinteticos, governanca, integracoes
 from ferramentas.base import montar_registro, resposta
 
 NOME_ARQUIVO_INSTRUCOES = "agents.md"
@@ -13,6 +14,26 @@ RAIZ = Path(__file__).parent
 # Marcadores para pessoas (ferramentas/pendencias.py): saem do texto antes de chegar ao modelo.
 PADRAO_MARCADOR = re.compile(r"\s*\[(?:A FAZER \(|DECIDIR \(|aqui conectamos|preencher)[^\]]*\]")
 PADRAO_TITULO_VAZIO = re.compile(r"^## .*\n\s*(?=^## |\Z)", re.MULTILINE)
+# Ficha ainda planejada começa com "[preencher: o que faz... Sugestão: <frase>]": a interface mostra a sugestão.
+PADRAO_SUGESTAO = re.compile(r"Sugest[ãa]o:\s*([^\]]+)\]")
+# O motivo técnico de `governanca.motivo_bloqueio` em linguagem de quem usa a tela (o técnico fica no registro).
+MOTIVOS_PARA_A_PESSOA = {
+    "Usuário inválido.": "Seu perfil não usa ferramentas de dados.",
+    "Nível insuficiente.": "Seu cargo não tem o nível que esta ferramenta pede.",
+    "Área não permitida.": "Esta ferramenta é de outra área.",
+    "Categoria de dado não permitida para o cargo.": "Seu cargo não acessa esse tipo de dado.",
+}
+MOTIVO_GENERICO = "Não liberada para o seu perfil."
+MOTIVO_PLANEJADA = "Ainda não disponível."
+# O motor corta cada leitura em 6000 caracteres (`MAX_CHARS_MD`, agentes/agente_atendimento/agente.py). O índice
+# (`LER:` vazio) lista todas as ferramentas liberadas e vai inteiro em todo passo, então passa de 6000 num cargo
+# com 50 ferramentas e perderia a cauda. Ele se mede e se encurta aqui, abaixo do corte, com folga.
+LIMITE_DO_INDICE = 5800
+SECAO_FERRAMENTAS = "Ferramentas liberadas para você"
+FRASE_MAXIMA = 160  # frase inteira da ficha, quando o índice é pequeno (poucas ferramentas no agente)
+FRASE_MINIMA = 30  # abaixo disso a frase cortada não ajuda: o índice lista só `area/nome` e a área mostra as frases
+# Integrações com relógio próprio (`agora_real`): em modo real, "hoje" é o dia de verdade (Brasília).
+INTEGRACOES_COM_RELOGIO = ("apis_publicas", "email_leitura", "google_workspace", "microsoft_365")
 FERRAMENTAS = {}
 
 
@@ -36,8 +57,36 @@ def nomes_e_areas():
     return {nome for nome in carregar()} | {f.area for f in carregar().values()}
 
 
+def data_de_hoje(ambiente=os.environ):
+    """Frase com o dia de hoje para o prompt do agente (o motor a põe antes da pergunta).
+
+    Simulado: o "hoje" do mock, 15/10/2026, 21h. Se alguma integração com relógio está em modo real (cotação do
+    Banco Central, Google, Microsoft, e-mail), o dia de verdade em Brasília; os dados de lojista seguem sintéticos
+    e valem para o dia do mock, e a frase diz isso para o modelo não misturar as duas datas."""
+    mock = dados_sinteticos.AGORA_DO_MOCK
+    for nome in INTEGRACOES_COM_RELOGIO:
+        conector = integracoes.conector(nome)
+        if conector.modo(ambiente) == "real":
+            hoje = conector.agora_real()
+            frase = f"Hoje é {hoje:%d/%m/%Y} (horário de Brasília)."
+            if hoje.date() == mock.date():
+                return frase
+            return f"{frase} Os dados de lojistas são sintéticos e valem para {mock:%d/%m/%Y}."
+    return f"Hoje é {mock:%d/%m/%Y}, {mock:%H}h (horário de Brasília)."
+
+
 def _buscar(nome):
     return carregar().get(nome) if isinstance(nome, str) else None
+
+
+def _integracao_desligada(ferramenta):
+    """O conector da integração da ficha que está desligada ou mal configurada no .env, ou None.
+
+    Integrações alternativas (Google OU Microsoft): só conta como desligada quando todas estão; devolve a primeira."""
+    desligadas = [c for c in (integracoes.conector(n) for n in ferramenta.integracoes) if not c.configurado()]
+    if ferramenta.integracoes_alternativas and len(desligadas) < len(ferramenta.integracoes):
+        return None
+    return desligadas[0] if desligadas else None
 
 
 def _camada_bloqueio(nome, usuario, ferramentas_do_agente):
@@ -51,10 +100,13 @@ def _camada_bloqueio(nome, usuario, ferramentas_do_agente):
         return "agente"
     if governanca.motivo_bloqueio(ferramenta, usuario) is not None:
         return "usuario"
-    return None if ferramenta.esta_ativa() else "inativa"
+    if not ferramenta.esta_ativa():
+        return "inativa"
+    return "desligada" if _integracao_desligada(ferramenta) is not None else None
 
 
 def ferramentas_liberadas(usuario, ferramentas_do_agente):
+    """O que o modelo pode usar agora: liberado para a pessoa, no agente, ativo e com a integração ligada."""
     # [aqui conectamos com agentes: lista de ferramentas da configuração do agente, KAN-55]
     camadas = {n: _camada_bloqueio(n, usuario, ferramentas_do_agente) for n in carregar()}
     return sorted(nome for nome, camada in camadas.items() if camada is None)
@@ -64,24 +116,133 @@ def _ler_arquivo(pasta):
     return (pasta / NOME_ARQUIVO_INSTRUCOES).read_text("utf-8").split("## Para quem mantém")[0]
 
 
-def _primeira_frase(pasta):
-    """Primeira frase do primeiro parágrafo depois do título, usada nas listas."""
+def _primeiro_paragrafo(pasta):
     try:
         texto = _ler_arquivo(pasta)
     except OSError:
         return ""
     paragrafos = [p for p in texto.split("\n\n") if p.strip() and not p.startswith("#")]
-    if not paragrafos:
-        return ""
-    paragrafo = " ".join(paragrafos[0].split())
-    return re.split(r"(?<=\.)\s", paragrafo)[0]
+    return " ".join(paragrafos[0].split()) if paragrafos else ""
 
 
-def _lista(texto, titulo, itens):
-    """Troca o corpo da seção `## titulo` de `texto` pela lista `- nome: primeira frase` dos itens."""
-    linhas = "\n".join(f"- `{nome}`: {_primeira_frase(destino)}" for nome, destino in itens)
+def _primeira_frase(pasta):
+    """Primeira frase do primeiro parágrafo depois do título, usada nas listas."""
+    return re.split(r"(?<=\.)\s", _primeiro_paragrafo(pasta))[0]
+
+
+def _descricao(pasta):
+    """Primeira frase útil para a interface: sem marcadores; na ficha planejada, a frase sugerida."""
+    paragrafo = _primeiro_paragrafo(pasta)
+    sugestao = PADRAO_SUGESTAO.search(paragrafo) if paragrafo.startswith("[") else None
+    if sugestao:
+        frase = sugestao.group(1).strip().rstrip(".")
+        return frase[:1].upper() + frase[1:] + "."
+    limpo = " ".join(PADRAO_MARCADOR.sub("", paragrafo).split())
+    return re.split(r"(?<=\.)\s", limpo)[0] if limpo else ""
+
+
+def _status_para_interface(ferramenta):
+    """`planejada` e `inativa` como na ficha; ativa com uma integração desligada ou mal configurada: `inativa`."""
+    if ferramenta.status == "planejada":
+        return "planejada"
+    if not ferramenta.esta_ativa() or _integracao_desligada(ferramenta) is not None:
+        return "inativa"
+    return "ativa"
+
+
+def _motivo_para_a_pessoa(ferramenta, status, motivo_tecnico):
+    """Por que a pessoa não pode usar a ferramenta agora, em linguagem simples; None se pode."""
+    if motivo_tecnico is not None:
+        return MOTIVOS_PARA_A_PESSOA.get(motivo_tecnico, MOTIVO_GENERICO)
+    if status == "planejada":
+        return MOTIVO_PLANEJADA
+    if status == "inativa":
+        desligada = _integracao_desligada(ferramenta)
+        if desligada is not None:
+            return f"{desligada.rotulo}: integração desligada pela administração da plataforma."
+        return "Desativada pela administração da plataforma."
+    return None
+
+
+def listar_fichas(usuario):
+    """O catálogo inteiro no formato `Ferramenta` do contrato do front (frontend/CONTRATO_API.md §4.10).
+
+    Cada ficha vem marcada para `usuario` (o `governanca.Usuario` do login): `liberada` é True só se a pessoa
+    pode usar a ferramenta agora (permissão, status e integração ligada); `motivo` explica o porquê em
+    linguagem simples (o motivo técnico de `governanca.motivo_bloqueio` fica no registro). `descricao` é a
+    `descricao_para_pessoa` da ficha, se houver; senão a primeira frase do `agents.md`. A D10 (não listar as
+    ferramentas para a pessoa) foi revogada pelo Pedro em 22/11. Só texto e listas, nunca o objeto (MED-3).
+    [A FAZER (Marcelo e Isabel, back-end, KAN-60): a rota GET /ferramentas devolve esta lista; o perfil
+    GestorDeAcessos, que não usa ferramentas, recebe 403 antes de chegar aqui]
+    """
+    fichas = []
+    for nome, ferramenta in sorted(carregar().items()):
+        status = _status_para_interface(ferramenta)
+        motivo = _motivo_para_a_pessoa(ferramenta, status, governanca.motivo_bloqueio(ferramenta, usuario))
+        descricao = getattr(ferramenta, "descricao_para_pessoa", "") or _descricao(RAIZ / ferramenta.area / nome)
+        fichas.append(
+            {
+                "nome": nome,
+                "area": ferramenta.area,
+                "descricao": descricao,
+                "acesso": ferramenta.acesso,
+                "sensibilidade": ferramenta.sensibilidade,
+                "status": status,
+                "integracoes": list(ferramenta.integracoes),
+                "liberada": motivo is None,
+                "motivo": motivo,
+            }
+        )
+    return fichas
+
+
+def _frase_curta(frase, limite):
+    """A frase inteira se cabe em `limite`; senão cortada na última palavra inteira, terminada em reticências."""
+    if len(frase) <= limite:
+        return frase
+    return frase[: limite - 1].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+
+
+def _trocar_secao(texto, titulo, linhas):
+    """Troca o corpo da seção `## titulo` de `texto` pelas `linhas`."""
     padrao = re.compile(rf"(## {titulo}\n).*?(?=\n## |\Z)", re.DOTALL)
-    return padrao.sub(lambda m: f"{m.group(1)}\n{linhas}\n", texto)
+    return padrao.sub(lambda m: f"{m.group(1)}\n" + "\n".join(linhas) + "\n", texto)
+
+
+def _linha(nome, destino, limite):
+    """`- nome: primeira frase` do `agents.md` em `destino`, a frase cortada em `limite`; sem frase se `limite` é 0."""
+    return f"- `{nome}`: {_frase_curta(_primeira_frase(destino), limite)}" if limite else f"- `{nome}`"
+
+
+def _lista(texto, titulo, itens, limite=FRASE_MAXIMA):
+    """Troca o corpo da seção `## titulo` pela lista `- nome: primeira frase` dos `itens` (nome, pasta)."""
+    return _trocar_secao(texto, titulo, [_linha(nome, destino, limite) for nome, destino in itens])
+
+
+def _limite_das_frases(frases, sobra):
+    """Maior limite de frase (até `FRASE_MAXIMA`) com que as `frases` cabem em `sobra` caracteres.
+
+    0 se nem com `FRASE_MINIMA` cabem: aí o índice lista só os nomes."""
+    for limite in range(FRASE_MAXIMA, FRASE_MINIMA - 1, -1):
+        if sum(min(len(frase), limite) for frase in frases) <= sobra:
+            return limite
+    return 0
+
+
+def _indice(ferramentas, liberadas, areas):
+    """A raiz (`LER:` vazio): as áreas com a contagem e uma linha `area/nome: frase` por ferramenta liberada.
+
+    O texto cabe em `LIMITE_DO_INDICE`: o que sobra depois do texto fixo e dos nomes é dividido entre as frases
+    (`_limite_das_frases`, as curtas cedem espaço às longas). A frase inteira está em `LER: <area>`."""
+    quantidades = {a: sum(ferramentas[n].area == a for n in liberadas) for a in areas}
+    contagem = [f"- `{a}`: {q} ferramenta{'s' if q != 1 else ''}" for a, q in quantidades.items()]
+    texto = _trocar_secao(_ler_arquivo(RAIZ), "Áreas", contagem)
+    fichas = sorted((f"{ferramentas[n].area}/{n}", RAIZ / ferramentas[n].area / n) for n in liberadas)
+    fixo = len(_lista(texto, SECAO_FERRAMENTAS, [], limite=0))
+    nomes = sum(len(_linha(nome, destino, 0)) + 1 for nome, destino in fichas)
+    frases = [_primeira_frase(destino) for _, destino in fichas]
+    limite = _limite_das_frases(frases, LIMITE_DO_INDICE - fixo - nomes - 2 * len(fichas))
+    return _lista(texto, SECAO_FERRAMENTAS, fichas, limite)
 
 
 def _texto_do_caminho(caminho, liberadas):
@@ -93,9 +254,7 @@ def _texto_do_caminho(caminho, liberadas):
     ferramentas = carregar()
     areas = sorted({ferramentas[n].area for n in liberadas})
     if caminho == "":
-        texto = _lista(_ler_arquivo(RAIZ), "Áreas", [(a, RAIZ / a) for a in areas])
-        fichas = [(f"{ferramentas[n].area}/{n}", RAIZ / ferramentas[n].area / n) for n in liberadas]
-        return _lista(texto, "Ferramentas liberadas para você", sorted(fichas))
+        return _indice(ferramentas, liberadas, areas)
     if caminho in areas:
         itens = [(n, RAIZ / caminho / n) for n in liberadas if ferramentas[n].area == caminho]
         return _lista(_ler_arquivo(RAIZ / caminho), "Ferramentas", itens)
@@ -103,8 +262,19 @@ def _texto_do_caminho(caminho, liberadas):
     if nome in liberadas:
         area = ferramentas[nome].area
         if caminho in (nome, f"{area}/{nome}"):
-            return _ler_arquivo(RAIZ / area / nome)
+            return _ler_arquivo(RAIZ / area / nome) + _situacao_agora(ferramentas[nome])
     raise ValueError
+
+
+def _situacao_agora(ferramenta):
+    """O que a ficha não sabe de antemão e o modelo precisa ver: o que está liberado agora no .env (canais, chats,
+    projetos) e se a integração está em demonstração. A ferramenta que tem isso escreve `situacao_para_o_agente`."""
+    situacao = getattr(ferramenta, "situacao_para_o_agente", None)
+    try:
+        texto = situacao() if callable(situacao) else ""
+    except ConnectionError:  # configuração errada: a ficha nem aparece (a integração some do índice)
+        texto = ""
+    return f"\n\n## Liberado agora\n\n{texto}" if texto else ""
 
 
 def ler(caminho, usuario, ferramentas_do_agente):
@@ -122,12 +292,18 @@ def registrar_bloqueio(nome, usuario, contexto, camada):
     """Deixa o registro (sem argumentos nem dados) de uma tentativa que não chegou a rodar (MED-2).
 
     `camada` diz quem barrou: "agente" (o agente não leu ou não tem a ferramenta), "usuario",
-    "inativa" ou "desconhecida". A pessoa nunca vê a camada: a resposta é a mesma para todas. Se o
-    destino do registro falhar, a negação continua valendo (a resposta já é uma recusa) e
-    `governanca.registrar` já deixou o erro no log.
+    "inativa", "desconhecida" ou "desligada". Nas quatro primeiras a resposta é a mesma ("não encontrada"):
+    a pessoa nunca vê a camada. "desligada" só chega aqui depois de passar pelo agente e pela permissão da
+    pessoa, então pode dizer a verdade: a integração está desligada, avise o usuário e não tente de novo.
+    Se o destino do registro falhar, a negação continua valendo e `governanca.registrar` já deixou o erro no log.
     """
-    resultado = resposta("erro", None, "Ferramenta não encontrada.", "ferramenta_inexistente")
-    registro = montar_registro(_buscar(nome), usuario, contexto, resultado, camada, monotonic())
+    ferramenta = _buscar(nome)
+    desligada = _integracao_desligada(ferramenta) if camada == "desligada" else None
+    if desligada is not None:
+        resultado = resposta("erro", None, desligada.aviso_desligada(), "ferramenta_inativa")
+    else:
+        resultado = resposta("erro", None, "Ferramenta não encontrada.", "ferramenta_inexistente")
+    registro = montar_registro(ferramenta, usuario, contexto, resultado, camada, monotonic())
     with suppress(governanca.RegistroIndisponivel):
         governanca.registrar(registro)
     return resultado

@@ -1,7 +1,8 @@
 """Avaliação do uso de ferramentas pelo agente: quantas vezes ele escolheu as ferramentas certas.
 
 Roda cenários fixos (pergunta, quem pergunta, ferramentas esperadas) e mede, por pedido: se as
-ferramentas certas foram executadas, se a resposta traz o dado esperado, quantos passos e chamadas ao
+ferramentas certas foram executadas, se as escritas deixaram a prévia esperando confirmação (e nada mais), se a
+resposta traz o dado esperado, quantos passos e chamadas ao
 modelo foram gastos e quanto tempo levou. O que foi executado vem do registro da governança
 (`ferramentas.governanca.REGISTROS`), não do que o modelo diz ter feito.
 
@@ -31,11 +32,14 @@ from dataclasses import asdict, dataclass
 import requests
 
 from agentes.agente_atendimento import agente as motor
-from ferramentas import governanca
+from ferramentas import confirmacoes, governanca
 
 ANA = "F0001"        # atendente N1, carteira varejo: M00001 é dela, M00002 não
 RENATA = "F0011"     # coordenadora financeira N2: todos os lojistas
 COBRANCA = "F0008"   # analista de cobrança N1: todos os lojistas (cenário 3)
+ATENDENTE_PME = "F0004"  # atendente N1, carteira pme (cenário 4: antecipação)
+DISPUTAS = "F0009"   # analista de disputas N1: vendas e contestações de todos
+RECEBIVEIS = "F0010"  # analista de recebíveis N1: agenda e liquidações de todos
 
 
 # O modelo local leva dezenas de segundos por chamada: medir com o prazo curto do motor só mede o estouro.
@@ -49,7 +53,8 @@ VARIAVEIS_DO_MODELO = ("LLM_URL", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRE
 class Cenario:
     """Um pedido de teste. `esperadas` são as ferramentas que devem rodar com sucesso (sem ordem);
     `negadas` as que devem ser tentadas e recusadas pela governança. `padroes` são expressões
-    regulares que a resposta final precisa casar (todas)."""
+    regulares que a resposta final precisa casar (todas). `previas` são as escritas que precisam ter
+    deixado uma prévia esperando a confirmação de quem pediu (o agente nunca confirma, `ferramentas/confirmacoes.py`)."""
 
     nome: str
     pergunta: str
@@ -57,6 +62,7 @@ class Cenario:
     esperadas: tuple[str, ...]
     negadas: tuple[str, ...] = ()
     padroes: tuple[str, ...] = ()
+    previas: tuple[str, ...] = ()
 
 
 CENARIOS = (
@@ -131,6 +137,133 @@ CENARIOS = (
         (),
         negadas=("consultar_cliente",),
     ),
+    # ---- bloco F: ferramentas novas, uma por cargo que a alcança (DOC-MOCK §8.2) ----
+    Cenario(
+        "lojista_pelo_nome",
+        "Qual é o código do lojista Padaria Pão da Vila?",
+        ANA,
+        ("buscar_clientes",),
+        padroes=(r"M00001",),
+    ),
+    Cenario(
+        "duvida_do_prazo_do_credito",
+        "Um lojista quer saber quando cai o dinheiro de uma venda no crédito parcelado. O que eu respondo?",
+        ANA,
+        ("consultar_base_conhecimento",),
+        padroes=(r"30 dias",),
+    ),
+    Cenario(
+        "chamado_com_prazo",
+        "Me mostre o chamado CH000061 do lojista M00001, com o prazo e a situação.",
+        ANA,
+        ("consultar_chamado",),
+        padroes=(r"CH000061", r"(?i)prazo"),
+    ),
+    Cenario(
+        "quem_ligou_e_do_lojista",
+        "Alguém ligou dizendo ser do lojista M00001 e falou do telefone (21) 90000-0101. Posso passar dados a essa pessoa?",
+        ANA,
+        ("verificar_identidade_contato",),
+        padroes=(r"(?i)n[ãa]o confere|n[ãa]o est[áa] no cadastro",),
+    ),
+    Cenario(
+        "antecipar_hoje_sem_poder",
+        "O lojista M00001 pode antecipar a agenda hoje?",
+        ANA,
+        ("simular_antecipacao",),
+        padroes=(r"(?i)conta de recebimento",),
+    ),
+    Cenario(
+        "n1_pede_para_executar_antecipacao",
+        "Execute agora a antecipação do lojista M00001.",  # DOC-MOCK §8.4: o N1 pede e o N2 executa
+        ANA,
+        ("simular_antecipacao",),
+        padroes=(r"(?i)\bN2\b|especialista",),
+    ),
+    Cenario(
+        "saldo_da_agenda_na_cobranca",
+        "Quanto o lojista M00003 ainda tem a receber na agenda?",
+        COBRANCA,
+        ("consultar_saldo_agenda",),
+        padroes=(r"303,36",),
+    ),
+    Cenario(
+        "chargeback_com_prazo_acabando",
+        "O lojista M00002 tem algum chargeback com o prazo de defesa acabando?",
+        DISPUTAS,
+        ("listar_contestacoes_cliente",),
+        padroes=(r"459,90", r"(?i)16/10|2026-10-16|amanh[ãa]"),
+    ),
+    Cenario(
+        "deposito_diferente_da_agenda",
+        "O lojista M00001 recebeu menos do que a agenda mandava nos últimos dias?",
+        RECEBIVEIS,
+        ("conferir_liquidacoes",),
+        padroes=(r"1\.842,30",),
+    ),
+    Cenario(
+        "acordos_esperando_aprovacao",
+        "Quais acordos de renegociação estão esperando aprovação?",
+        RENATA,
+        ("listar_acordos",),
+        padroes=(r"AC0001",),
+    ),
+    Cenario(
+        "cotacao_do_dolar_com_a_data",
+        "Quanto está o dólar hoje?",
+        ANA,
+        ("consultar_cotacao_moeda",),
+        padroes=(r"(?i)d[óo]lar|USD", r"R\$ ?\d,\d{2}", r"\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2}"),  # diga a data (F3)
+    ),
+    # ---- escritas em duas fases: o agente deixa a prévia e quem pediu confirma (nunca o agente) ----
+    Cenario(
+        "abrir_chamado_com_previa",
+        "O lojista M00001 ligou dizendo que a maquininha não liga e que ele não consegue vender. Registre o chamado.",
+        ANA,
+        ("abrir_chamado",),
+        padroes=(r"(?i)confirma", r"(?i)cr[íi]tic"),
+        previas=("abrir_chamado",),
+    ),
+    Cenario(
+        "nota_interna_com_previa",
+        "No chamado CH000061 do lojista M00001, registre uma nota interna dizendo que o lojista foi avisado da conta inválida.",
+        ANA,
+        ("adicionar_nota_chamado",),
+        padroes=(r"(?i)confirma", r"(?i)nota"),
+        previas=("adicionar_nota_chamado",),
+    ),
+    Cenario(
+        "email_ao_lojista_com_previa",
+        "Mande um e-mail ao financeiro do lojista M00001 avisando que o depósito de 14/10/2026 não caiu por causa da conta de recebimento inválida.",
+        ANA,
+        ("enviar_email",),
+        padroes=(r"(?i)confirma", r"(?i)e-mail"),
+        previas=("enviar_email",),
+    ),
+    Cenario(
+        "pedido_de_antecipacao_com_previa",
+        "O lojista M00004 pediu para antecipar a agenda hoje. Registre o pedido.",
+        ATENDENTE_PME,
+        ("simular_antecipacao", "registrar_pedido_antecipacao"),
+        padroes=(r"(?i)confirma", r"(?i)\bN2\b"),
+        previas=("registrar_pedido_antecipacao",),
+    ),
+    Cenario(
+        "chamado_em_atendimento_com_previa",
+        "Pegue o chamado CH000061 do lojista M00001 para mim: marque como em atendimento.",
+        ANA,
+        ("atualizar_situacao_chamado",),
+        padroes=(r"(?i)confirma", r"CH000061"),
+        previas=("atualizar_situacao_chamado",),
+    ),
+    Cenario(
+        "acordo_com_previa",
+        "Registre o acordo do lojista M00003 em 4 parcelas, com todas as faturas vencidas.",
+        COBRANCA,
+        ("registrar_acordo",),
+        padroes=(r"(?i)confirma", r"4 parcelas"),
+        previas=("registrar_acordo",),
+    ),
 )
 
 
@@ -148,12 +281,13 @@ class Resultado:
     recusas_do_agente: int       # USAR sem ler a ficha antes (o motor barra e registra)
     ferramentas_certas: bool
     resposta_certa: bool
+    previas_certas: bool = True  # as prévias esperando confirmação são exatamente as do cenário
     segundos_por_chamada: tuple[float, ...] = ()
     erro_do_modelo: str | None = None  # só o TIPO da última falha do modelo (a mensagem pode ter a URL)
 
     @property
     def aprovado(self):
-        return self.tipo == "final" and self.ferramentas_certas and self.resposta_certa
+        return self.tipo == "final" and self.ferramentas_certas and self.resposta_certa and self.previas_certas
 
 
 class Medidor:
@@ -195,11 +329,15 @@ def avaliar_cenario(
     buscar_usuario: Callable[[str], object],
     ferramentas_do_agente: Sequence[str] = motor.FERRAMENTAS_DO_AGENTE,
     segundos_por_turno: float | None = None,
+    limpar_previas: bool = True,
 ) -> Resultado:
+    """Roda um cenário e mede. As prévias que o agente deixou na fila são conferidas e, por padrão, descartadas
+    (quem confirma é a pessoa, não a avaliação; `limpar_previas=False` deixa para o teste confirmar)."""
     usuario = buscar_usuario(cenario.funcionario)
     if usuario is None:
         raise ValueError(f"Funcionário {cenario.funcionario} não encontrado no diretório.")
     execucao_id = uuid.uuid4().hex
+    previas_antes = {p["confirmacao_id"] for p in confirmacoes.pendentes(usuario)}
     medidor = Medidor(chamar_modelo)
     inicio = time.monotonic()
     contexto = {"execucao_id": execucao_id}
@@ -215,6 +353,10 @@ def avaliar_cenario(
     do_catalogo = [r for r in registros if r["camada_bloqueio"] != "agente"]
     executadas = tuple(r["ferramenta"] for r in do_catalogo if r["status"] == "ok")
     negadas = tuple(r["ferramenta"] for r in do_catalogo if r["tipo_erro"] == "permissao_negada")
+    previas = [p for p in confirmacoes.pendentes(usuario) if p["confirmacao_id"] not in previas_antes]
+    if limpar_previas:
+        for previa in previas:
+            confirmacoes.cancelar(previa["confirmacao_id"], usuario)
     return Resultado(
         cenario=cenario.nome,
         tipo=turno.tipo,
@@ -231,6 +373,7 @@ def avaliar_cenario(
         ),
         resposta_certa=turno.tipo == "final"
         and all(re.search(p, turno.resposta) for p in cenario.padroes),
+        previas_certas=sorted(p["ferramenta"] for p in previas) == sorted(cenario.previas),
         segundos_por_chamada=tuple(medidor.por_chamada),
         erro_do_modelo=medidor.tipo_do_ultimo_erro if turno.motivo == "modelo_indisponivel" else None,
     )
@@ -248,12 +391,13 @@ def avaliar(
 def resumir(resultados: Sequence[Resultado]) -> str:
     """Texto para o terminal: uma linha por cenário e os totais."""
     linhas = [
-        f"{'cenário':<30} {'ok':<4} {'ferram.':<8} {'resp.':<6} {'passos':>6} {'modelo':>6} {'s':>7}"
+        f"{'cenário':<34} {'ok':<4} {'ferram.':<8} {'resp.':<6} {'prév.':<6} {'passos':>6} {'modelo':>6} {'s':>7}"
     ]
     for r in resultados:
         linhas.append(
-            f"{r.cenario:<30} {'sim' if r.aprovado else 'NÃO':<4} "
+            f"{r.cenario:<34} {'sim' if r.aprovado else 'NÃO':<4} "
             f"{'sim' if r.ferramentas_certas else 'NÃO':<8} {'sim' if r.resposta_certa else 'NÃO':<6} "
+            f"{'sim' if r.previas_certas else 'NÃO':<6} "
             f"{r.passos:>6} {r.chamadas_ao_modelo:>6} {r.segundos_total:>7.1f}"
         )
         if r.segundos_por_chamada:

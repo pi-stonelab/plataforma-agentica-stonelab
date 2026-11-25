@@ -18,6 +18,7 @@ def arredondar(valor):
 
 class CalcularMultaAtraso(Ferramenta):
     nome = "calcular_multa_atraso"
+    descricao_para_pessoa = "Calcula a multa, os juros e o valor total de uma fatura paga com atraso."
     area = "financeiro"
     acesso = "calculo"
     integracoes = ()

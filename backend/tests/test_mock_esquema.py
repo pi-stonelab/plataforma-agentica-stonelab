@@ -1,6 +1,6 @@
 """O próprio banco recusa dado fora das regras do mock (além das checagens da aplicação)."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from mock import gerar, modelos  # noqa: UP026 (pacote da Stone simulada, não o mock do PyPI)
@@ -41,7 +41,8 @@ def _chamado(**trocas) -> Chamado:
     campos = {
         "codigo": "CH999999", "protocolo": "20261001-999999", "id_lojista": "M00001", "categoria": "Recebimento",
         "prioridade": "alta", "fila": "varejo", "id_responsavel": None, "situacao": "novo", "aberto_por": "lojista",
-        "aberto_em": datetime(2026, 10, 1, 9, 0), "resumo": "teste",
+        "aberto_em": (aberto_em := datetime(2026, 10, 1, 9, 0)), "prazo_em": aberto_em + timedelta(days=1),
+        "resumo": "teste",
     }
     return Chamado(**{**campos, **trocas})
 
@@ -139,7 +140,7 @@ def test_categorias_e_prioridades_do_gerador_estao_no_esquema():
     for categoria, prioridade, *_ in gerar.CATEGORIAS_CHAMADO:
         assert categoria in modelos.CATEGORIAS_DE_CHAMADO
         assert prioridade in modelos.PRIORIDADES
-    assert {c for c, *_ in gerar.CATEGORIAS_CHAMADO} == set(modelos.CATEGORIAS_DE_CHAMADO)
+    assert {c for c, *_ in gerar.CATEGORIAS_CHAMADO} == set(modelos.CATEGORIAS_DO_GERADOR)
     for papeis in gerar.PAPEIS_POR_PORTE.values():
         assert set(papeis) <= set(modelos.PAPEIS_CONTATO)
 
@@ -158,6 +159,7 @@ def test_toda_coluna_restrita_tem_comentario():
         ("contatos_lojista", "nome"), ("contatos_lojista", "cpf"), ("contatos_lojista", "telefone"),
         ("contatos_lojista", "email"), ("contas_recebimento", "agencia"), ("contas_recebimento", "conta"),
         ("vendas", "ultimos4"), ("interacoes", "texto"), ("chamados", "resumo"),
+        ("pesquisas_satisfacao", "comentario"),
     }
     tabelas = BaseMock.metadata.tables
     for tabela, coluna in restritas:

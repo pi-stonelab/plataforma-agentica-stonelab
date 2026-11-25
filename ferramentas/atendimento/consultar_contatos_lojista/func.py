@@ -6,6 +6,7 @@ from ferramentas.base import Ferramenta
 
 class ConsultarContatosLojista(Ferramenta):
     nome = "consultar_contatos_lojista"
+    descricao_para_pessoa = "Lista as pessoas de contato de um cliente (lojista), com nome, CPF, telefone e e-mail sempre mascarados."
     area = "atendimento"
     acesso = "leitura"
     integracoes = ("crm",)

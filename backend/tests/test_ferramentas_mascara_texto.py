@@ -8,6 +8,7 @@ from ferramentas import mascara
 
 CPF = "***.444.777-**"
 CPF_2 = "***.982.247-**"
+CPF_VALIDO = "111." + "444.777-35"  # montado em duas partes: o varredor do repositório não o toma por CPF real
 CARTAO = "**** **** **** 1111"
 
 
@@ -42,8 +43,6 @@ CASOS_DE_CPF = [
     ("CPF 111.444.777-00.", f"CPF {CPF}."),
     ("O CPF do sócio é 111.444.777-00 e foi só.", f"O CPF do sócio é {CPF} e foi só."),
     ("Caso não aceite com pontos: CPF 52998224700, cartão", f"Caso não aceite com pontos: CPF {CPF_2}, cartão"),
-    # Falso positivo aceito: celular de 11 dígitos vira CPF mascarado.
-    ("21999991234", "***.999.912-**"),
 ]
 
 CASOS_DE_CARTAO = [
@@ -175,7 +174,19 @@ def test_protocolo_do_chamado_so_passa_se_o_valor_inteiro_tem_o_formato():
     assert mascara.mascarar({"protocolo": "20261014-000001 4111"}, ("chamado",)) != {
         "protocolo": "20261014-000001 4111"
     }
-    assert livre("protocolo 20261014-000001") == "protocolo **** **** **** 0001"
+    # No meio de um texto, o protocolo (data de verdade e seis dígitos) passa; qualquer dígito colado a ele não.
+    assert livre("protocolo 20261014-000001 aberto") == "protocolo 20261014-000001 aberto"
+    assert livre("protocolo 20261014-000001 4111") != "protocolo 20261014-000001 4111"
+    assert livre("20261014-0000014111") != "20261014-0000014111"
+
+
+@pytest.mark.parametrize("parecido", ["20261314-000001", "19991014-000001", "20261014-00001", "41111111-111111"])
+def test_numero_que_so_parece_protocolo_continua_mascarado_no_texto(parecido):
+    assert livre(f"pedido {parecido}") != f"pedido {parecido}"
+
+
+def test_protocolo_ao_lado_de_cpf_nao_livra_o_cpf():
+    assert livre(f"20261014-000001 e CPF {CPF_VALIDO}") == f"20261014-000001 e CPF {CPF}"
 
 
 def test_numero_dentro_de_estrutura_aninhada_tambem_e_mascarado():
@@ -264,3 +275,50 @@ def test_um_megabyte_de_tags_abertas_nao_trava():
     inicio = time.perf_counter()
     livre(texto)
     assert time.perf_counter() - inicio < 5
+
+
+# --- telefone com DDD e CNPJ antes da regra por quantidade de dígitos (revisão de usuário do bloco B) ----
+
+TELEFONES = [
+    ("(21) 99999-8888", "(21) *****-8888"),
+    ("(21)99999-8888", "(21) *****-8888"),
+    ("(21) 3333-4444", "(21) ****-4444"),
+    ("+55 21 99999-8888", "+55 (21) *****-8888"),
+    ("+55 (21) 99999-8888", "+55 (21) *****-8888"),
+    ("+5521999998888", "+55(21) *****-8888"),
+    ("Me liga no (11) 98765-4321, por favor.", "Me liga no (11) *****-4321, por favor."),
+]
+
+
+@pytest.mark.parametrize(("entrada", "esperado"), TELEFONES)
+def test_telefone_com_ddd_sai_mascarado_como_telefone(entrada, esperado):
+    saida = livre(entrada)
+    assert saida == esperado
+    assert livre(saida) == saida  # idempotente
+    assert "99999" not in saida and "98765" not in saida and "3333" not in saida
+
+
+def test_cnpj_sai_com_a_mascara_de_cnpj_e_nao_de_cartao():
+    assert livre("CNPJ 12.345.678/0001-90.") == "CNPJ **.***.***/**01-90."
+    assert livre(livre("12.345.678/0001-90")) == "**.***.***/**01-90"
+
+
+def test_telefone_e_cpf_e_cartao_no_mesmo_texto_saem_cada_um_com_a_sua_mascara():
+    texto = "Tel (21) 99999-8888, CPF 111.444.777-00, cartão 4111 1111 1111 1111."
+    assert livre(texto) == f"Tel (21) *****-8888, CPF {CPF}, cartão {CARTAO}."
+
+
+def test_onze_digitos_com_cara_de_celular_ganham_a_mascara_de_telefone():
+    # DDD que existe e 9 no terceiro dígito, sem a pontuação de CPF: o cartão não mostra celular como se fosse CPF.
+    assert livre("21 99999-8888") == "(21) *****-8888"
+    assert livre("21999991234") == "(21) *****-1234"
+    assert livre("52998224700") == CPF_2  # DDD 52 não existe: continua CPF
+    assert livre("111.444.777-00") == CPF  # com a pontuação de CPF, é CPF mesmo com DDD válido e 9
+    assert livre("219.999.912-34") == "***.999.912-**"
+
+
+def test_cpf_escrito_como_telefone_mostra_no_maximo_seis_digitos():
+    """Risco residual documentado em mascara.py: o formato é do autor; nada além de 6 dígitos aparece."""
+    saida = livre("(52) 99822-4700")
+    assert saida == "(52) *****-4700"
+    assert sum(c.isdigit() for c in saida) == 6

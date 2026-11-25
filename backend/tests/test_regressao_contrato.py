@@ -93,12 +93,38 @@ def test_todo_nome_de_ferramenta_dos_gabaritos_existe_no_catalogo():
 
 @pytest.mark.parametrize("nome", ATIVAS)
 def test_toda_ferramenta_ativa_e_alcancada_por_algum_cargo(nome):
-    alcancam = [c for c, nomes in gab.FERRAMENTAS_DO_CARGO.items() if nome in nomes]
+    alcancam = [
+        c for c in gab.CARGOS if nome in gab.FERRAMENTAS_DO_CARGO[c] | gab.EXTERNAS_DO_CARGO[c]
+    ]
     assert alcancam, f"{nome} não é liberada para nenhum cargo"
 
 
 def test_ferramentas_ativas_sao_exatamente_as_dos_gabaritos():
-    assert set(ATIVAS) == set().union(*gab.FERRAMENTAS_DO_CARGO.values())
+    na_suite = set().union(*gab.FERRAMENTAS_DO_CARGO.values())
+    assert set(ATIVAS) == na_suite | set(gab.DESLIGADAS_NA_SUITE)
+    assert not na_suite & set(gab.DESLIGADAS_NA_SUITE)
+
+
+INTEGRACOES_EM_DEMONSTRACAO = {
+    "JIRA_MODO": "simulado",
+    "SLACK_MODO": "simulado",
+    "SLACK_CANAIS": "plantao:C0123ABCD",
+    "TELEGRAM_MODO": "simulado",
+    "TELEGRAM_CHATS": "plantao:-1001234567890",
+    "EMAIL_LEITURA_MODO": "simulado",
+    "GOOGLE_MODO": "simulado",
+    "ANEXOS_MODO": "simulado",
+}
+
+
+@pytest.mark.parametrize("cargo", gab.CARGOS)
+def test_com_as_integracoes_externas_ligadas_cada_cargo_ganha_so_o_que_o_gabarito_diz(cargo, monkeypatch):
+    for variavel, valor in INTEGRACOES_EM_DEMONSTRACAO.items():
+        monkeypatch.setenv(variavel, valor)
+    usuario = apoio.usuario_do_cargo(cargo)
+    esperado = gab.FERRAMENTAS_DO_CARGO[cargo] | gab.EXTERNAS_DO_CARGO[cargo]
+    assert set(catalogo.ferramentas_liberadas(usuario, geral.FERRAMENTAS_DO_AGENTE)) == esperado
+    assert nomes_vistos_pelo_cargo(usuario) == esperado  # nenhum texto cita ferramenta fora do alcance
 
 
 def test_ninguem_usa_date_today_no_codigo_de_producao():
@@ -189,7 +215,7 @@ def nomes_vistos_pelo_cargo(usuario):
     for area in sorted({f.area for f in FERRAMENTAS.values()}):
         textos.append(catalogo.ler(area, usuario, lista))
     visiveis = {n for n in FERRAMENTAS if catalogo.ler(f"{FERRAMENTAS[n].area}/{n}", usuario, lista) != gab.MENSAGEM_CAMINHO_NAO_LIBERADO}
-    return {n for n in FERRAMENTAS if any(n in texto for texto in textos)} | visiveis
+    return {n for n in FERRAMENTAS if any(re.search(rf"\b{n}\b", texto) for texto in textos)} | visiveis
 
 
 def test_ha_um_caso_de_acesso_ao_agente_geral_para_cada_um_dos_10_cargos():
@@ -205,7 +231,10 @@ def test_agente_geral_cada_cargo_alcanca_so_o_que_o_gabarito_diz(cargo):
     assert nomes_vistos_pelo_cargo(usuario) == esperado  # o que lê é o que pode usar, nem mais nem menos
     for nome in sorted(set(FERRAMENTAS) - esperado):
         resposta = catalogo.executar(nome, {}, usuario, geral.FERRAMENTAS_DO_AGENTE)
-        assert resposta == NEGADO_PELO_CATALOGO, nome
+        if nome in gab.EXTERNAS_DO_CARGO[cargo]:  # do cargo, mas a integração está desligada na suíte
+            assert resposta["tipo_erro"] == "ferramenta_inativa", nome
+        else:
+            assert resposta == NEGADO_PELO_CATALOGO, nome
     for nome in sorted(esperado):  # as liberadas respondem de verdade (parâmetro faltando, não bloqueio)
         resposta = catalogo.executar(nome, {}, usuario, geral.FERRAMENTAS_DO_AGENTE)
         assert resposta["tipo_erro"] != gab.TIPO_ERRO_FERRAMENTA_BLOQUEADA, nome

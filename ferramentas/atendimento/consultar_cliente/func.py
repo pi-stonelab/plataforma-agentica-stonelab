@@ -4,6 +4,7 @@ from ferramentas.base import ErroFerramenta, Ferramenta
 
 class ConsultarCliente(Ferramenta):
     nome = "consultar_cliente"
+    descricao_para_pessoa = "Devolve os dados cadastrais de um cliente (lojista) a partir do id_cliente."
     area = "atendimento"
     acesso = "leitura"
     integracoes = ("crm",)

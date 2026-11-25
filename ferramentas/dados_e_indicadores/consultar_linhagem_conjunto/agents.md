@@ -1,29 +1,31 @@
 # consultar_linhagem_conjunto
 
-[preencher: o que faz, em uma frase. Sugestão: de onde vem um conjunto de dados]
+Mostra de que tabelas um dado é calculado e quais tabelas dependem dele.
 
 ## Quando usar
 
-[preencher]
+Use quando o usuário perguntar de onde vem um número de relatório ("de onde sai a taxa de chargeback?") ou o que muda se uma tabela tiver erro. Pegue o nome exato da tabela com `buscar_conjuntos_dados`.
 
 ## Quando não usar
 
-[preencher: quando outra ferramenta serve melhor, citando qual]
+Esta ferramenta não lê o dado nem mostra colunas (use `consultar_esquema_conjunto`).
 
 ## Parâmetros
 
-[preencher: um por linha, com o significado e um exemplo]
+- `conjunto` (texto, obrigatório): nome exato da tabela. Exemplo: `vendas`.
 
 ## O que devolve
 
-[preencher: campos de `dados` quando dá certo e os erros possíveis]
+Em `dados`: `tabela`, `origem` (tabelas de onde ela é calculada; vazia se é uma tabela de origem) e `derivados` (tabelas calculadas a partir dela).
+
+Erros possíveis: `nao_encontrado` (tabela que não existe).
 
 ## Para quem mantém
 
 - Área: `dados_e_indicadores`.
 - Acesso: leitura.
 - Integração:
-  - `datahub` (ver `integracoes/datahub/README.md`): [preencher: catálogo simulado de conjuntos de dados (KAN-28)]
-- Permissão: provisória na ficha em func.py [aqui conectamos com Brenno: níveis e áreas oficiais, KAN-62].
+  - `datahub` (ver `integracoes/datahub/README.md`): a `origem` vem do dicionário do mock; os `derivados` são calculados invertendo a origem, em `ferramentas/dicionario.py`.
+- Permissão: categoria `metadado` (todo cargo com área).
 - Conteúdo de terceiros na saída: não.
-- Situação: esqueleto em func.py, sem lógica.
+- Situação: ativa.

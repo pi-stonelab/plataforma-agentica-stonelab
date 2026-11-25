@@ -14,6 +14,6 @@ usuário]
 ## Para quem mantém
 
 - Integrações da área: nenhuma.
-- Ferramentas planejadas (1):
+- Ferramentas (1):
   - `solicitar_ferramenta_ausente` (escrita)
 - [preencher: pendências da área]
