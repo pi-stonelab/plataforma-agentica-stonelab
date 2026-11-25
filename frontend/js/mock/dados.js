@@ -8,12 +8,12 @@ export const SENHA_DEMO = "stone123";
 // ---------- Usuários (um por perfil, nas duas áreas) ----------
 // carteira: clientes que um Colaborador (N1 na camada 2) pode consultar.
 export const USUARIOS = [
-  { id: "u-ana", nome: "Ana Ribeiro", email: "ana@stonelab.dev", perfil: "AdminGlobal", area: "Financeiro", areas_extras: [], carteira: [] },
-  { id: "u-bruno", nome: "Bruno Martins", email: "bruno@stonelab.dev", perfil: "Supervisor", area: "AtendimentoCliente", areas_extras: [], carteira: [] },
-  { id: "u-fernanda", nome: "Fernanda Costa", email: "fernanda@stonelab.dev", perfil: "Supervisor", area: "Financeiro", areas_extras: [], carteira: [] },
-  { id: "u-carla", nome: "Carla Souza", email: "carla@stonelab.dev", perfil: "Colaborador", area: "AtendimentoCliente", areas_extras: [], carteira: ["CLI-0001", "CLI-0002", "CLI-0003"] },
-  { id: "u-diego", nome: "Diego Alves", email: "diego@stonelab.dev", perfil: "Colaborador", area: "Financeiro", areas_extras: [], carteira: ["CLI-0004", "CLI-0005", "CLI-0007"] },
-  { id: "u-gabriela", nome: "Gabriela Lima", email: "gabriela@stonelab.dev", perfil: "GestorDeAcessos", area: "AtendimentoCliente", areas_extras: [], carteira: [] },
+  { id: "u-ana", nome: "Ana Ribeiro", email: "ana@stonelab.test", perfil: "AdminGlobal", area: "Financeiro", areas_extras: [], carteira: [] },
+  { id: "u-bruno", nome: "Bruno Martins", email: "bruno@stonelab.test", perfil: "Supervisor", area: "AtendimentoCliente", areas_extras: [], carteira: [] },
+  { id: "u-fernanda", nome: "Fernanda Costa", email: "fernanda@stonelab.test", perfil: "Supervisor", area: "Financeiro", areas_extras: [], carteira: [] },
+  { id: "u-carla", nome: "Carla Souza", email: "carla@stonelab.test", perfil: "Colaborador", area: "AtendimentoCliente", areas_extras: [], carteira: ["CLI-0001", "CLI-0002", "CLI-0003"] },
+  { id: "u-diego", nome: "Diego Alves", email: "diego@stonelab.test", perfil: "Colaborador", area: "Financeiro", areas_extras: [], carteira: ["CLI-0004", "CLI-0005", "CLI-0007"] },
+  { id: "u-gabriela", nome: "Gabriela Lima", email: "gabriela@stonelab.test", perfil: "GestorDeAcessos", area: "AtendimentoCliente", areas_extras: [], carteira: [] },
 ];
 
 // Limite mensal simulado por pessoa (regra da PO, a confirmar): aviso em 80%.

@@ -275,7 +275,7 @@ export function turno({ texto, usuario, u2, ferramentasDoAgente, pendente = null
       return fim(`${e.logradouro}, ${e.bairro}, ${e.cidade}/${e.uf} (CEP ${e.cep.replace(/(\d{5})(\d{3})/, "$1-$2")}).`);
     }
     case "enviar_email": {
-      const destinatario = dados.destinatario || "time-financeiro@stonelab.dev";
+      const destinatario = dados.destinatario || "time-financeiro@stonelab.test";
       const args = {
         destinatario,
         assunto: "Resumo semanal de receita",

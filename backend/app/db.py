@@ -4,10 +4,22 @@ from collections.abc import Iterator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.config import configuracao
 
-engine = create_engine(configuracao.database_url, pool_pre_ping=True)
+
+def _criar_engine(url: str):
+    if url.startswith("sqlite") and ":memory:" in url:
+        # Testes: uma conexão só, compartilhada entre threads. Sem isso a thread da rota (o FastAPI
+        # roda rota síncrona numa thread) abriria outro banco em memória, vazio.
+        return create_engine(
+            url, poolclass=StaticPool, connect_args={"check_same_thread": False}
+        )
+    return create_engine(url, pool_pre_ping=True)
+
+
+engine = _criar_engine(configuracao.database_url)
 SessaoLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 

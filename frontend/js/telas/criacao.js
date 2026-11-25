@@ -251,7 +251,7 @@ export function telaCriacao({ usuario, parametros, ir }) {
       r.ficha.ferramentas.some((f) => f.nome === "calcular_multa_atraso") && "Calcule a multa de R$ 800,00 com 10 dias de atraso",
       r.ficha.ferramentas.some((f) => f.nome === "consultar_cliente") && "Qual a situação do cliente CLI-0001?",
       r.ficha.ferramentas.some((f) => f.nome === "consultar_transacoes_cliente") && "Mostre as transações do CLI-0002",
-      r.ficha.ferramentas.some((f) => f.nome === "enviar_email") && "Envie o resumo da semana por e-mail para mim@stonelab.dev",
+      r.ficha.ferramentas.some((f) => f.nome === "enviar_email") && "Envie o resumo da semana por e-mail para mim@stonelab.test",
     ].filter(Boolean);
 
     async function rodar(e) {
