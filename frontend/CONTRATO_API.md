@@ -124,7 +124,7 @@ app.add_middleware(
 **Testar uma rota sem o front:** a página `/docs` do FastAPI, ou `curl`:
 ```bash
 TOKEN=$(curl -s -X POST localhost:8000/auth/login -H 'Content-Type: application/json' \
-  -d '{"email":"carla@stonelab.dev","senha":"stone123"}' | python -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+  -d '{"email":"carla@stonelab.test","senha":"stone123"}' | python -c 'import sys,json;print(json.load(sys.stdin)["token"])')
 curl -s localhost:8000/agentes -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -142,7 +142,7 @@ Na coluna "Obrig.", **sim** = o front quebra ou mostra errado sem o campo; **nã
 {
   "id": "u-carla",
   "nome": "Carla Souza",
-  "email": "carla@stonelab.dev",
+  "email": "carla@stonelab.test",
   "perfil": "Colaborador",
   "area": "AtendimentoCliente",
   "areas_extras": [],
@@ -153,10 +153,10 @@ Na coluna "Obrig.", **sim** = o front quebra ou mostra errado sem o campo; **nã
 | Campo | Tipo | Obrig. | Observação |
 | --- | --- | --- | --- |
 | `id`, `nome`, `email` | string | sim | `nome` aparece na barra lateral; as iniciais viram o avatar |
-| `perfil` | `"AdminGlobal"` \| `"Supervisor"` \| `"Colaborador"` \| `"GestorDeAcessos"` | sim | Nomes das classes de `seguranca/`. Define o menu: o `GestorDeAcessos` não vê Chat, Criação nem Monitoramento |
-| `area` | `"Financeiro"` \| `"AtendimentoCliente"` | sim | |
+| `perfil` | `"AdminGlobal"` \| `"Supervisor"` \| `"Colaborador"` \| `"GestorDeAcessos"` \| `"Auditor"` | sim | Nomes das classes de `seguranca/`. Define o menu: o `GestorDeAcessos` não vê Chat, Criação nem Monitoramento. O back-end real também devolve `"Auditor"` (cargo `auditor_compliance`), que não usa agentes nem ferramentas |
+| `area` | `"Financeiro"` \| `"AtendimentoCliente"` \| `null` | sim | No back-end real vem do cargo do mock: `null` para `AdminGlobal` e `Auditor`, que não têm área |
 | `areas_extras` | string[] | não | Áreas extras do Supervisor |
-| `carteira` | string[] | não | Clientes que um Colaborador (N1) pode consultar. O front só exibe; quem barra é o executor |
+| `carteira` | string[] | não | No back-end real, os **nomes das carteiras** do time do funcionário (ex.: `["varejo"]`); lista vazia para quem vê todos os lojistas ou nenhum. O front só exibe; quem barra é o executor |
 | `uso_mes` | `{gasto: number, limite: number}` | não | Soma do `uso_modelo` do mês + limite do perfil. **Sem ele somem o medidor do Painel e a faixa de aviso.** A faixa aparece em `gasto/limite >= 0.8` |
 
 ### 4.2 `Agente` (itens de `GET /agentes`, `GET /agentes/{id}`, resposta de aprovar rascunho)
@@ -305,7 +305,7 @@ Todos inteiros, menos `custo` (reais, simulado). São os mesmos números gravado
   "ferramenta": "enviar_email",
   "titulo": "Enviar e-mail",
   "campos": [
-    { "rotulo": "Para", "valor": "time-financeiro@stonelab.dev" },
+    { "rotulo": "Para", "valor": "time-financeiro@stonelab.test" },
     { "rotulo": "Assunto", "valor": "Resumo semanal de receita" },
     { "rotulo": "Mensagem", "valor": "Olá, time..." }
   ],
@@ -343,7 +343,7 @@ Sem token. Saída `200`: `{ "status": "ok" }`.
 ### 5.2 `POST /auth/login`
 Sem token.
 ```json
-{ "email": "carla@stonelab.dev", "senha": "stone123" }
+{ "email": "carla@stonelab.test", "senha": "stone123" }
 ```
 Saída `200`: `{ "token": "eyJhbGciOi...", "tipo": "bearer" }`.
 - O front guarda o token no `sessionStorage` (some ao fechar a aba) e logo depois chama `GET /me`.
@@ -655,17 +655,42 @@ Sem `?dias`. Lista de alertas ativos, os mais graves e recentes primeiro. **Falh
 
 ## 7. Dados de seed para a demo
 
-O roteiro da demo (`frontend/README.md`) usa estas contas e agentes. Se o seed do back-end tiver os mesmos dados,
-a demo com o back-end real mostra o mesmo que o mock. Senha de todas: `stone123` (dado sintético, só para a demo).
+### 7.1 Back-end real: contas vindas do diretório do mock
+Decidido em 25/11: o back-end **não** usa as contas inventadas do 7.2. Cada conta é um funcionário do mock
+(`mock/gerar.py`), porque é dele que saem cargo, nível N1/N2, carteiras e situação, e só assim as quatro checagens
+de acesso rodam com dados reais. O seed (`cd backend && python -m app.seed --senha <senha>`) cria uma conta por
+funcionário, com o nome e o e-mail sintéticos do mock (`<nome>.<sobrenome>@stonesim.example`), mais uma conta de
+`GestorDeAcessos`, que não tem cargo no mock. A senha da demo fica no `.env` (`SEED_SENHA_DEMO`), fora do Git.
+Lojistas são `M00001` a `M00020` (não `CLI-0001`).
+
+| id | Cargo (mock) | Perfil | Área | Carteira | Uso na demo |
+| --- | --- | --- | --- | --- | --- |
+| `F0001` | atendente_n1 | Colaborador | AtendimentoCliente | varejo | Lojista de fora da carteira (ex.: `M00005`) é **negado** |
+| `F0002`, `F0003`, `F0005` | especialista_n2 | Colaborador | AtendimentoCliente | do time | N2 só vê a carteira do time |
+| `F0004` | atendente_n1 | Colaborador | AtendimentoCliente | pme | |
+| `F0006` | supervisor_atendimento | Supervisor | AtendimentoCliente | todas | |
+| `F0007` | analista_ouvidoria | Colaborador | AtendimentoCliente | todas | |
+| `F0008`, `F0009`, `F0010` | analistas do financeiro | Colaborador | Financeiro | todas | |
+| `F0011` | coordenador_financeiro | Supervisor | Financeiro | todas | |
+| `F0012` | auditor_compliance | Auditor | | | Não usa agentes |
+| `F0013` | admin_plataforma | AdminGlobal | | | Vê agentes, não executa |
+| `F0014`, `F0015` | desligado e afastada | | | | Login **negado** mesmo com a senha certa |
+| `G0001` | (sem cargo) | GestorDeAcessos | AtendimentoCliente | | Não vê agentes nem ferramentas |
+
+Os agentes da demo no back-end real entram com o seed de agentes (KAN-60), usando os nomes atuais do catálogo.
+
+### 7.2 Modo mock do front
+O roteiro da demo em modo mock (`frontend/README.md`) usa estas contas e agentes, que existem só no navegador.
+Senha de todas: `stone123` (dado sintético, só para a demo).
 
 | id | Nome | E-mail | Perfil | Área | Carteira | Limite/mês |
 | --- | --- | --- | --- | --- | --- | --- |
-| `u-ana` | Ana Ribeiro | ana@stonelab.dev | AdminGlobal | Financeiro | | R$ 50 |
-| `u-bruno` | Bruno Martins | bruno@stonelab.dev | Supervisor | AtendimentoCliente | | R$ 40 |
-| `u-fernanda` | Fernanda Costa | fernanda@stonelab.dev | Supervisor | Financeiro | | R$ 40 |
-| `u-carla` | Carla Souza | carla@stonelab.dev | Colaborador | AtendimentoCliente | CLI-0001, CLI-0002, CLI-0003 | R$ 20 |
-| `u-diego` | Diego Alves | diego@stonelab.dev | Colaborador | Financeiro | CLI-0004, CLI-0005, CLI-0007 | R$ 20 |
-| `u-gabriela` | Gabriela Lima | gabriela@stonelab.dev | GestorDeAcessos | AtendimentoCliente | | |
+| `u-ana` | Ana Ribeiro | ana@stonelab.test | AdminGlobal | Financeiro | | R$ 50 |
+| `u-bruno` | Bruno Martins | bruno@stonelab.test | Supervisor | AtendimentoCliente | | R$ 40 |
+| `u-fernanda` | Fernanda Costa | fernanda@stonelab.test | Supervisor | Financeiro | | R$ 40 |
+| `u-carla` | Carla Souza | carla@stonelab.test | Colaborador | AtendimentoCliente | CLI-0001, CLI-0002, CLI-0003 | R$ 20 |
+| `u-diego` | Diego Alves | diego@stonelab.test | Colaborador | Financeiro | CLI-0004, CLI-0005, CLI-0007 | R$ 20 |
+| `u-gabriela` | Gabriela Lima | gabriela@stonelab.test | GestorDeAcessos | AtendimentoCliente | | |
 
 | id | Nome | Área | Dono | Convidados | Ferramentas | Ativo |
 | --- | --- | --- | --- | --- | --- | --- |

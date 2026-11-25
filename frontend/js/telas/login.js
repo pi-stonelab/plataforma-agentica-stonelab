@@ -7,7 +7,7 @@ import { icone } from "../icones.js";
 
 export function telaLogin({ aoEntrar }) {
   const erro = h("div", { class: "erro-caixa", role: "alert", hidden: true });
-  const email = h("input", { class: "entrada", id: "email", type: "email", autocomplete: "username", required: true, placeholder: "voce@stonelab.dev" });
+  const email = h("input", { class: "entrada", id: "email", type: "email", autocomplete: "username", required: true, placeholder: "voce@stonelab.test" });
   const senha = h("input", { class: "entrada", id: "senha", type: "password", autocomplete: "current-password", required: true });
   const botao = h("button", { class: "botao primario", type: "submit" }, "Entrar");
 

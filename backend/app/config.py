@@ -20,6 +20,10 @@ class Configuracao(BaseSettings):
     ollama_timeout_segundos: float = 180.0
     ollama_tentativas: int = 3
     ollama_max_simultaneas: int = 8
+    # Login: segredo que assina o token (obrigatório para subir a API) e validade do token.
+    jwt_segredo: SecretStr | None = None
+    jwt_validade_horas: float = 8.0
+
     # Cloudflare Access: SecretStr esconde o valor em prints e logs.
     cf_access_client_id: SecretStr | None = None
     cf_access_client_secret: SecretStr | None = None

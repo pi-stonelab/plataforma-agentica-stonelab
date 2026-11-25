@@ -5,6 +5,8 @@ sqlalchemy==2.1.8
 psycopg[binary]==3.3.8
 pydantic-settings==2.16.2
 httpx==0.28.1
+PyJWT==2.15.1
+bcrypt==5.0.0
 
 # Usadas pelo agente da frente 3, que roda no mesmo processo do back-end.
 requests==2.34.2

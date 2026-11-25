@@ -13,7 +13,7 @@ const SUGESTOES = {
   consultar_transacoes_cliente: "Mostre as transações do CLI-0002",
   calcular_multa_atraso: "Calcule a multa de uma fatura de R$ 1.250,00 com 15 dias de atraso",
   consultar_endereco_cep: "Qual o endereço do CEP 01310-100?",
-  enviar_email: "Envie o resumo da semana por e-mail para time-financeiro@stonelab.dev",
+  enviar_email: "Envie o resumo da semana por e-mail para time-financeiro@stonelab.test",
   resumir_receita_periodo: "Qual foi a receita da última semana?",
   listar_tickets_cliente: "Liste os chamados abertos do CLI-0003",
 };
