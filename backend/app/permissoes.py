@@ -88,3 +88,55 @@ def _pessoa(classe: type[seg.Usuario], conta: models.Usuario, area_slug: str | N
 def nome_da_area(area: seg.Area | None) -> str | None:
     """Nome da área como o contrato da interface usa (`Financeiro`, `AtendimentoCliente`)."""
     return type(area).__name__ if area is not None else None
+
+
+# ---------------------------------------------------------------- camada 1 por pedido (porta 2)
+def agente_da_linha(linha: models.Agente, convidados: set[str]) -> seg.Agente:
+    """O `seguranca.Agente` montado com o que veio do banco."""
+    if linha.dono_id == seg.DONO_PLATAFORMA:
+        agente = seg.Agente.da_plataforma(linha.nome, id=linha.id)
+        agente.ativo = linha.ativo
+        return agente
+    return seg.Agente(
+        nome=linha.nome,
+        area=seg.area_do_slug(linha.area),
+        dono_id=linha.dono_id,
+        id=linha.id,
+        convidados_ids=convidados,
+        visibilidade=linha.visibilidade,
+        ativo=linha.ativo,
+    )
+
+
+def plataforma_do_pedido(
+    acesso: Acesso, linhas: list[models.Agente], convidados: dict[str, set[str]]
+) -> tuple[seg.Plataforma, dict[str, seg.Agente]]:
+    """Uma `Plataforma` NOVA para este pedido, com a pessoa e os agentes lidos agora do banco.
+
+    Nunca reaproveitar entre pedidos nem usar a global `PLATAFORMA` (seguranca/CLAUDE.md, passo 3).
+    """
+    # [A FAZER (Marcelo e Isabel, back-end, KAN-60): ligar ao_registrar à gravação na tabela auditoria]
+    plataforma = seg.Plataforma()
+    plataforma.cadastrar(acesso.pessoa)
+    agentes = {}
+    for linha in linhas:
+        agente = agente_da_linha(linha, convidados.get(linha.id, set()))
+        plataforma.carregar_agente(agente)
+        agentes[linha.id] = agente
+    return plataforma, agentes
+
+
+def acoes_permitidas(pessoa: seg.Usuario, agente: seg.Agente) -> list[str]:
+    """Cada `Acao` que a pessoa pode fazer no agente (decide os botões da interface)."""
+    return [acao.name for acao in seg.Acao if pessoa.pode(acao, agente)]
+
+
+def relacao_com(pessoa: seg.Usuario, agente: seg.Agente) -> str:
+    """Selo do cartão (frontend/CONTRATO_API.md, §4.2)."""
+    if agente.dono_id == pessoa.id:
+        return "dono"
+    if isinstance(pessoa, seg.AdminGlobal):
+        return "admin"
+    if isinstance(pessoa, seg.Supervisor) and agente.area in pessoa.areas:
+        return "supervisor"
+    return "convidado"

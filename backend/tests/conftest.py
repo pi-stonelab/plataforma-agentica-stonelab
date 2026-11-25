@@ -5,6 +5,8 @@ os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 # O .env de quem desenvolve não pode mudar o resultado dos testes: a variável vazia vence o .env,
 # porque o dotenv não sobrescreve variável já declarada. Cada teste que precisa dela a define.
 os.environ["MOCK_DATABASE_URL"] = ""
+# A API sobe com o modelo em modo mock: nenhum teste chama o servidor do professor.
+os.environ["LLM_MODO"] = "mock"
 # Segredo do token só para os testes (o da máquina de quem desenvolve fica no .env).
 os.environ["JWT_SEGREDO"] = "segredo-dos-testes-nao-usar-fora-daqui"
 
