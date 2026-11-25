@@ -75,6 +75,108 @@ def semear(sessao: Session, senha: str) -> list[str]:
     return criadas
 
 
+# Agentes da demo, com os nomes atuais do catálogo (PR 25). As escritas (abrir_chamado, adicionar_nota_chamado)
+# são em duas fases: o agente monta a prévia e a pessoa confirma no cartão do chat. O enviar_email fica de fora
+# porque depende de SMTP configurado no .env.
+AGENTES_DA_DEMO = (
+    {
+        "id": "ag-geral",
+        "nome": "Assistente Geral",
+        "objetivo": "Responde dúvidas usando as ferramentas que o seu cargo libera.",
+        "area": None,
+        "dono_id": "plataforma",  # seguranca.DONO_PLATAFORMA: ferramentas = catálogo inteiro
+        "visibilidade": "publico",
+        "ferramentas": [],
+        "ativo": True,
+        "convidados": [],
+    },
+    {
+        "id": "ag-atendimento",
+        "nome": "Assistente de Atendimento",
+        "objetivo": "Tira dúvidas sobre lojistas, transações, liquidações, chamados, multas e endereços.",
+        "area": "atendimento",
+        "dono_id": "F0006",
+        "visibilidade": "publico",
+        "ferramentas": [
+            "consultar_cliente",
+            "consultar_transacoes_cliente",
+            "calcular_multa_atraso",
+            "consultar_endereco_cep",
+            "consultar_liquidacoes_cliente",
+            "listar_chamados_cliente",
+            "consultar_historico_contato",
+            "consultar_contatos_lojista",
+            "abrir_chamado",
+            "adicionar_nota_chamado",
+            "solicitar_ferramenta_ausente",
+        ],
+        "ativo": True,
+        "convidados": [],
+    },
+    {
+        "id": "ag-cobranca",
+        "nome": "Cobrança e Multas",
+        "objetivo": "Calcula multa, juros e parcelamento de faturas em atraso e consulta o histórico do lojista.",
+        "area": "financeiro",
+        "dono_id": "F0008",
+        "visibilidade": "convidados",
+        "ferramentas": [
+            "consultar_cliente",
+            "consultar_transacoes_cliente",
+            "listar_faturas_em_atraso",
+            "calcular_multa_atraso",
+            "calcular_parcelas",
+            "solicitar_ferramenta_ausente",
+        ],
+        "ativo": True,
+        "convidados": ["F0009"],
+    },
+    {
+        "id": "ag-chamados",
+        "nome": "Resumo de Chamados",
+        "objetivo": "Resume os chamados abertos e o histórico de contato de um lojista antes do atendimento.",
+        "area": "atendimento",
+        "dono_id": "F0001",
+        "visibilidade": "privado",
+        "ferramentas": [
+            "consultar_cliente",
+            "listar_chamados_cliente",
+            "consultar_historico_contato",
+            "solicitar_ferramenta_ausente",
+        ],
+        "ativo": True,
+        "convidados": [],
+    },
+    {
+        "id": "ag-conciliacao",
+        "nome": "Conciliação de Liquidações (v1)",
+        "objetivo": "Versão antiga da conferência de liquidações. Desativada.",
+        "area": "financeiro",
+        "dono_id": "F0011",
+        "visibilidade": "publico",
+        "ferramentas": ["consultar_liquidacoes_cliente"],
+        "ativo": False,
+        "convidados": [],
+    },
+)
+
+
+def semear_agentes(sessao: Session) -> list[str]:
+    """Cria os agentes da demo que faltam (depois das contas: dono e convidados são contas)."""
+    criados = []
+    for dados in AGENTES_DA_DEMO:
+        if sessao.get(models.Agente, dados["id"]) is not None:
+            continue
+        convidados = dados["convidados"]
+        sessao.add(models.Agente(**{k: v for k, v in dados.items() if k != "convidados"}))
+        sessao.flush()
+        for usuario_id in convidados:
+            sessao.add(models.AgenteConvidado(agente_id=dados["id"], usuario_id=usuario_id))
+        criados.append(dados["id"])
+    sessao.commit()
+    return criados
+
+
 def senha_padrao() -> str | None:
     """`SEED_SENHA_DEMO`, lida pelo `Configuracao` (do ambiente ou do .env da raiz), ou None."""
     from app.config import configuracao
@@ -99,8 +201,9 @@ def main(argv: list[str] | None = None) -> None:
     criar_tabelas()
     with SessaoLocal() as sessao:
         criadas = semear(sessao, argumentos.senha)
+        agentes = semear_agentes(sessao)
         total = sessao.query(models.Usuario).count()
-    print(f"Contas criadas: {len(criadas)} (total no banco: {total}).")
+    print(f"Contas criadas: {len(criadas)} (total no banco: {total}). Agentes criados: {len(agentes)}.")
 
 
 if __name__ == "__main__":

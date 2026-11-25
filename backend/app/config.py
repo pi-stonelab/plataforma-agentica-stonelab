@@ -31,6 +31,7 @@ class Configuracao(BaseSettings):
     jwt_validade_horas: float = 8.0
     # Senha das contas da demo (python -m app.seed); --senha na linha de comando vence.
     seed_senha_demo: SecretStr | None = None
+
     # Cloudflare Access: SecretStr esconde o valor em prints e logs.
     cf_access_client_id: SecretStr | None = None
     cf_access_client_secret: SecretStr | None = None
