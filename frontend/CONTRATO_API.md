@@ -42,6 +42,7 @@ Não é preciso abrir nenhum arquivo `.js` do front: cada rota, campo, código d
 | 20 | `GET /monitoramento/uso-diario?dias=` | 3 | todos menos `GestorDeAcessos` | Monitoramento |
 | 21 | `GET /monitoramento/agentes?dias=` | 3 | todos menos `GestorDeAcessos` | Monitoramento |
 | 22 | `GET /monitoramento/alertas` | 3 | todos menos `GestorDeAcessos` | Monitoramento, Painel |
+| 23 | `GET /auditoria` | 3 | só `Auditor` | (nenhuma ainda) |
 
 **Com as rotas 1 a 9, Login, Painel e Chat funcionam com o back-end real (demo da Sprint 2).**
 As telas de Criação guiada e Monitoramento mostram uma mensagem de erro enquanto as rotas delas não existirem.
@@ -84,6 +85,7 @@ Use a segunda quando o front precisar reagir a um caso específico (hoje só `li
 | `422` | Validação (campo faltando, texto vazio ou longo demais) | Mostra a mensagem |
 | `402` | Limite de gasto do mês atingido (Sprint 3), com `codigo: "limite_atingido"` | Mostra a mensagem |
 | `504` | O modelo não respondeu a tempo | Mostra a mensagem e mantém o texto digitado |
+| `503` | Serviço indisponível (ex.: não deu para registrar o uso do modelo) | Mostra a mensagem |
 | `500` | Erro inesperado. **Nunca** devolva stack trace nem dados internos | Mostra "Erro interno no servidor." |
 
 Sem `detail`, o front usa uma mensagem padrão por código.
@@ -394,12 +396,35 @@ O que o back-end faz, em ordem:
 6. Grava a resposta (`texto`, `tipo`, `trajetoria` em JSONB), as execuções (via `governanca.adicionar_destino`) e o `uso_modelo`.
 7. Atualiza `atualizada_em` da conversa e responde.
 
-Erros: `403`, `404`, `422`, `402` (Sprint 3), `504` (`"O modelo não respondeu. Tente de novo."`).
+Erros: `403`, `404`, `422`, `402` (Sprint 3), `503` (uso do modelo não registrado), `504` (`"O modelo não respondeu. Tente de novo."`).
 **Uma falha de ferramenta não é erro HTTP:** o agente responde normalmente (`200`) explicando o que deu errado,
 e o passo aparece na `trajetoria` com `status: "erro"`.
 
 **Tempo de resposta:** o front espera sem limite, mostrando "pensando". Com o Qwen remoto, uma resposta pode levar dezenas de segundos.
 Coloque um timeout no `LLMClient` e devolva `504` se estourar.
+
+### 5.10 `GET /auditoria`
+Só o perfil `Auditor`; os outros recebem `403` (`"Acesso negado."`). A própria consulta, permitida ou negada, entra na
+trilha com a ação `LER_AUDITORIA`.
+
+Parâmetros opcionais: `id_usuario`, `execucao_id`, `permitido` (`true`/`false`), `limite` (1 a 200, padrão 50) e
+`antes_de` (o `id` do último item recebido, para a página seguinte). Valor inválido: `422`.
+
+Saída `200`, do evento mais recente para o mais antigo:
+```json
+[
+  {
+    "id": 42,
+    "quando": "2026-11-25T15:10:00-03:00",
+    "id_usuario": "F0001",
+    "acao": "EXECUTAR",
+    "alvo": "ag-atendimento",
+    "permitido": true,
+    "execucao_id": "3f2b9c0e8d1a4f6b9a7c5e2d1b0a9f88"
+  }
+]
+```
+`execucao_id` pode ser `null` (ex.: abrir conversa). Nunca há nome de pessoa nem conteúdo.
 
 ---
 

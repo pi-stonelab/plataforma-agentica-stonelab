@@ -12,6 +12,7 @@ from seguranca import permissoes as seg
 from sqlalchemy.orm import Session
 
 from app import models
+from app.registro import gravar_evento
 
 # Correspondência cargo (mock) → perfil (camada 1), decidida em D8/O1 (tabela no CLAUDE.md).
 PERFIL_DO_CARGO: dict[str, type[seg.Usuario]] = {
@@ -115,8 +116,7 @@ def plataforma_do_pedido(
 
     Nunca reaproveitar entre pedidos nem usar a global `PLATAFORMA` (seguranca/CLAUDE.md, passo 3).
     """
-    # [A FAZER (Marcelo e Isabel, back-end, KAN-60): ligar ao_registrar à gravação na tabela auditoria]
-    plataforma = seg.Plataforma()
+    plataforma = seg.Plataforma(ao_registrar=gravar_evento)
     plataforma.cadastrar(acesso.pessoa)
     agentes = {}
     for linha in linhas:

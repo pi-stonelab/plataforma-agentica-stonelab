@@ -1,0 +1,16 @@
+*
+!agentes
+!backend/requirements.txt
+!backend/app
+!ferramentas
+!frontend
+!mock
+!seguranca
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/pessoas_teste*.csv

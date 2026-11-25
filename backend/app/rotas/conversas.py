@@ -12,14 +12,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from ferramentas import confirmacoes
 from pydantic import BaseModel
 from seguranca import permissoes as seg
+from seguranca.permissoes import AcessoNegado
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models
 from app.auth import AcessoAtual
+from app.config import configuracao
 from app.datas import iso
 from app.db import obter_sessao
+from app.llm_client import RespostaLLM
 from app.orquestrador import Uso, configuracao_do_agente, executar_agente
+from app.registro import gravar_uso
 from app.rotas.agentes import AgentesDoPedido
 
 router = APIRouter(tags=["conversas"])
@@ -29,6 +33,7 @@ MENSAGEM_DESATIVADO = "Este agente foi desativado e só pode ser consultado."
 MENSAGEM_VAZIA = "Escreva uma mensagem."
 MENSAGEM_LONGA = "Mensagem muito longa (máximo 2.000 caracteres)."
 MENSAGEM_MODELO = "O modelo não respondeu. Tente de novo."
+MENSAGEM_REGISTRO_DE_USO = "Não foi possível registrar o uso do modelo. Tente de novo em instantes."
 MENSAGEM_CONFIRMACAO = "Confirmação não encontrada."
 MENSAGEM_JA_DECIDIDA = "Esta ação já foi confirmada ou cancelada."
 LIMITE_DO_TEXTO = 2000
@@ -119,7 +124,8 @@ def enviar_mensagem(
     # A conversa é da pessoa: quem perdeu o acesso ao agente recebe 403 (não 404), como no contrato.
     agentes = AgentesDoPedido(sessao, acesso, [conversa.agente_id])
     linha = sessao.get(models.Agente, conversa.agente_id)
-    exigir_execucao(agentes, linha)
+    execucao_id = uuid.uuid4().hex
+    exigir_execucao(agentes, linha, execucao_id)
     agente = agentes.agentes[linha.id]
     ferramentas_do_agente, prompt_sistema = configuracao_do_agente(agente, linha.ferramentas or ())
 
@@ -128,7 +134,22 @@ def enviar_mensagem(
     estado = conversa.estado if ultima is not None and ultima.tipo == "pergunta" else None
 
     uso = Uso()
-    execucao_id = uuid.uuid4().hex
+    usos_sem_registro: list[RespostaLLM] = []
+
+    def registrar_uso(resposta_do_modelo: RespostaLLM) -> None:
+        uso.somar(resposta_do_modelo)
+        try:
+            gravar_uso(
+                resposta_do_modelo,
+                usuario_id=acesso.conta.id,
+                conversa_id=conversa_id,
+                execucao_id=execucao_id,
+            )
+        except Exception:
+            usos_sem_registro.append(resposta_do_modelo)
+            raise
+
+    sessao.commit()
     # Primeira checagem (acesso ao agente) no decorator; a segunda, por ferramenta, no catálogo.
     turno = executar_agente(
         agentes.plataforma,
@@ -139,10 +160,13 @@ def enviar_mensagem(
         usuario_ferramentas=acesso.ferramentas,
         ferramentas_do_agente=ferramentas_do_agente,
         prompt_sistema=prompt_sistema,
-        chamar_modelo=llm.como_chamar_modelo(ao_responder=uso.somar),
+        chamar_modelo=llm.como_chamar_modelo(ao_responder=registrar_uso),
         historico=historico_de(mensagens),
         estado=estado,
+        segundos_por_turno=configuracao.turno_segundos,
     )
+    if usos_sem_registro:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=MENSAGEM_REGISTRO_DE_USO)
     if turno.tipo == "limite" and turno.motivo in MOTIVOS_DE_MODELO:
         raise HTTPException(status.HTTP_504_GATEWAY_TIMEOUT, detail=MENSAGEM_MODELO)
     # Escrita em duas fases: a prévia que este turno deixou esperando a pessoa vira o cartão de confirmação.
@@ -203,7 +227,7 @@ def decidir_confirmacao(
         raise HTTPException(status.HTTP_409_CONFLICT, detail=MENSAGEM_JA_DECIDIDA)
 
     agentes = AgentesDoPedido(sessao, acesso, [conversa.agente_id])
-    exigir_execucao(agentes, sessao.get(models.Agente, conversa.agente_id))
+    exigir_execucao(agentes, sessao.get(models.Agente, conversa.agente_id), original.execucao_id)
 
     usuario = acesso.ferramentas
     atual = confirmacoes.confirmacao_para_interface(confirmacao_id, usuario)
@@ -258,12 +282,18 @@ def conversa_da_pessoa(sessao: Session, conversa_id: str, usuario_id: str) -> mo
     return conversa
 
 
-def exigir_execucao(agentes: AgentesDoPedido, linha: models.Agente) -> None:
+def exigir_execucao(
+    agentes: AgentesDoPedido, linha: models.Agente, execucao_id: str | None = None
+) -> None:
     """Primeira checagem, registrada pela Plataforma. Agente desativado tem mensagem própria."""
-    if not linha.ativo:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=MENSAGEM_DESATIVADO)
-    # AcessoNegado sobe para o tratador da API (403 genérico).
-    agentes.plataforma.autorizar(agentes.acesso.pessoa, seg.Acao.EXECUTAR, agentes.agentes[linha.id])
+    try:
+        agentes.plataforma.autorizar(
+            agentes.acesso.pessoa, seg.Acao.EXECUTAR, agentes.agentes[linha.id], execucao_id
+        )
+    except AcessoNegado:
+        if not linha.ativo:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail=MENSAGEM_DESATIVADO) from None
+        raise
 
 
 def validar_texto(texto: str) -> str:
