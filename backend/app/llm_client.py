@@ -2,33 +2,48 @@
 
 O que ele garante:
 - credenciais do Cloudflare só aqui, lidas do .env, nunca em logs;
-- tempo limite e novas tentativas quando o servidor falha;
+- resposta em pedaços (`stream`), porque o Cloudflare desiste aos ~100 s sem resposta (HTTP 524, H14);
+- prazo total por chamada (`tempo_limite`, o que sobra do turno) e novas tentativas dentro dele;
+- `stop` em "Observação:", temperatura 0 e `think` desligado, para o modelo não inventar o resultado
+  da ferramenta (ponto 6 do CLAUDE.md);
 - no máximo N chamadas ao mesmo tempo (fila com semáforo);
 - contagem de tokens e duração de cada chamada;
 - modo mock, que responde sem servidor (demo e testes).
 
-Uso pelo orquestrador (o agente da frente 3 recebe uma função `prompt -> texto`):
+Falha do modelo levanta `ErroLLM`, que é um `ModeloIndisponivel` do motor do agente: mensagem genérica,
+nunca a URL do servidor.
+
+Uso pelo orquestrador:
 
     cliente = criar_cliente()
-    chamar = cliente.como_chamar_modelo(sistema=agente.SISTEMA, opcoes={...})
-    resposta, trajetoria = agente.agente(pergunta, usuario, chamar_modelo=chamar)
+    chamar = cliente.como_chamar_modelo(ao_responder=gravar_uso)
+    turno = rodar_turno(pergunta, usuario, ferramentas, chamar_modelo=chamar, ...)
 
 Teste manual da conexão (de dentro de backend/): python -m app.llm_client
 """
 
+import json
+import logging
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 import httpx
+from agentes.agente_atendimento.agente import PARADA_DO_MODELO, ModeloIndisponivel
 
 PADRAO_PENSAMENTO = re.compile(r"<think>.*?</think>", flags=re.DOTALL)
+OPCOES_PADRAO = {"temperature": 0, "stop": [PARADA_DO_MODELO]}
+
+logger = logging.getLogger(__name__)
 
 
-class ErroLLM(Exception):
-    """Falha ao falar com o modelo. `tipo` diz o motivo, sem dados sensíveis."""
+class ErroLLM(ModeloIndisponivel):
+    """Falha ao falar com o modelo. `tipo` diz o motivo, sem dados sensíveis.
+
+    É um `ModeloIndisponivel`: o motor do agente encerra o turno em `limite/modelo_indisponivel`.
+    """
 
     TIPOS = ("configuracao", "credenciais", "indisponivel", "tempo_esgotado", "resposta_invalida")
 
@@ -36,6 +51,14 @@ class ErroLLM(Exception):
         super().__init__(mensagem)
         self.tipo = tipo
         self.mensagem = mensagem
+
+
+class _Repetir(Exception):
+    """Falha passageira: vale tentar de novo, se ainda houver prazo."""
+
+    def __init__(self, erro: ErroLLM):
+        super().__init__(erro.mensagem)
+        self.erro = erro
 
 
 @dataclass(frozen=True)
@@ -47,10 +70,40 @@ class RespostaLLM:
     duracao_ms: int
 
 
+def juntar_pedacos(linhas: Iterable[str], prazo: float, agora: Callable[[], float]) -> dict:
+    """Junta a resposta em pedaços do Ollama (uma linha JSON por pedaço) e devolve o último pedaço
+    com `response` = texto inteiro.
+
+    Só vale a resposta que termina com `done: true`: se a conexão cai antes, o texto está cortado e o
+    motor poderia agir sobre uma ação pela metade. O timeout do httpx conta cada espera, não o total,
+    então o prazo total é conferido aqui a cada pedaço.
+    """
+    partes = []
+    for linha in linhas:
+        if agora() > prazo:
+            raise ErroLLM("tempo_esgotado", "O modelo demorou demais para responder.")
+        if not linha.strip():
+            continue
+        try:
+            pedaco = json.loads(linha)
+        except ValueError:
+            raise _Repetir(ErroLLM("resposta_invalida", "O servidor não respondeu em JSON.")) from None
+        if not isinstance(pedaco, dict) or "error" in pedaco:
+            # O texto do erro do servidor não sai daqui (pode trazer detalhes internos).
+            raise _Repetir(ErroLLM("indisponivel", "O modelo respondeu com erro."))
+        texto = pedaco.get("response")
+        if not isinstance(texto, str):
+            raise ErroLLM("resposta_invalida", "O servidor respondeu sem o campo 'response'.")
+        partes.append(texto)
+        if pedaco.get("done") is True:
+            return {**pedaco, "response": "".join(partes)}
+    raise _Repetir(ErroLLM("indisponivel", "A resposta do modelo veio cortada."))
+
+
 class LLMClient:
     def __init__(
         self,
-        host: str,
+        url: str,
         modelo: str,
         *,
         cf_client_id: str | None = None,
@@ -60,19 +113,24 @@ class LLMClient:
         max_simultaneas: int = 8,
         espera_entre_tentativas: float = 2.0,
         transporte: httpx.BaseTransport | None = None,
+        relogio: Callable[[], float] = time.monotonic,
     ):
-        if not host:
-            raise ErroLLM("configuracao", "Defina OLLAMA_HOST no .env (ou use LLM_MODO=mock).")
+        if not url:
+            raise ErroLLM("configuracao", "Defina LLM_URL no .env (ou use LLM_MODO=mock).")
+        if not modelo:
+            raise ErroLLM("configuracao", "Defina LLM_MODELO no .env.")
         self.modelo = modelo
+        self.timeout_segundos = timeout_segundos
         self.tentativas = max(1, tentativas)
         self.espera_entre_tentativas = espera_entre_tentativas
+        self._agora = relogio
         self._vagas = threading.BoundedSemaphore(max_simultaneas)
         cabecalhos = {}
         if cf_client_id and cf_client_secret:
             cabecalhos["CF-Access-Client-Id"] = cf_client_id
             cabecalhos["CF-Access-Client-Secret"] = cf_client_secret
         self._http = httpx.Client(
-            base_url=host.rstrip("/"),
+            base_url=url.rstrip("/"),
             headers=cabecalhos,
             timeout=timeout_segundos,
             transport=transporte,
@@ -80,52 +138,64 @@ class LLMClient:
 
     # ------------------------------------------------------------------ chamadas
     def gerar(
-        self, prompt: str, sistema: str | None = None, opcoes: dict | None = None
+        self,
+        prompt: str,
+        sistema: str | None = None,
+        opcoes: dict | None = None,
+        tempo_limite: float | None = None,
     ) -> RespostaLLM:
-        """Chama /api/generate (sem streaming) e devolve texto, tokens e duração."""
+        """Chama /api/generate em pedaços e devolve texto, tokens e duração.
+
+        `tempo_limite` (segundos) é o prazo total, contando fila, tentativas e espera entre elas.
+        Sem ele, vale `timeout_segundos`.
+        """
         corpo = {
             "model": self.modelo,
             "prompt": prompt,
-            "stream": False,
+            "stream": True,
             "think": False,
-            "options": opcoes or {},
+            "options": {**OPCOES_PADRAO, **(opcoes or {})},
         }
         if sistema:
             corpo["system"] = sistema
-        inicio = time.monotonic()
-        dados = self._post("/api/generate", corpo)
-        try:
-            texto = PADRAO_PENSAMENTO.sub("", dados["response"]).strip()
-        except (KeyError, TypeError):
-            raise ErroLLM(
-                "resposta_invalida", "O servidor respondeu sem o campo 'response'."
-            ) from None
+        inicio = self._agora()
+        prazo = inicio + self._prazo(tempo_limite)
+        dados = self._com_tentativas(lambda restante: self._gerar_uma_vez(corpo, prazo, restante), prazo)
         return RespostaLLM(
-            texto=texto,
+            texto=PADRAO_PENSAMENTO.sub("", dados["response"]).strip(),
             modelo=dados.get("model", self.modelo),
             tokens_entrada=int(dados.get("prompt_eval_count") or 0),
             tokens_saida=int(dados.get("eval_count") or 0),
-            duracao_ms=int((time.monotonic() - inicio) * 1000),
+            duracao_ms=int((self._agora() - inicio) * 1000),
         )
 
     def listar_modelos(self) -> list[str]:
         """Nomes dos modelos instalados no servidor (/api/tags)."""
-        resposta = self._enviar(lambda: self._http.get("/api/tags"))
-        return sorted(m["name"] for m in resposta.json().get("models", []))
+        prazo = self._agora() + self.timeout_segundos
+
+        def listar(restante: float) -> list[str]:
+            resposta = self._http.get("/api/tags", timeout=restante)
+            self._conferir_status(resposta)
+            try:
+                return sorted(m["name"] for m in resposta.json().get("models", []))
+            except (ValueError, KeyError, TypeError, AttributeError):
+                raise ErroLLM("resposta_invalida", "O servidor não respondeu em JSON.") from None
+
+        return self._com_tentativas(listar, prazo)
 
     def como_chamar_modelo(
         self,
-        sistema: str | None = None,
         opcoes: dict | None = None,
         ao_responder: Callable[[RespostaLLM], None] | None = None,
-    ) -> Callable[[str], str]:
-        """Função `prompt -> texto` no formato que o agente espera em `chamar_modelo`.
+    ) -> Callable[..., str]:
+        """Função `chamar_modelo(prompt_sistema, prompt, tempo_limite=None) -> texto`, no formato que o
+        `rodar_turno` espera. O motor passa em `tempo_limite` o que sobra do turno.
 
-        `ao_responder` recebe cada RespostaLLM (ex.: para gravar tokens em uso_modelo).
+        `ao_responder` recebe cada RespostaLLM (para gravar tokens e latência em `uso_modelo`).
         """
 
-        def chamar_modelo(prompt: str) -> str:
-            resposta = self.gerar(prompt, sistema=sistema, opcoes=opcoes)
+        def chamar_modelo(prompt_sistema: str, prompt: str, tempo_limite: float | None = None) -> str:
+            resposta = self.gerar(prompt, sistema=prompt_sistema, opcoes=opcoes, tempo_limite=tempo_limite)
             if ao_responder is not None:
                 ao_responder(resposta)
             return resposta.texto
@@ -133,59 +203,77 @@ class LLMClient:
         return chamar_modelo
 
     # ------------------------------------------------------------------ internos
-    def _post(self, caminho: str, corpo: dict) -> dict:
-        resposta = self._enviar(lambda: self._http.post(caminho, json=corpo))
-        try:
-            return resposta.json()
-        except ValueError:
-            raise ErroLLM("resposta_invalida", "O servidor não respondeu em JSON.") from None
+    def _prazo(self, tempo_limite: float | None) -> float:
+        if tempo_limite is None or not tempo_limite > 0:
+            return self.timeout_segundos
+        return min(float(tempo_limite), self.timeout_segundos)
 
-    def _enviar(self, requisicao: Callable[[], httpx.Response]) -> httpx.Response:
-        """Faz a requisição respeitando o limite de simultâneas e com novas tentativas."""
-        ultimo_erro = ErroLLM("indisponivel", "Servidor do modelo indisponível.")
-        with self._vagas:
+    def _gerar_uma_vez(self, corpo: dict, prazo: float, restante: float) -> dict:
+        with self._http.stream("POST", "/api/generate", json=corpo, timeout=restante) as resposta:
+            self._conferir_status(resposta)
+            return juntar_pedacos(resposta.iter_lines(), prazo, self._agora)
+
+    @staticmethod
+    def _conferir_status(resposta: httpx.Response) -> None:
+        if resposta.status_code in (401, 403):
+            # Credencial errada não melhora tentando de novo.
+            raise ErroLLM("credenciais", "Cloudflare Access recusou as credenciais.")
+        if resposta.status_code >= 500:  # inclui o 524 do Cloudflare
+            raise _Repetir(
+                ErroLLM("indisponivel", f"Servidor do modelo com erro (HTTP {resposta.status_code}).")
+            )
+        if resposta.is_error:
+            raise ErroLLM(
+                "resposta_invalida", f"O servidor recusou o pedido (HTTP {resposta.status_code})."
+            )
+
+    def _com_tentativas(self, fazer: Callable[[float], object], prazo: float):
+        """Roda `fazer(restante)` respeitando o limite de simultâneas, o prazo total e as tentativas."""
+        esgotado = ErroLLM("tempo_esgotado", "O modelo demorou demais para responder.")
+        restante = prazo - self._agora()
+        if restante <= 0 or not self._vagas.acquire(timeout=restante):
+            raise esgotado
+        try:
+            ultimo_erro = ErroLLM("indisponivel", "Servidor do modelo indisponível.")
             for tentativa in range(1, self.tentativas + 1):
+                restante = prazo - self._agora()
+                if restante <= 0:
+                    raise esgotado
                 try:
-                    resposta = requisicao()
+                    return fazer(restante)
                 except httpx.TimeoutException:
-                    ultimo_erro = ErroLLM(
-                        "tempo_esgotado", "O modelo demorou demais para responder."
-                    )
+                    ultimo_erro = esgotado
                 except httpx.TransportError:
                     ultimo_erro = ErroLLM("indisponivel", "Não foi possível conectar ao modelo.")
-                else:
-                    if resposta.status_code in (401, 403):
-                        # Credencial errada não melhora tentando de novo.
-                        raise ErroLLM("credenciais", "Cloudflare Access recusou as credenciais.")
-                    if resposta.status_code < 500:
-                        if resposta.is_error:
-                            raise ErroLLM(
-                                "resposta_invalida",
-                                f"O servidor recusou o pedido (HTTP {resposta.status_code}).",
-                            )
-                        return resposta
-                    ultimo_erro = ErroLLM(
-                        "indisponivel",
-                        f"Servidor do modelo com erro (HTTP {resposta.status_code}).",
-                    )
-                if tentativa < self.tentativas:
-                    time.sleep(self.espera_entre_tentativas * tentativa)
-        raise ultimo_erro
+                except _Repetir as repetir:
+                    ultimo_erro = repetir.erro
+                logger.warning("modelo falhou tentativa=%d tipo=%s", tentativa, ultimo_erro.tipo)
+                espera = self.espera_entre_tentativas * tentativa
+                if tentativa == self.tentativas or self._agora() + espera >= prazo:
+                    break
+                time.sleep(espera)
+            raise ultimo_erro
+        finally:
+            self._vagas.release()
 
 
 class LLMClientMock:
     """Responde sem servidor, seguindo o protocolo do agente (LER / FINAL).
 
-    1ª chamada de um atendimento: lê o índice de ferramentas.
+    1ª chamada de um turno: lê o índice de ferramentas.
     Depois disso: entrega uma resposta final avisando que é modo de demonstração.
     """
 
     modelo = "mock"
 
     def gerar(
-        self, prompt: str, sistema: str | None = None, opcoes: dict | None = None
+        self,
+        prompt: str,
+        sistema: str | None = None,
+        opcoes: dict | None = None,
+        tempo_limite: float | None = None,
     ) -> RespostaLLM:
-        if "Observação:" not in prompt:
+        if PARADA_DO_MODELO not in prompt:
             texto = "PENSAMENTO: Vou ver quais ferramentas tenho.\nLER: "
         else:
             texto = (
@@ -217,13 +305,13 @@ def criar_cliente(config=None) -> LLMClient | LLMClientMock:
         return valor.get_secret_value() if valor is not None else None
 
     return LLMClient(
-        host=config.ollama_host,
-        modelo=config.ollama_modelo,
+        url=config.llm_url,
+        modelo=config.llm_modelo,
         cf_client_id=segredo(config.cf_access_client_id),
         cf_client_secret=segredo(config.cf_access_client_secret),
-        timeout_segundos=config.ollama_timeout_segundos,
-        tentativas=config.ollama_tentativas,
-        max_simultaneas=config.ollama_max_simultaneas,
+        timeout_segundos=config.llm_timeout_segundos,
+        tentativas=config.llm_tentativas,
+        max_simultaneas=config.llm_max_simultaneas,
     )
 
 
@@ -234,7 +322,7 @@ if __name__ == "__main__":
         modelos = cliente.listar_modelos()
         print("Modelos no servidor:", ", ".join(modelos) or "(nenhum)")
         if cliente.modelo not in modelos:
-            print(f"Atenção: '{cliente.modelo}' não está na lista. Confira OLLAMA_MODELO.")
+            print(f"Atenção: '{cliente.modelo}' não está na lista. Confira LLM_MODELO.")
         resposta = cliente.gerar("Responda só com a palavra: pronto")
         print(
             f"Resposta: {resposta.texto!r} | tokens {resposta.tokens_entrada}+"
