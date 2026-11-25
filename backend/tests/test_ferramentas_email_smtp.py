@@ -9,6 +9,7 @@ import json
 import logging
 import threading
 import time
+from email.message import EmailMessage
 
 import pytest
 from ferramentas import catalogo, confirmacoes, email_smtp, governanca
@@ -24,6 +25,7 @@ from .apoio_ferramentas import (
 from .apoio_smtp import SENHA, USUARIO, ServidorSmtp, porta_fechada
 
 ENVIAR = "enviar_email"
+NADA_SAIU = confirmacoes.mensagem_nada_saiu(catalogo.carregar()[ENVIAR])
 AGENTE = (ENVIAR,)
 PEDIDO = {"id_cliente": "M00001", "assunto": "Liquidação de 14/10", "corpo": "Olá, a liquidação falhou. Ação: conferir."}
 REMETENTE = "plataforma@stonelab.example"
@@ -79,8 +81,11 @@ def preparar_e_confirmar(usuario, argumentos=PEDIDO):
 def test_sem_host_o_envio_fica_desligado_e_nem_a_previa_e_montada(ana, monkeypatch):
     assert email_smtp.configuracao({}) is None
     monkeypatch.setenv("EMAIL_SMTP_HOST", "")
+    assert ENVIAR not in catalogo.ferramentas_liberadas(ana, AGENTE)  # o modelo nem vê a ferramenta
     resposta = catalogo.executar(ENVIAR, PEDIDO, ana, AGENTE)
-    assert (resposta["tipo_erro"], resposta["mensagem"]) == ("integracao_indisponivel", email_smtp.MENSAGEM_DESLIGADO)
+    aviso = "O envio de e-mail não está ligado nesta plataforma. Avise o usuário e não tente de novo."
+    assert (resposta["tipo_erro"], resposta["mensagem"]) == ("ferramenta_inativa", aviso)
+    assert "EMAIL_SMTP_HOST" not in resposta["mensagem"]  # o texto sobre o .env fica só no terminal
     assert confirmacoes.pendentes(ana) == []
 
 
@@ -88,7 +93,7 @@ def test_host_apagado_depois_da_previa_nao_envia(ana, monkeypatch):
     confirmacao_id = catalogo.executar(ENVIAR, PEDIDO, ana, AGENTE)["dados"]["confirmacao_id"]
     monkeypatch.setenv("EMAIL_SMTP_HOST", "")
     resultado = confirmacoes.confirmar(confirmacao_id, ana)
-    assert (resultado["tipo_erro"], resultado["mensagem"]) == ("integracao_indisponivel", email_smtp.MENSAGEM_DESLIGADO)
+    assert (resultado["tipo_erro"], resultado["mensagem"]) == ("integracao_indisponivel", f"{email_smtp.MENSAGEM_DESLIGADO} {confirmacoes.MENSAGEM_PREVIA_CONTINUA}")
 
 
 def test_porta_vazia_usa_a_padrao_de_cada_seguranca():
@@ -106,10 +111,14 @@ def test_porta_vazia_usa_a_padrao_de_cada_seguranca():
         ("EMAIL_SMTP_SEGURANCA", {"EMAIL_SMTP_HOST": "smtp.exemplo.example", "EMAIL_SMTP_SEGURANCA": "nenhuma"}),
         ("EMAIL_SMTP_PORTA", {"EMAIL_SMTP_PORTA": "abc"}),
         ("EMAIL_SMTP_PORTA", {"EMAIL_SMTP_PORTA": "70000"}),
+        ("EMAIL_SMTP_PORTA", {"EMAIL_SMTP_PORTA": "²"}),  # isdigit aceita, int recusa
+        ("EMAIL_SMTP_PORTA", {"EMAIL_SMTP_PORTA": "５８７"}),  # dígitos de largura cheia
         ("EMAIL_REMETENTE", {"EMAIL_REMETENTE": ""}),
         ("EMAIL_REMETENTE", {"EMAIL_REMETENTE": "a@b.example, c@d.example"}),
         ("EMAIL_SMTP_USUARIO e EMAIL_SMTP_SENHA", {"EMAIL_SMTP_USUARIO": USUARIO}),
         ("EMAIL_SMTP_USUARIO e EMAIL_SMTP_SENHA", {"EMAIL_SMTP_SENHA": SENHA}),
+        ("EMAIL_SMTP_USUARIO", {"EMAIL_SMTP_USUARIO": "joão", "EMAIL_SMTP_SENHA": SENHA}),
+        ("EMAIL_SMTP_SENHA", {"EMAIL_SMTP_USUARIO": USUARIO, "EMAIL_SMTP_SENHA": "maçã-de-teste"}),
         ("EMAIL_DESTINO_TESTE", {"EMAIL_DESTINO_TESTE": "eu@pessoal.example\nBcc: x@y.example"}),
     ],
 )
@@ -318,10 +327,10 @@ def test_envio_incerto_nao_diz_que_nada_saiu_e_a_previa_nao_volta(ana, monkeypat
 
 def test_servidor_fora_ou_configuracao_errada_dizem_que_nada_saiu(ana, monkeypatch):
     ligar_smtp(monkeypatch, porta_fechada())
-    assert preparar_e_confirmar(ana)["mensagem"] == confirmacoes.MENSAGEM_FORA_DO_AR
+    assert preparar_e_confirmar(ana)["mensagem"] == NADA_SAIU
     confirmacao_id = catalogo.executar(ENVIAR, PEDIDO, ana, AGENTE)["dados"]["confirmacao_id"]
     monkeypatch.setenv("EMAIL_SMTP_PORTA", "abc")
-    assert confirmacoes.confirmar(confirmacao_id, ana)["mensagem"] == confirmacoes.MENSAGEM_FORA_DO_AR
+    assert confirmacoes.confirmar(confirmacao_id, ana)["mensagem"] == NADA_SAIU
 
 
 def test_fila_de_previas_nao_fica_travada_enquanto_o_smtp_demora(ana, monkeypatch):
@@ -364,3 +373,87 @@ def test_teste_manual_explica_a_falha_sem_detalhe_tecnico():
     with pytest.raises(SystemExit) as erro:
         email_smtp.principal(["--testar", DESTINO_TESTE], ambiente(porta_fechada(), MODO_TERMINAL="1"))
     assert str(erro.value).startswith("Não enviou: falha na etapa conexao")
+
+
+# --- revisão do Enrico no #20 -----------------------------------------------------------------------------
+
+ENDERECO_COM_ACENTO = "joão@loja.example"
+# O que o EmailMessage recusa em cabeçalho: tudo que o str.splitlines quebra. Fora do ASCII: \x85, \u2028, \u2029.
+QUEBRAS_DE_LINHA = [chr(c) for c in range(0x110000) if len(f"a{chr(c)}b".splitlines()) > 1]
+METADE_DE_PAR = "\ud800"  # um JSON do modelo pode trazer; não vira UTF-8
+
+
+def test_endereco_com_acento_em_servidor_sem_smtputf8_quer_dizer_que_nada_saiu():
+    with ServidorSmtp() as servidor, pytest.raises(email_smtp.EnvioIndisponivel) as erro:
+        email_smtp.enviar(ENDERECO_COM_ACENTO, "A", "B", config(servidor.porta))
+    assert erro.value.etapa == "suporte" and isinstance(erro.value, ConnectionError)
+    assert "MAIL" not in servidor.comandos and servidor.mensagens == []
+
+
+def test_confirmar_com_endereco_com_acento_diz_que_nada_foi_enviado(ana, monkeypatch):
+    with ServidorSmtp() as servidor:
+        ligar_smtp(monkeypatch, servidor.porta, EMAIL_DESTINO_TESTE=ENDERECO_COM_ACENTO)
+        resultado = preparar_e_confirmar(ana)
+    assert resultado["mensagem"] == NADA_SAIU
+    assert servidor.mensagens == []
+
+
+def test_a_regra_do_assunto_cobre_tudo_que_o_email_message_recusa():
+    assert {"\n", "\r", "\x0b", "\x85", "\u2028", "\u2029"} <= set(QUEBRAS_DE_LINHA)
+    for quebra in QUEBRAS_DE_LINHA:
+        with pytest.raises(ValueError):
+            EmailMessage()["Subject"] = f"a{quebra}b"
+        assert not email_smtp.assunto_valido(f"a{quebra}b"), repr(quebra)
+
+
+@pytest.mark.parametrize("assunto", ["Liquidação de 14/10", "Ação ✅ conferida", "Prazo\u00a0curto"])
+def test_assunto_comum_continua_valendo(assunto):
+    assert email_smtp.assunto_valido(assunto)
+
+
+@pytest.mark.parametrize("caractere", ["\x85", "\u2028", "\u2029", METADE_DE_PAR])
+def test_previa_recusa_o_assunto_que_o_envio_recusaria(ana, caractere):
+    resposta = catalogo.executar(ENVIAR, {**PEDIDO, "assunto": f"Oi{caractere}Bcc: x@fora.example"}, ana, AGENTE)
+    assert (resposta["tipo_erro"], resposta["mensagem"]) == ("parametro_invalido", email_smtp.MENSAGEM_ASSUNTO_INVALIDO)
+    assert confirmacoes.pendentes(ana) == []
+    with ServidorSmtp() as servidor, pytest.raises(ErroFerramenta):
+        email_smtp.enviar(PARA, f"Oi{caractere}x", "B", config(servidor.porta))
+    assert servidor.comandos == []
+
+
+def test_previa_recusa_o_corpo_que_o_envio_nao_conseguiria_codificar(ana):
+    resposta = catalogo.executar(ENVIAR, {**PEDIDO, "corpo": f"Olá{METADE_DE_PAR}"}, ana, AGENTE)
+    assert (resposta["tipo_erro"], resposta["mensagem"]) == ("parametro_invalido", email_smtp.MENSAGEM_CORPO_INVALIDO)
+    assert confirmacoes.pendentes(ana) == []
+    with ServidorSmtp() as servidor, pytest.raises(ErroFerramenta):
+        email_smtp.enviar(PARA, "A", f"Olá{METADE_DE_PAR}", config(servidor.porta))
+    assert servidor.comandos == []
+
+
+@pytest.mark.parametrize(
+    "valores",
+    [
+        {"EMAIL_SMTP_PORTA": "²"},
+        {"EMAIL_SMTP_USUARIO": "joão", "EMAIL_SMTP_SENHA": SENHA},
+        {"EMAIL_SMTP_USUARIO": USUARIO, "EMAIL_SMTP_SENHA": "maçã-de-teste"},
+    ],
+)
+def test_porta_ou_login_estranho_no_env_nao_vira_erro_interno(ana, monkeypatch, valores):
+    ligar_smtp(monkeypatch, 1025, **valores)
+    resposta = catalogo.executar(ENVIAR, PEDIDO, ana, AGENTE)
+    # Mal configurada conta como desligada: o modelo ouve o aviso, sem "Erro interno" e sem falar do .env.
+    assert resposta["tipo_erro"] == "ferramenta_inativa" and confirmacoes.pendentes(ana) == []
+    assert ".env" not in resposta["mensagem"]
+    with pytest.raises(SystemExit) as erro:
+        email_smtp.principal(["--testar", DESTINO_TESTE], ambiente(1025, MODO_TERMINAL="1", **valores))
+    assert str(erro.value).endswith("inválida no .env.")
+
+
+def test_id_da_mensagem_nunca_tem_digito_para_a_mascara_nao_confundir_com_cpf():
+    from ferramentas.mascara import mascarar_valor
+
+    with ServidorSmtp() as servidor:
+        ids = [email_smtp.enviar(PARA, "A", "B", config(servidor.porta)) for _ in range(30)]
+    for id_mensagem in ids:
+        assert not any(caractere.isdigit() for caractere in id_mensagem)
+        assert mascarar_valor("texto_livre", f"Enviado ({id_mensagem})") == f"Enviado ({id_mensagem})"

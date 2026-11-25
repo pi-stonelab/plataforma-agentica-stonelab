@@ -84,10 +84,45 @@ def test_pasta_sql_so_tem_os_arquivos_esperados():
     assert presentes == esperados
 
 
-def test_script_de_papeis_so_concede_leitura():
+def _concessoes_do_papel(papel):
     texto = (exportar.PASTA_SQL / "postgres" / "03_papeis.sh").read_text(encoding="utf-8")
-    concessoes = [linha for linha in texto.splitlines() if linha.startswith("GRANT ")]
-    assert concessoes and all(" TO mock_leitura;" in linha for linha in concessoes)
+    assert "\r" not in texto  # roda no Linux do container
+    return [linha for linha in texto.splitlines() if linha.startswith("GRANT ") and linha.endswith(f" TO {papel};")]
+
+
+def test_script_de_papeis_so_concede_leitura_ao_papel_de_leitura():
+    concessoes = _concessoes_do_papel("mock_leitura")
     privilegios = {linha.removeprefix("GRANT ").split(" ON ")[0] for linha in concessoes}
     assert privilegios == {"CONNECT", "USAGE", "SELECT"}
-    assert "\r" not in texto  # roda no Linux do container
+
+
+def test_script_de_papeis_so_tem_os_dois_papeis():
+    texto = (exportar.PASTA_SQL / "postgres" / "03_papeis.sh").read_text(encoding="utf-8")
+    concessoes = [linha for linha in texto.splitlines() if linha.startswith("GRANT ")]
+    assert concessoes == _concessoes_do_papel("mock_leitura") + _concessoes_do_papel("mock_escrita")
+
+
+def test_papel_de_escrita_grava_so_o_que_a_lista_de_escrita_permite():
+    from mock.escritas import PRIVILEGIOS_DE_ESCRITA, SEQUENCIAS_DE_ESCRITA
+
+    esperadas = {
+        'GRANT CONNECT ON DATABASE :"banco" TO mock_escrita;',
+        "GRANT USAGE ON SCHEMA public TO mock_escrita;",
+        "GRANT SELECT ON ALL TABLES IN SCHEMA public TO mock_escrita;",
+        f"GRANT USAGE ON SEQUENCE {', '.join(SEQUENCIAS_DE_ESCRITA)} TO mock_escrita;",
+    }
+    for tabela, privilegio in PRIVILEGIOS_DE_ESCRITA.items():
+        if privilegio["insert"]:
+            esperadas.add(f"GRANT INSERT ON {tabela} TO mock_escrita;")
+        if privilegio["update"]:
+            esperadas.add(f"GRANT UPDATE ({', '.join(privilegio['update'])}) ON {tabela} TO mock_escrita;")
+    concessoes = _concessoes_do_papel("mock_escrita")
+    assert set(concessoes) == esperadas and len(concessoes) == len(esperadas)
+    assert not any(palavra in linha for linha in concessoes for palavra in ("DELETE", "TRUNCATE", "ALL PRIVILEGES"))
+
+
+def test_sql_do_postgres_escreve_o_porcento_uma_vez_so():
+    # O paramstyle padrão do dialeto do Postgres dobra o "%" com literal_binds: "2,99%" virava "2,99%%".
+    dados = (exportar.PASTA_SQL / "postgres" / exportar.ARQUIVO_DADOS).read_text(encoding="utf-8")
+    assert "%%" not in dados
+    assert "2,99% ao mês" in dados

@@ -6,6 +6,7 @@ from ferramentas.base import Ferramenta
 
 class ListarFaturasEmAtraso(Ferramenta):
     nome = "listar_faturas_em_atraso"
+    descricao_para_pessoa = "Lista as faturas vencidas e ainda não pagas de um cliente (lojista), com os dias de atraso de cada uma."
     area = "financeiro"
     acesso = "leitura"
     integracoes = ("sql",)

@@ -6,6 +6,7 @@ from ferramentas.base import Ferramenta
 
 class ConsultarLiquidacoesCliente(Ferramenta):
     nome = "consultar_liquidacoes_cliente"
+    descricao_para_pessoa = "Lista as liquidações (depósitos diários) de um cliente (lojista), com valor, situação e motivo da falha."
     area = "financeiro"
     acesso = "leitura"
     integracoes = ("sql",)

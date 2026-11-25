@@ -14,6 +14,7 @@ TRAVA_DOS_PEDIDOS = threading.Lock()  # BAIXO-6: id, tamanho e inclusão em um p
 
 class SolicitarFerramentaAusente(Ferramenta):
     nome = "solicitar_ferramenta_ausente"
+    descricao_para_pessoa = "Registra o pedido de uma ferramenta que a plataforma ainda não tem."
     area = "plataforma"
     acesso = "escrita"
     integracoes = ()

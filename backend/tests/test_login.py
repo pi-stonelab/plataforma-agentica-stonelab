@@ -217,3 +217,18 @@ def test_seed_usa_a_correspondencia_cargo_perfil_e_emails_sinteticos():
         cargo = dados_sinteticos.buscar_funcionario(id_funcionario)["cargo"]
         assert contas[id_funcionario]["perfil"] == PERFIL_DO_CARGO[cargo].__name__
     assert all(conta["email"].endswith(".example") for conta in contas.values())
+
+
+def test_seed_le_a_senha_do_env_pelo_configuracao(monkeypatch):
+    """Revisão do Enrico no #27: quem só preenche SEED_SENHA_DEMO no .env não precisa passar --senha."""
+    from pydantic import SecretStr
+
+    from app import seed
+    from app.config import configuracao
+
+    monkeypatch.setattr(configuracao, "seed_senha_demo", SecretStr("senha-do-env"))
+    assert seed.senha_padrao() == "senha-do-env"
+    monkeypatch.setattr(configuracao, "seed_senha_demo", None)
+    assert seed.senha_padrao() is None
+    with pytest.raises(SystemExit):  # sem senha em lugar nenhum: o argparse avisa e sai
+        seed.main([])

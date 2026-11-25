@@ -2,7 +2,15 @@
 
 import os
 
-from ferramentas import catalogo, confirmacoes, dados_sinteticos, governanca
+from ferramentas import (
+    catalogo,
+    confirmacoes,
+    dados_sinteticos,
+    escritas_sinteticas,
+    governanca,
+    integracoes,
+)
+from ferramentas.integracoes import credenciais, oauth
 from mock.banco import criar_engine
 from mock.consultas import buscar_funcionario
 from mock.falhas import desligar_todas
@@ -77,6 +85,7 @@ def mundo_do_mock():
     engine = novo_engine_do_mock()
     recriar(engine)
     dados_sinteticos.configurar(engine)
+    escritas_sinteticas.configurar(engine)  # as escritas gravam no mesmo mundo que as leituras leem
     return engine
 
 
@@ -90,6 +99,9 @@ def limpar_estado():
     pedidos_em_memoria.clear()
     confirmacoes.limpar()
     limpar_enviadas()
+    credenciais.usar(credenciais.ProvedorEmMemoria())  # nenhuma conta de pessoa fica ligada de um teste para o outro
+    oauth.PEDIDOS_PENDENTES.limpar()
+    integracoes.reiniciar()  # disjuntores e saúde: a falha de um teste não pausa a integração no seguinte
 
 
 def usuario_do_diretorio(engine, id_funcionario):

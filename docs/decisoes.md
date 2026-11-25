@@ -96,6 +96,8 @@ Como ler:
 - Motivo: o PLANO não escreve um motivo. Ele registra a consequência: nada de tabela de ferramentas e nada de rota que liste fichas.
 - No código: `ferramentas/catalogo.py`. Consequência: não existe tabela `ferramentas` nem rota que liste fichas para a
   interface.
+- Revogada em parte pelo Pedro em 22/11 (H17): a pessoa passa a ver o catálogo filtrado para ela. Continua valendo
+  que as ferramentas ficam só no código, nunca no banco.
 
 ### D11. Funcionário inativo é barrado em um lugar só
 - Decisão: a checagem "o funcionário está ativo?" mora em `ferramentas/diretorio.py` (`buscar_usuario`). O modo terminal
@@ -260,6 +262,50 @@ Estas cinco aparecem no pedido de documentação e nos commits. Nenhuma está no
 - No código: `ferramentas/email_smtp.py`, `EnviarEmail.efetivar`, `confirmacoes.MENSAGEM_EFEITO_INCERTO`. Testes em
   `test_ferramentas_email_smtp.py`, contra um servidor SMTP em socket local (`apoio_smtp.py`).
 
+### H16. Conectores para as integrações, e as APIs públicas de verdade
+- Decisão: cada integração das fichas tem um `Conector` em `ferramentas/integracoes/` (modo `real`, `simulado` ou
+  `desligado` pelo .env, disjuntor de 3 falhas e 60 s por serviço, saúde sem segredo e `testar` para quem configura),
+  e todas as chamadas HTTP passam por `integracoes/http.py` (hoje `cliente_http.py`, H17). `consultar_endereco_cep` passa a consultar o ViaCEP e
+  `consultar_cotacao_moeda` fica ativa, com a PTAX do Banco Central. O modo `simulado` responde sem rede (os 3 CEPs
+  de exemplo e cotações ilustrativas).
+- O `enviar_email` passa a ter `integracoes = ("email",)`: o envio é por SMTP, e a ficha dizia Google e Microsoft
+  (problema conhecido do plano antigo: com os dois na ficha, a queda de um bloqueava quem usa o outro).
+- A categoria `cambio` vira comum a todos os cargos com área (`mock/regras.py::CATEGORIAS_COMUNS`), como o CEP:
+  cotação oficial é dado público.
+- Quem e quando: Pedro, 22/11 (integrações externas reais e completas, com modo simulado para testes).
+- Segurança: HTTPS obrigatório fora do localhost; URL base fixa no .env, sem credencial, parâmetro ou fragmento;
+  redirecionamento só para a mesma origem; teto de 1 MB; resposta fora do formato vira `integracao_indisponivel`;
+  log só com integração, serviço, etapa e tipo. A suíte aponta para servidores locais e recusa conexão fora do
+  127.0.0.1 (`backend/tests/conftest.py`).
+- No código: `ferramentas/integracoes/`, `catalogo.listar_fichas` e `confirmacoes.confirmacoes_da_execucao`
+  (adaptadores do contrato do front, §4.10 e §4.9). Testes em `test_integracoes_*.py` e `test_contrato_interface.py`.
+
+### H17. Catálogo visível para a pessoa, data real na cotação e as correções da revisão do bloco B
+- Decisão 1 (Pedro, 22/11): a D10 é revogada na parte "a pessoa não vê as ferramentas". Motivo: o front do professor
+  lista o catálogo na criação guiada (`GET /ferramentas`, `frontend/CONTRATO_API.md` §4.10), com `liberada` e
+  `motivo`. `catalogo.listar_fichas` devolve o catálogo filtrado para a pessoa, com a descrição para pessoas
+  (`descricao_para_pessoa`, quando a ficha tem) e o motivo em linguagem simples (o motivo técnico de
+  `governanca.motivo_bloqueio` fica no registro). As ferramentas continuam só no código.
+- Decisão 2 (Pedro, 22/11): no modo `real`, a cotação usa a data de hoje de verdade (America/Sao_Paulo), porque é
+  dado público real; no `simulado`, o `HOJE_DO_MOCK`, como o resto do mundo simulado. É o único relógio de verdade
+  das ferramentas (`ConectorApisPublicas.agora_real`); a suíte o congela no `HOJE_DO_MOCK`. O agente sempre diz o
+  dia da cotação.
+- Decisões do orquestrador na mesma rodada (revisões de dev e de usuário do bloco B):
+  - Integração desligada ou mal configurada tira a ferramenta do índice do modelo; se o modelo insistir, ouve que a
+    integração não está ligada e que deve avisar o usuário (nada sobre o .env, que fica só no terminal).
+  - O cliente HTTP passa a `cliente_http.py` (o nome `http.py` escondia o módulo do Python ao rodar o arquivo
+    direto), com prazo total do pedido, `montar_url`, 4xx fora do disjuntor e escrita sem resposta como
+    "pode ter saído".
+  - Saúde por serviço, com `sem_chamadas` e `configuracao_invalida`; falha só acusa por 5 minutos sem chamada nova.
+  - Uma `Confirmacao` por resposta (`confirmacao_da_execucao`, a mais recente) e a decisão lembrada por 1 hora,
+    só com id, pessoa e situação, para o back-end separar 409 de 404. Envio que não saiu não fica como confirmado.
+  - Máscara de texto livre: telefone com DDD entre parênteses ou com +55 e CNPJ com pontos e barra ganham a
+    máscara do próprio tipo antes da regra por quantidade de dígitos. Risco residual (o mesmo número escrito como
+    CPF e como telefone mostra partes diferentes) documentado em `mascara.py`. Revisão sugerida ao Brenno (KAN-63).
+- No código: `ferramentas/integracoes/`, `ferramentas/catalogo.py`, `ferramentas/confirmacoes.py`,
+  `ferramentas/mascara.py`, `ferramentas/base.py`. Testes em `test_integracoes_*.py`, `test_contrato_interface.py`,
+  `test_ferramentas_mascara_texto.py` e `test_ferramentas_mensagens_de_parametro.py`.
+
 ## Decisões do orquestrador (O1 a O13)
 
 Todas de 11/11, PLANO v2, escritas depois da crítica ao plano. "Para o Pedro ver" quer dizer que ele leu; só a O10
@@ -352,6 +398,460 @@ está marcada "confirmar com o Pedro".
 - Motivo: o N1 não pode descobrir por tentativa quais códigos existem (crítica I3, ataque A-15).
 - No código: `lojista.exigir_acesso` e `governanca.lojista_no_escopo`.
 
+## Decisões do bloco A: mock fase 2 e base analítica (22/11, A1 a A8)
+
+Escolhas sem fonte no DOC-MOCK, tomadas para a fase 2 (plano `plano-ferramentas-final.md`, decisão 3 do Pedro).
+
+### A1. Quem vê as categorias novas
+- Decisão: `disputa` para o analista de disputas, o especialista N2, o supervisor de atendimento e o coordenador
+  financeiro; `satisfacao` para o supervisor de atendimento e o analista de ouvidoria; `indicador_agregado` e
+  `metadado` para todo cargo com área; `base_conhecimento` comum a todos.
+- Motivo: DOC-MOCK §8.2 (disputas vê chargebacks e Pix; o supervisor vê os indicadores do time; a ouvidoria vê todo
+  o histórico) e §6.3 (contestação é "N2 junto com Disputas"). A lista exata é SEM FONTE.
+- No código: `mock/regras.py` (`CARGOS`, `CATEGORIAS_DE_QUEM_TEM_AREA`, `CATEGORIAS_COMUNS`).
+
+### A2. Códigos sem prefixo no DOC-MOCK
+- Decisão: `PX00001` (caso de Pix), `AC0001` (acordo) e `KB001` (artigo). `R0000001` e `CB00001` seguem o DOC-MOCK §4.
+- No código: os CHECK de formato em `mock/modelos.py`.
+
+### A3. O "agora" do mock
+- Decisão: `AGORA_DO_MOCK` = 15/10/2026 às 21h, depois de toda venda sorteada. Serve ao cenário 11 ("venda de 10
+  minutos atrás") e ao prazo do SLA de chamado aberto. Sem fuso: o mock é todo horário de Brasília.
+- No código: `mock/regras.py`.
+
+### A4. Prazo do SLA
+- Decisão: dia útil de segunda a sexta, sem feriado (a mesma escolha da liquidação); o prazo conta da abertura e não
+  para em "aguardando lojista"; a ouvidoria tem 10 dias úteis (sem a prorrogação de 15 dias).
+- Motivo: o DOC-MOCK §6.4 diz que o relógio para, mas o mock não guarda o histórico de situações do chamado.
+- No código: `regras.prazo_do_chamado`, `chamados.prazo_em`.
+
+### A5. Antecipação do plano Negociado
+- Decisão: 2,29% ao mês (o Volume menos 20 pontos-base, a mesma escolha do MDR). O DOC-MOCK §2.2 só diz "sempre abaixo
+  do Volume". A antecipação só é simulada; não há tabela de antecipações executadas.
+- No código: `regras.TAXA_ANTECIPACAO_PONTOS_BASE`.
+
+### A6. Alçadas no mock
+- Decisão: `regras.alcada_do_acordo` aplica o §7.9 (dupla aprovação acima de R$ 10.000; coordenador para desconto no
+  principal, mais de 6 parcelas, entrada abaixo de 20% ou perdão de encargos em dívida acima de R$ 2.000; acima de 12
+  parcelas ou de 10% de desconto sobre o principal, proibido).
+  `calcular_parcelas` usa estas, pela fachada, desde o bloco C (C15); antes tinha as suas constantes.
+- No código: `mock/regras.py`, `acordos.alcada`.
+
+### A7. Base analítica agregada
+- Decisão: a base analítica guarda agregados (vendas por dia e modalidade, chamados por dia, fila e prioridade,
+  contestações por mês e lojista), não a cópia linha a linha. Vai até ontem; a falha "dado desatualizado" tira mais
+  3 dias. Assim ela atende indicadores e relatórios sem carregar dado de pessoa.
+- Motivo: DOC-MOCK §4 ("serve para indicadores e relatórios, nunca para atender um lojista agora"). O formato é SEM
+  FONTE.
+- No código: tabelas `analitica_*`, `consultas.totais_de_vendas`, `chamados_por_fila`, `contestacoes_por_mes`.
+
+### A8. Satisfação e base de conhecimento
+- Decisão: 60% dos chamados resolvidos respondem a pesquisa, metade com comentário (restrito, texto livre). Os
+  artigos de ajuda (18 depois da A10) são texto da equipe a partir das regras do DOC-MOCK, públicos, com os números
+  de `regras.py`.
+- No código: `gerar.criar_pesquisas_satisfacao`, `mock/base_conhecimento.py`.
+
+## Correções do bloco A depois da revisão em dois olhares (23/11, A9 a A14)
+
+### A9. Receitas e despesas no relatório semanal (KAN-14 caso 4)
+- Decisão: o mock não tem despesa nem pagamento de fatura. O relatório semanal mostra o resultado da Stone:
+  receitas são o MDR das vendas e o aluguel e as tarifas faturados (pelo vencimento); perdas são a inadimplência nova
+  (o que venceu no período e segue vencido), as concessões em acordos ativos, quitados ou quebrados (perdão de
+  encargos e desconto no principal, pelo dia do acordo) e os chargebacks perdidos ou aceitos (pelo aviso). A maior
+  venda do período acompanha, para explicar picos.
+- Motivo: SEM FONTE; o caso de uso só diz "receitas e despesas". A Milene (produto) valida.
+- No código: `analitica_resultado_diario`, `consultas.resultado_por_periodo`, `dados_sinteticos.resumo_de_resultado`.
+
+### A10. Base de conhecimento falando com o lojista
+- Decisão: os artigos são de uma central de ajuda pública ("você"), sem procedimento interno, e a busca conta as
+  palavras inteiras da pergunta (sem acento, sem plural simples, sem palavras vazias) no título, na categoria, no
+  texto e em sinônimos escritos pela equipe, com o título valendo o dobro.
+- Motivo: o caso de uso 1 da KAN-14 é responder a dúvida do lojista; a busca por trecho achava "médio" para "med" e
+  não achava "minha maquininha não liga".
+- No código: `mock/base_conhecimento.py`, `consultas.buscar_artigos`, `consultas.palavras_de_busca`.
+
+### A11. Antecipação: o que entra e como o desconto é calculado
+- Decisão: entram as parcelas previstas que caem depois do dia do crédito (1 dia útil); a do próprio dia já chega
+  nele. O desconto é calculado parcela por parcela (§7.4) e arredondado ao centavo em cada uma.
+- No código: `regras.data_de_credito_da_antecipacao`, `regras.desconto_da_antecipacao_centavos`,
+  `dados_sinteticos.simulacao_de_antecipacao`.
+
+### A12. Contestações de um lojista são dado de disputa
+- Decisão: a base analítica de contestações por lojista sai por uma função própria
+  (`contestacoes_do_lojista_por_mes`), cuja ficha pede `disputa` e passa pelas portas do lojista;
+  `indicador_agregado` só vê o total da Stone.
+- Motivo: revisão de dev do bloco A (um MEI está muito perto de pessoa natural). Levar ao Brenno.
+
+### A13. Comentários de satisfação por categoria
+- Decisão: cada comentário sorteado combina com a categoria do chamado e a faixa da nota; os gerais só entram quando
+  a categoria não tem. A concentração no varejo vem dos chamados da fase 1 e não muda.
+- No código: `gerar.COMENTARIOS_POR_CATEGORIA`, `gerar._opcoes_de_comentario`.
+
+### A14. Quarta recusa da antecipação e quem aprova o acordo da analista
+- Decisão: a M00019 tem a conta de recebimento em verificação (trocada ontem), para a recusa por conta em
+  verificação existir no mundo. O AC0004 tem a mesma analista como solicitante e aprovadora: dentro da alçada dela,
+  a analista fecha sozinha (§7.9); "quem pediu nunca aprova" vale para a dupla aprovação.
+- No código: `gerar.CONTA_EM_VERIFICACAO`, `gerar.ACORDOS`.
+
+## Decisões do bloco E1: Jira, Slack, Telegram e leitura de e-mail (23/11, E1 a E5)
+
+Tomadas pelo orquestrador; sem fonte, para o Pedro e o Brenno validarem.
+
+### E1. Quem usa as integrações internas
+- Decisão: categorias novas `chamado_interno` (Jira) e `comunicacao_interna` (Slack e Telegram), liberadas para
+  todo cargo com área (`regras.CATEGORIAS_DE_TRABALHO_INTERNO`). Admin, auditor e gestor de acessos não usam
+  ferramentas de dado e continuam de fora.
+- Motivo: abrir chamado para outro time e avisar colegas é trabalho de qualquer funcionário; o risco está no
+  destino e no conteúdo, que já ficam presos à lista do `.env` e à máscara.
+
+### E2. Destino só por lista do `.env`
+- Decisão: projeto e tipo do Jira (`JIRA_PROJETOS`, `JIRA_TIPOS`), canais do Slack (`SLACK_CANAIS`) e chats do
+  Telegram (`TELEGRAM_CHATS`) vêm do `.env`. O modelo e a pessoa só usam a chave do projeto ou o apelido; o ID do
+  canal ou do chat nunca chega ao modelo. Inclusive para ler: chave de projeto fora da lista é recusada.
+- Motivo: o modelo não pode mandar dado para fora (LGPD, E58 da KAN-69) nem ler projeto que não é da plataforma.
+
+### E3. Assinatura nas mensagens
+- Decisão: Slack e Telegram saem assinados com o primeiro nome de quem confirmou ("— Ana, pela Plataforma
+  Agêntica"), e a assinatura já aparece na prévia. O Jira não leva assinatura no texto: o chamado é aberto pela
+  conta de serviço e o registro da plataforma guarda quem confirmou.
+- Motivo: o bot é da plataforma; quem lê o canal precisa saber quem pediu.
+
+### E4. Credencial e modo
+- Decisão: as quatro integrações usam a credencial da plataforma (conta de serviço ou bot). Preencher o token liga
+  a integração; sem ele, fica desligada e as ferramentas somem do índice do modelo. `<SISTEMA>_MODO=simulado` liga
+  uma versão em memória para demo e testes, sempre identificada em `fonte`.
+
+### E6. Leitura de e-mail separada do envio, com o relógio de verdade
+- Decisão: `buscar_emails` lê a caixa da plataforma por IMAP numa integração própria (`email_leitura`), não na do
+  envio (`email`): outro servidor e outra credencial, e uma queda de um não pausa o outro. Só procura remetentes
+  do cadastro do lojista (mais o `EMAIL_DESTINO_TESTE` da demo), abre a pasta só para leitura e devolve assunto e
+  trecho juntos no campo `texto` (texto livre mascarado), porque a lista de campos classificados é fechada e
+  leitura não libera campo. Numa caixa real, o período padrão conta do dia de verdade (`agora_real`, como a
+  cotação na H17); a suíte congela esse relógio no `HOJE_DO_MOCK`.
+
+### E5. Escrita sem redirecionamento
+- Decisão: o cliente HTTP não segue redirecionamento em escrita, e um 2xx de escrita com corpo ilegível vira "pode
+  ter saído" (`EfeitoIncerto`): o servidor já recebeu o pedido, e repetir poderia duplicar a ação.
+
+## Decisões do bloco C: leitura e cálculo sobre o mock (23/11, C1 a C6)
+
+Tomadas pelo orquestrador ao implementar as ferramentas de leitura e cálculo, sem fonte que as decida. Ficam para o
+Pedro confirmar.
+
+### C1. `consultar_saldo_conta` sai do catálogo
+- Decisão: a ficha planejada foi removida. A Conta Stone não existe no mock, e o saldo que o DOC-MOCK cita é o da
+  agenda de recebíveis, que `consultar_agenda_recebiveis` mostra.
+- No código: a pasta `ferramentas/financeiro/consultar_saldo_conta/` deixou de existir.
+
+### C2. Nomes `*_ticket` viram `*_chamado`
+- Decisão: `consultar_ticket` virou `consultar_chamado` e `resumir_volume_tickets` virou `resumir_volume_chamados`,
+  o vocabulário do mock e de `listar_chamados_cliente`. As três de escrita são renomeadas pelo bloco D.
+- Efeito fora da pasta: o front do professor cita `consultar_ticket` e `listar_tickets_cliente` no seed
+  (`frontend/CONTRATO_API.md`); vale avisar pelo Jira.
+
+### C3. Quem alcança os indicadores
+- Decisão: `resumir_receita_periodo` é do financeiro (N1 em diante); `consultar_taxa_contestacao_mensal` só do
+  coordenador financeiro (N2 do financeiro); `resumir_volume_chamados` do N2 do atendimento (supervisor e
+  especialista N2). O DOC-MOCK §8.2 diz que o supervisor "vê os indicadores do time"; o especialista N2 entra porque
+  a ficha decide por nível, não por cargo.
+- No código: as fichas e `gabaritos.FERRAMENTAS_DO_CARGO`.
+
+### C4. Responsável por um conjunto de dados
+- Decisão: o responsável é o sistema dono da tabela (`cadastro`, `core`, `cobranca`, `disputas`, `crm`,
+  `diretorio`, `analitica`). O mock não tem um time nomeado por sistema, e a ferramenta nunca devolve nome de pessoa.
+- No código: `consultar_responsavel_conjunto`, `ferramentas/dicionario.py`.
+
+### C5. Fórmula do ROI
+- Decisão: ROI simples no horizonte pedido (12 meses se faltar): (ganho total menos custo total) dividido pelo custo
+  total, com o custo de implantação somado ao custo. O payback são os meses inteiros, arredondados para cima, para o
+  ganho líquido mensal pagar a implantação. Sem desconto do dinheiro no tempo. Fonte da necessidade: "Gerir: controlar
+  custos, retorno de investimento" da proposta da Stone e a KAN-16; a fórmula é nossa.
+- No código: `ferramentas/dados_e_indicadores/calcular_roi/func.py`.
+
+### C6. Períodos padrão das ferramentas de indicadores
+- Decisão: sem datas, o relatório vale os últimos 7 dias até ontem; o volume de chamados, de segunda-feira da semana
+  do hoje do mock até ontem; a taxa de chargeback, os últimos 6 meses até o mês atual. Teto de 92 dias e de 24 meses.
+- No código: `ferramentas/indicadores.py` e as três fichas.
+
+## Correções do bloco C depois da revisão (24/11, C7 a C14)
+
+Aplicadas depois da revisão do bloco C. Ficam para o Pedro confirmar.
+
+### C7. Antecipação recusada também com a conta de recebimento inválida
+- Decisão: `simular_antecipacao` recusa (`pode_antecipar` falso, com motivo) quando a conta de recebimento é
+  `invalida`. O §7.4 lista quatro recusas e não cita esta; o §7.3 diz que com a conta inválida a liquidação falha e o
+  dinheiro fica retido, então não faz sentido simular um dinheiro que não sai.
+- Conferido contra o cenário 1 (M00001, a única com conta inválida): o DOC-MOCK §9 espera cruzar cadastro, liquidação e
+  chamado e passar para o N2. Nenhum cenário espera simular antecipação para a M00001, e os cenários de antecipação
+  (M00004 e M00003) não mudam.
+- No código: `regras.ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO`, `consultas.motivos_de_recusa_da_antecipacao`.
+
+### C8. Verificação de identidade: tudo o que for informado precisa conferir
+- Decisão: telefone e e-mail informados juntos precisam ser do MESMO contato cadastrado (cenário 6, §6.6: número fora
+  do cadastro com o e-mail do sócio não passa). O telefone é comparado como DDD + número, sem `+55`, `0` de discagem
+  ou pontuação, dos dois lados.
+- No código: `consultas.normalizar_telefone`, `consultas.contato_confere`.
+
+### C9. O limite de 1% de chargeback é por lojista
+- Decisão: `consultar_taxa_contestacao_mensal` (agregado da Stone) mostra só a taxa e a tendência. Quem compara com o
+  limite do §7.6 é a nova `consultar_taxa_contestacao_cliente` (categoria `disputa`, escopo de carteira), pelas
+  quantidades (`chargebacks * 100 > vendas`), sem o arredondamento da taxa.
+- No código: `financeiro/consultar_taxa_contestacao_cliente`, `dados_sinteticos.contestacoes_do_lojista_por_mes`.
+
+### C10. Respostas grandes: teto do nosso lado e aviso para a frente de agentes
+- Decisão: o agente corta cada resultado e cada leitura em 6000 caracteres (`MAX_CHARS_MD`, em `agentes/`), e um JSON
+  cortado no meio engana o modelo. Do nosso lado: (a) `ferramentas/tamanho.py` limita o que `Ferramenta.executar`
+  devolve a 5000 caracteres, tirando itens do fim da maior lista e marcando `truncado`, `cortados_por_tamanho` e
+  `aviso_de_tamanho` (os totais da ferramenta continuam contando tudo); (b) teto de itens por ferramenta quando cada
+  item é grande: `buscar_conjuntos_dados` 20, `consultar_agenda_recebiveis` 30 e `consultar_base_conhecimento` 10
+  (com 50 as duas primeiras passavam de 6000). A mensagem de limite sempre diz o teto da ferramenta.
+- Achado que mudou um teste: `consultar_transacoes_cliente` com `limite=50` já passava de 6000 caracteres; agora vem
+  com menos linhas, `truncado` verdadeiro e o total real (`test_a08_...`).
+- Aviso para Christopher e Isack (frente 3, não mexemos em `agentes/`): o ÍNDICE que o agente lê também é cortado em
+  6000. Medido em 24/11 com o agente geral: supervisor de atendimento 5832, especialista N2 5706, coordenador financeiro
+  5564 caracteres. Cada ferramenta nova acrescenta cerca de 170 e, com mais duas ou três, o fim do índice some sem
+  aviso. Sugestão: o índice mostrar só as áreas e a pessoa (ou o modelo) abrir a área com `LER`, que já existe
+  (`catalogo.ler("<area>")`), ou subir o teto do índice. Decisão deles. Resolvido do nosso lado em F1.
+- No código: `ferramentas/tamanho.py`, `lojista.limite_pedido` (parâmetro `maximo`), as três fichas.
+
+### C11. A cobrança vê só o saldo da agenda
+- Decisão: o §8.2 diz que a cobrança vê "só faturas, pagamentos, acordos e o saldo da agenda". Nasce a categoria
+  `saldo_agenda` e a ferramenta `consultar_saldo_agenda` (só o resumo por situação, sem parcelas). A cobrança troca
+  `agenda_recebiveis` por `saldo_agenda` e perde `consultar_agenda_recebiveis` e `simular_antecipacao` (o §8.2 dá a
+  simulação ao atendimento, ao analista de recebíveis e ao coordenador). Quem tem `agenda_recebiveis` tem também
+  `saldo_agenda`.
+- Efeito: `analista_cobranca` não alcança mais a agenda parcela a parcela nem a simulação. Se a cobrança precisar da
+  simulação na negociação de acordo, é pergunta para o Pedro (SEM FONTE: o §8.2 não a dá).
+- No código: `mock/regras.py` (`CATEGORIAS_DADO`, `CARGOS`), `ferramentas/financeiro/consultar_saldo_agenda`.
+
+### C12. Padrão dos formatos de saída
+- Decisão: código do lojista sempre `id_cliente` nas ferramentas do bloco C (antes, `codigo` aparecia ao lado do
+  `codigo` do chamado ou do chargeback); percentual sempre número com duas casas em campo `*_percentual` (antes havia
+  texto `"2,99%"`, número `20.0` e `328.6`); `alcada` no lugar de `quem_aprova` (o nome de `listar_acordos` e de
+  `regras.alcada_do_acordo`); `total_encontrado` quando a resposta tem uma lista só e `total_de_<lista>` quando tem duas.
+  A média da satisfação virou número (`3.52`). O padrão está em `ferramentas/CLAUDE.md`.
+- Não mexe no contrato com o front: `frontend/CONTRATO_API.md` não descreve o `dados` de nenhuma ferramenta de dado.
+  O agente de atendimento não lê esses campos por nome (conferido em `agentes/`, só testes de `backend/tests/` os liam).
+
+### C13. Pergunta: migrar `codigo` das ferramentas dos blocos A e B para `id_cliente`?
+- Hoje `consultar_liquidacoes_cliente`, `consultar_transacoes_cliente`, `listar_faturas_em_atraso`,
+  `listar_chamados_cliente` e `consultar_contatos_lojista` devolvem o lojista em `codigo`, e
+  `test_agente_varias_ferramentas.py` lê `"codigo": "M..."` de uma observação do `consultar_cliente` (aí o `codigo` é
+  da própria entidade, que fica). Migrar as cinco é pequeno, mas muda saída que a frente de agentes já viu em
+  avaliações. Fica para o Pedro decidir.
+
+### C14. Campos genéricos saem da lista global da máscara
+- Decisão: `aviso`, `orientacao`, `explicacao`, `agenda`, `pago`, `diferenca`, `desconto`, `valor_antecipado`, `mdr`,
+  `data_inicio`, `data_fim`, `mes_inicio`, `mes_fim`, `nome_do_sistema`, `derivados` e outros saíram de
+  `CAMPOS_NAO_RESTRITOS` (valiam para toda ferramenta, e um texto de lojista guardado num campo com esse nome passaria
+  sem virar `***`). Cada um foi para `campos_liberados` da ficha das ferramentas que o devolvem, e a lista fechada
+  de `test_ferramentas_campos_liberados.py` agora cobre também essas fichas (só texto da plataforma).
+- No código: `mock/regras.py` e as 11 fichas.
+
+### C15. Alçadas num lugar só e contagem de ferramentas
+- Decisão: `calcular_parcelas` já usava `regras.alcada_do_acordo` (inclui `dupla_aprovacao` e o perdão de encargos). Os
+  textos antigos (V1, A6, pergunta 7, o comentário em `mock/regras.py` e a primeira frase do `agents.md` da
+  ferramenta) diziam o contrário e foram corrigidos. Contagem na época: 51 ferramentas, 33 ativas e 18 esqueletos
+  (hoje, depois da junção dos blocos C, D, E1 e E2: 56 ferramentas, todas ativas, em `ferramentas/CLAUDE.md` e `ferramentas/agents.md`). O `CLAUDE.md` da raiz (do Marcelo) ainda diz "43 ferramentas, 11
+  ativas": não é nosso, vale avisar no Jira.
+
+## Decisões do bloco D: escrita com confirmação no mock (23/11, W1 a W6)
+
+Escolhas sem fonte no DOC-MOCK para as 8 escritas do bloco D (plano `plano-ferramentas-final.md`).
+
+### W1. Quem executa a antecipação
+- Decisão: `executar_antecipacao` é de nível N2 com a categoria `agenda_recebiveis`: especialista N2, supervisor de
+  atendimento e coordenador financeiro. O N1 só registra o pedido (`registrar_pedido_antecipacao`).
+- Motivo: DOC-MOCK §7.4 ("o N1 simula; a execução fica com o N2, com o pedido do lojista registrado"). O §8.2 dá
+  "antecipações" à analista de recebíveis, que é N1; a lista exata é SEM FONTE.
+- No código: ficha de `ferramentas/financeiro/executar_antecipacao/func.py`.
+
+### W2. Pedido de antecipação recusado não vira chamado
+- Decisão: se a simulação tem motivo de recusa (§7.4), `registrar_pedido_antecipacao` recusa já na prévia, com o
+  motivo, em vez de abrir um chamado que o N2 teria de recusar.
+- No código: `registrar_pedido_antecipacao.montar`.
+
+### W3. A ouvidoria abre e escreve em chamados
+- Decisão: a analista de ouvidoria abre, escreve e muda a situação de chamados (o caso da ouvidoria só ela resolve).
+  Não registra pedido de antecipação, porque não vê a agenda (A1).
+- Motivo: `regras.NIVEL_DE_ATENDIMENTO_DO_CARGO` já põe a ouvidoria entre quem atende; o DOC-MOCK §6.5 não restringe.
+- No código: `gabaritos.FERRAMENTAS_DO_CARGO`.
+
+### W4. A prévia ensaia a gravação
+- Decisão: a prévia de toda escrita no mock roda a gravação de verdade numa transação desfeita no fim
+  (`mock/escritas.ensaiar`), para recusar com a mesma frase o que a confirmação recusaria (conta inválida no
+  reprocessamento, passagem fora do ciclo, caso da ouvidoria, alçada).
+- Motivo: a regra que o Enrico cobrou no `enviar_email` (prévia aceita e confirmação recusada faz a pessoa pedir tudo
+  de novo).
+- No código: `ferramentas/escritas_sinteticas.ensaiar`; `montar` de cada escrita.
+
+### W5. Booleanos como "sim" ou "não"
+- Decisão: `impede_vender`, `suspeita_fraude` e `perdoar_encargos` são texto `sim`/`não` (ausente é não), porque a
+  ficha só tem os tipos texto, inteiro, decimal e data.
+- No código: `escritas_sinteticas.sim_ou_nao`.
+
+### W6. Teto do índice do modelo
+- Decisão: o teste do tamanho do índice deixou de ter um teto fixo para o pior caso (era 3500, subiu para 4000 com as
+  8 escritas). Depois da junção com os blocos C e E1 vale o controle por ferramenta de
+  `test_catalogo_indice.py`: frase curta (até 160 caracteres) e um custo fixo por linha. O problema de fundo continua
+  em aberto: o agente geral lista o catálogo inteiro e o índice passa de 6000 caracteres (ver C10). Falta decidir
+  (Pedro, com agentes) se o índice mostra só a lista do agente, se é dividido por área ou se o teto sobe. Resolvido
+  em F1: o catálogo encurta as frases e o índice cabe em 5800 caracteres.
+- No código: `backend/tests/test_catalogo_indice.py`.
+
+## Decisões do bloco E2: Google Workspace, Microsoft 365 e anexos (24/11, G1 a G10)
+
+Tomadas pelo orquestrador; sem fonte, para o Pedro e o Brenno validarem. O Google e a Microsoft não foram testados
+contra o serviço de verdade (sem conta nem app registrado): ver o comando `testar` nos READMEs dos dois conectores.
+
+### G1. Categorias novas para agenda, planilha, documento e anexo
+- Decisão: `agenda_pessoal` (eventos da própria agenda) e `documento_de_trabalho` (planilhas, documentos, arquivos e
+  anexos do chat), em `regras.CATEGORIAS_DE_TRABALHO_INTERNO` junto com as da E1: todo cargo com área as tem; admin,
+  auditor e gestor de acessos continuam de fora.
+- Motivo: abrir a própria agenda e as próprias planilhas é trabalho de qualquer funcionário, e o conector só enxerga o
+  que a conta da pessoa enxerga. Nenhum dado de lojista passa por aqui.
+
+### G2. Google e Microsoft são alternativas, não somas
+- Decisão: as sete ferramentas de agenda, planilha, documento e arquivo declaram as duas integrações com
+  `integracoes_alternativas = True`: o catálogo só as esconde se as duas estiverem desligadas. A pessoa usa a conta
+  que ligou; com as duas ligadas, o parâmetro `servico` escolhe (ou a configuração, se só um estiver ligado).
+- Motivo: a Stone pode usar Google ou Microsoft; a ferramenta e a descrição para o modelo são as mesmas.
+
+### G3. OAuth2 por pessoa, no nível mínimo
+- Decisão: código de autorização com PKCE (S256), `state` de uso único, preso à pessoa e válido por 10 minutos;
+  renovação com trava por conta (o token da Microsoft muda a cada uso); consentimento granular: leitura por padrão,
+  escrita só quando a pessoa usa uma ferramenta de escrita, sem permissão `.All`. Sem conta ligada: `integracao_indisponivel`
+  ("conta não ligada"). Quem guarda é o back-end atrás de `ProvedorDeCredencial`; o `ProvedorEmMemoria` serve a testes e
+  demo. A tela de login e a rota de retorno não são nossas: ficam como `[A FAZER (Marcelo...)]` e `[A FAZER (Larissa...)]`.
+- Motivo: o agente roda com as permissões de quem usa; a plataforma nunca vê a senha, e o segredo nunca vai a log,
+  erro ou retorno.
+- No código: `ferramentas/integracoes/oauth.py`, `credenciais.py`.
+
+### G4. `entregar_arquivo` sem confirmação em duas etapas
+- Decisão: fica em `governanca.ESCRITA_SEM_CONFIRMACAO`, junto de `solicitar_ferramenta_ausente`. As outras três
+  escritas (`criar_evento_agenda`, `adicionar_linha_planilha`, `criar_planilha`) usam `FerramentaComConfirmacao`.
+- Motivo: `entregar_arquivo` só grava na pasta da própria pessoa e nada sai da plataforma sem a pessoa baixar. As
+  outras escrevem num serviço externo (e convidam terceiros).
+
+### G5. Conteúdo de terceiros e campos que o modo estrito deixa passar
+- Decisão: o que volta de agenda, planilha, documento e anexo é conteúdo de terceiros (dado, nunca instrução) e vai em
+  `dados["conteudo_de_terceiros"]`. Os identificadores ficam em `FORMATO_DE_IDENTIFICADORES` (`id_arquivo`, `link`, `anexo_id`, `arquivo_id`). Os campos de
+  texto (`titulo`, `inicio`, `fim`, `local`, `aba`, `intervalo`, `linhas`, `modificado_em`, `arquivo`, `abas`, `formato`,
+  `tamanho`, `aviso_de_corte`, `anexos`) entraram primeiro em `CAMPOS_NAO_RESTRITOS` e foram para as fichas em F5.
+- Motivo: a lista de campos classificados continua fechada; o texto livre é mascarado (CPF, cartão, e-mail, telefone).
+
+### G6. Convidados de evento só de domínio permitido
+- Decisão: `ESCRITORIO_DOMINIOS` (no `.env`, vale para as duas contas) lista os domínios que podem receber convite;
+  vazio, ninguém. O destino é conferido por `exigir_destino` na prévia e de novo ao confirmar.
+- Motivo: o modelo não pode mandar convite (e o título e o local do evento) para fora (LGPD, E58 da KAN-69).
+
+### G7. Busca de arquivos
+- Decisão: no Google, a busca é só pelo nome (escopo `drive.metadata.readonly`: nunca lê conteúdo). No Microsoft, a
+  busca do Graph também encontra pelo conteúdo, mas o que volta é só nome, tipo e data.
+- Motivo: o Graph não oferece busca só por nome com a mesma permissão; manter o escopo mínimo é melhor que um escopo
+  maior só para filtrar.
+
+### G8. Formatos de arquivo com biblioteca padrão
+- Decisão: `formatos.py` lê e escreve txt, csv, xlsx e docx com `zipfile`, `xml.etree` e `csv`; o PDF usa `pypdf`, importado
+  só quando preciso e **não** listado no `requirements.txt`. Sem `pypdf`, ler PDF volta `parametro_invalido` com mensagem
+  fixa. Macro, zip hostil, parte cifrada, `DOCTYPE`/entidade e byte nulo são recusados; fórmula nunca é calculada;
+  csv e xlsx de saída ganham apóstrofo em texto que parece fórmula.
+- Motivo: poucas dependências no Raspberry Pi; o arquivo vem de fora e o parser precisa ser pequeno e auditável.
+- Em aberto: o grupo decide se `pypdf` entra no `requirements.txt`.
+
+### G9. Redirecionamento só para download de arquivo
+- Decisão: `cliente_http.pedir(seguir_para=...)` segue o redirecionamento do Graph `/content` para outro domínio só se for
+  `sharepoint.com`, `1drv.com` ou `onedrive.live.com`, e sem mandar o token. Um parâmetro novo, `repetivel`, faz um POST de
+  token contar como leitura (5xx vira `ConnectionError`, não `EfeitoIncerto`).
+- Motivo: complementa a E5 (escrita não redireciona): o download é leitura e o endereço já é assinado.
+
+### G10. Anexos numa pasta própria
+- Decisão: `anexos/conector.py` guarda em `ANEXOS_DIRETORIO`, por pessoa, com id sorteado (`ANX-`/`ARQ-` + 12 letras),
+  permissão 0600, gravação atômica, sem seguir link simbólico, 5 MB por arquivo, 30 arquivos e 50 MB por pessoa, retenção
+  de 7 dias (apagados no próximo envio da pessoa). Nunca um caminho sai para o modelo ou para a interface.
+- Motivo: LGPD (mínimo de dado, só o necessário e por tempo limitado) e isolamento entre pessoas. Os números são
+  escolhas nossas, sem fonte.
+
+## Decisões do bloco F: índice, agente de atendimento e prompts (24/11, F1 a F6)
+
+Escolhas do fechamento das ferramentas. Todas são do Pedro confirmar; os testes estão em `backend/tests/`.
+
+### F1. O índice se encurta sozinho para caber em 6000 caracteres
+- Problema (C10, W6): o motor corta cada leitura em 6000 (`MAX_CHARS_MD`) e o índice do agente geral para um cargo com
+  50 ferramentas chegava a 9500 caracteres, então a cauda (as últimas áreas, os tipos de erro e as regras gerais)
+  sumia sem aviso. Medido em 24/11 com todas as integrações ligadas: de 6853 a 9477 caracteres, conforme o cargo.
+- Decisão: `catalogo._indice` mede o texto e divide o espaço entre as frases (`LIMITE_DO_INDICE` = 5800, folga sobre o
+  corte). Poucas ferramentas: frase inteira (até 160). Muitas: frase cortada na última palavra, com `…`, até um mínimo
+  de 30 caracteres; se nem assim couber, só `area/nome`. As áreas passam a mostrar só a quantidade de ferramentas, e o
+  texto fixo da raiz (`ferramentas/agents.md`) ficou mais curto. A frase inteira de cada ferramenta continua em
+  `LER: <area>`. Hoje o cargo de 50 ferramentas ganha frases de cerca de 40 caracteres. Escolhido por ser a mudança
+  mais simples e fica do nosso lado: o motor de Christopher e Isack não mudou.
+- Alternativas descartadas: subir `MAX_CHARS_MD` (cada passo reenvia o índice ao modelo local, mais lento) e listar só
+  as áreas no índice (a regra "leia a ficha direto" dos prompts deixaria de valer).
+- No código: `ferramentas/catalogo.py` (`_indice`, `_frase_curta`, `_limite_das_frases`), `ferramentas/agents.md`,
+  `backend/tests/test_catalogo_indice.py` (10 cargos, os dois agentes, pior caso com tudo ligado).
+
+### F2. Lista de ferramentas do agente de atendimento (KAN-55)
+- Decisão: das 56 ferramentas, 33 entram: o lojista (cadastro, contatos, identidade, chamados, histórico, base de
+  conhecimento e e-mails recebidos), vendas, depósitos, agenda, faturas, acordos e contestações, os cálculos, CEP e
+  cotação, as sete escritas de atendimento e cobrança em duas fases (`abrir_chamado`, `adicionar_nota_chamado`,
+  `atualizar_situacao_chamado`, `registrar_pedido_antecipacao`, `executar_antecipacao`, `registrar_acordo`,
+  `enviar_email`), os anexos do chat, `entregar_arquivo` e `solicitar_ferramenta_ausente`. O agente geral continua com todas.
+- Ficam de fora (23): indicadores gerenciais (`resumir_*`, `consultar_taxa_contestacao_mensal`, `calcular_roi`), o
+  dicionário de dados, Jira, Slack e Telegram (bastidor entre times), agenda, planilhas e documentos do Google ou da
+  Microsoft (conta pessoal; o geral cobre) e o que é de outro papel (`aprovar_acordo`, `reprocessar_liquidacao`,
+  segregação de funções do DOC-MOCK §8.1).
+- Lista não é permissão: o cargo manda (§8.2). `test_agente_atendimento_ferramentas.py` confere o alcance de cada cargo
+  pelo agente com os gabaritos de §8.2 e obriga cada ferramenta nova a entrar ou a ter motivo para ficar de fora.
+- Dúvida para o Pedro: `executar_antecipacao` e `registrar_acordo` entram porque o N2 executa a antecipação pedida pelo
+  lojista e a cobrança negocia (§8.2); a prévia e a confirmação humana continuam valendo. Se preferir o agente só de
+  leitura mais as escritas de chamado, é tirar as duas da lista.
+- No código: `agentes/agente_atendimento/agente.py` (`FERRAMENTAS_DO_AGENTE`).
+
+### F3. A data de hoje no prompt e a regra de dizer a data
+- Decisão: o motor põe uma frase com o dia de hoje antes da pergunta de cada turno (`catalogo.data_de_hoje()`, 1 linha
+  em `montar_prompt`), porque o modelo não tem relógio e chutava o dia. No modo simulado: "Hoje é 15/10/2026, 21h
+  (horário de Brasília)." (`HOJE_DO_MOCK` e `AGORA_DO_MOCK`). Se alguma integração com relógio está em modo real
+  (APIs públicas, e-mail, Google ou Microsoft, as mesmas `agora_real` do H17): o dia de verdade em Brasília, mais "Os
+  dados de lojistas são sintéticos e valem para 15/10/2026" quando os dois dias diferem. A frase vai no prompt do
+  turno e não no `SISTEMA` porque o `LLMClient.como_chamar_modelo(sistema=...)` já leva o sistema dentro dele.
+- Regra nova nos dois `SISTEMA` (geral e atendimento): "diga sempre a data a que ele se refere" ao citar cotação,
+  consulta ou valor que depende do dia. A ficha de `consultar_cotacao_moeda` já mandava dizer o dia da cotação.
+- Observação: as APIs públicas são `real` por padrão (CEP e PTAX), então sem `.env` o prompt já diz a data real de
+  Brasília. Para a demo com o dia do mock inteiro, `APIS_PUBLICAS_MODO=simulado`.
+- No código: `ferramentas/catalogo.py` (`data_de_hoje`), `agentes/agente_atendimento/agente.py` (`montar_prompt`,
+  `SISTEMA`), `agentes/agente_geral/agente.py` (`SISTEMA`); testes em `test_agente_data_de_hoje.py`.
+
+### F4. Cenários de avaliação das ferramentas novas e das escritas
+- Decisão: `agentes/avaliacao.py` passa de 10 para 27 cenários fixos. Entram uma pergunta por ferramenta nova de
+  leitura e cálculo, com o cargo que a alcança (§8.2): cobrança (saldo da agenda), disputas (chargeback), recebíveis
+  (depósito x agenda), coordenadora (acordos), atendente (nome do lojista, base de conhecimento, chamado, identidade,
+  antecipação, cotação com a data). O caso de §8.4 "o N1 pede ao agente para executar a antecipação" tem o seu: só
+  `simular_antecipacao` pode rodar e a resposta manda para o N2.
+- Escritas em duas fases: o cenário ganhou o campo `previas` (as escritas que precisam ter deixado a prévia esperando
+  confirmação). A avaliação confere que a fila de quem perguntou tem exatamente essas prévias e as descarta no fim
+  (quem confirma é a pessoa, nunca o agente nem a avaliação); `Resultado.previas_certas` entra em `aprovado`. Seis
+  escritas: `abrir_chamado`, `adicionar_nota_chamado`, `atualizar_situacao_chamado`, `enviar_email`,
+  `registrar_pedido_antecipacao` e `registrar_acordo`.
+- Fora de propósito: `executar_antecipacao` (precisa de um pedido já confirmado por outra pessoa, dois turnos) e as
+  ferramentas de Jira, Slack, Telegram, Google e Microsoft (dependem de conta; o agente de atendimento nem as lista).
+- A avaliação com o modelo real é do Pedro (`python -m agentes.avaliacao`). Aqui só se validou a estrutura e que o
+  modelo roteirizado atinge o gabarito (`test_agentes_avaliacao.py`). Os padrões do cenário da cotação não fixam o
+  valor, porque as APIs públicas são reais por padrão; só exigem a moeda, o valor em reais e uma data.
+- No código: `agentes/avaliacao.py` (`Cenario.previas`, `Resultado.previas_certas`, `limpar_previas`).
+
+### F5. Campos do bloco E2 saem da lista global da máscara
+- Decisão: `titulo`, `inicio`, `fim`, `local`, `aba`, `intervalo`, `linhas`, `modificado_em`, `arquivo`, `abas`,
+  `formato`, `tamanho`, `aviso_de_corte` e `anexos` saíram de `CAMPOS_NAO_RESTRITOS` (como em C14) e foram para o
+  `campos_liberados` das fichas de `documentos_e_agenda` que os devolvem. Antes, uma ferramenta de lojista que
+  devolvesse um campo com esse nome (um `titulo` de chamado, um `local`) deixava o texto passar sem virar `***`. Agora só
+  as nove fichas de agenda, planilha, documento e anexo o liberam, e o texto continua passando pela máscara de CPF e
+  cartão. Números (`tamanho` em bytes, `paginas`) nunca foram mascarados e não precisam de liberação.
+- `LIBERACOES_PERMITIDAS` (em `test_ferramentas_campos_liberados.py`) ganhou as nove fichas. A regra "escrita que libera
+  campo é em duas fases" ganhou uma exceção escrita no teste: `entregar_arquivo` (G4), que só gera um arquivo para a
+  própria pessoa baixar, e libera `arquivo` e `formato`.
+- No código: `mock/regras.py` e as fichas em `ferramentas/documentos_e_agenda/*/func.py`.
+
 ## Divergências abertas com a KAN-69 (V1 a V14, mais V15 a V18)
 
 A KAN-69 é o catálogo de casos de teste do Pedro no Jira. As divergências estão em `pesquisa/kan69_testes.md` §5, que
@@ -360,8 +860,9 @@ o código faz hoje e o que falta decidir.
 
 - V1. Alçadas e escrita (E15 a E20). A KAN-69 quer alçada testável. Sem escrita na Sprint 2, os casos N3, N6 e N7 valem
   "por construção" (a ferramenta não existe). A proposta P-1 (calcular quem aprova) foi atendida: `calcular_parcelas`
-  devolve `analista`, `coordenador` ou `proibido`. As alçadas moram em `ferramentas/financeiro/calcular_parcelas/func.py`,
-  não em `mock/regras.py`. O Pedro não registrou aprovação da P-1 (SEM FONTE).
+  devolve `alcada` (`analista`, `coordenador`, `dupla_aprovacao` ou `proibido`). As alçadas moram em
+  `mock/regras.py::alcada_do_acordo` (a ferramenta só explica a decisão em `motivo`; C15). O Pedro não registrou
+  aprovação da P-1 (SEM FONTE).
 - V2. Dado restrito completo para o N2. Adiado (O2). A demo deve avisar que o N2 também vê mascarado.
 - V3. "3 níveis da KAN-33" (E9). Superado pela regra por cargo (O1). O caso E9 vale como "cargo desconhecido é negado".
 - V4. Replicar e onboarding guiado. Fora da Sprint 2 (O6). Não há `REPLICAR` em `Acao`.
@@ -398,7 +899,7 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
 2. A entrada de 20% está dentro das parcelas ou vem antes? Hoje `calcular_parcelas` cobra a entrada à parte: do valor
    negociado tira a entrada e divide o resto em N parcelas. O DOC-MOCK §7.9 não diz qual é o certo (L2 da pesquisa),
    e o gabarito do cenário 3 depende disso.
-3. Quem aprova entrada abaixo de 20%? O código manda para o coordenador (`quem_aprova`). O DOC-MOCK só diz que o analista
+3. Quem aprova entrada abaixo de 20%? O código manda para o coordenador (`alcada`). O DOC-MOCK só diz que o analista
    exige 20% no mínimo. SEM FONTE sobre o aprovador da exceção.
 4. E-mail e telefone digitados em texto livre são mascarados? Hoje não. A máscara de texto livre só cobre sequências de
    11 dígitos (CPF) e de 13 a 19 dígitos (cartão); 12 dígitos ou mais de 19 viram `***`. O DOC-MOCK §8.3 só pede
@@ -406,14 +907,62 @@ Cada pergunta tem a resposta que o código dá hoje. Quem decide está entre par
 5. `id_cliente` ou `codigo_lojista`? Decidido em H6: continua `id_cliente` para o modelo.
 6. Formato da máscara do nome do sócio. Hoje: inicial de cada parte e `***` (`J*** S***`). O DOC-MOCK §8.3 não define
    (SEM FONTE).
-7. Alçadas em `mock/regras.py`. Hoje ficam na ferramenta, com a pendência anotada no próprio arquivo. Mover deixa as
-   regras todas num lugar só.
+7. Alçadas em `mock/regras.py`. Resolvida no bloco C (C15): `calcular_parcelas` usa `regras.alcada_do_acordo` pela
+   fachada, com `dupla_aprovacao` e o perdão de encargos, e as regras ficam num lugar só.
 8. Escopo por chamados atribuídos. O DOC-MOCK §3.2 fala em carteira, fila e chamados atribuídos; o código só usa as
    carteiras do time (L11 da pesquisa).
 9. Reativar um agente pausado. `Plataforma.deprecar` existe; não existe método que reative. Nenhuma fonte diz se pode.
-10. Lista de ferramentas do agente de atendimento (KAN-55). Está fixa em 5, sem as 6 novas. O comentário no código diz que
-    a lista virá da configuração do agente (KAN-55); falta isso ser feito.
+10. Lista de ferramentas do agente de atendimento (KAN-55). Resolvida em F2: 33 das 56, fixas no código. O comentário
+    no código diz que a lista virá da configuração do agente (KAN-55); falta isso ser feito (Christopher e Isack).
 11. Retenção do registro de chamadas e da auditoria. O valor está em branco no código (`[preencher: prazo de retenção]`
     em `governanca.py`) e nos cards (KAN-34, trava 8). SEM FONTE.
 12. Preço simulado por token e limite mensal por pessoa (Sprint 3). A regra vem da KAN-16; os números não.
 13. O prazo de 120 s por turno do agente vale? Foi escolhido para a demo e ainda não foi medido com o modelo real.
+14. Fatura com exatamente 15 dias de atraso bloqueia a antecipação? O §7.4 diz "fatura vencida há mais de 15 dias" (o
+    código usa isso: com 15 dias ainda antecipa, com 16 recusa) e a régua do §7.5 diz "15 dias: antecipação
+    bloqueada". As duas frases discordam no dia 15. Não mudamos: `test_fatura_com_15_dias_exatos_...` fixa o
+    comportamento atual. Se o Pedro escolher o §7.5, é trocar `<` por `<=` em `mock/consultas.py::
+    motivos_de_recusa_da_antecipacao` e o teste.
+15. Risco de oráculo em `verificar_identidade_contato`. A ferramenta responde só "confere" ou "não confere", mas quem
+    tem acesso ao agente pode chutar números de telefone ou e-mails de um lojista e ver qual confere, até achar um
+    contato cadastrado (e a resposta `confere` libera o resto do atendimento). Mitigações que não fizemos: limite de
+    tentativas por pessoa e por lojista (o registro já guarda quem chamou, sem o contato), alerta ao Monitoramento
+    depois de N falhas seguidas e confirmação do CNPJ junto (§6.6 já pede o CNPJ e o código no contato). O registro
+    nunca guarda o telefone nem o e-mail informados. Decisão e dono: Pedro com o Brenno (segurança) e o Enrico (alertas).
+
+## Perguntas H da rodada de achados (24/11): decisão de negócio que o código não tomou sozinho
+
+Cada uma tem o que o código faz hoje. Nenhuma está na fonte; quem decide está entre parênteses.
+
+- H1. Janela da soma de acordos. A alçada do acordo soma os acordos do mesmo lojista abertos nos últimos 30 dias. O
+  número 30 é nosso (Milene).
+- H2. Validade do acordo pendente. Um acordo que ninguém aprova expira em 7 dias e as faturas ficam livres (Milene).
+- H3. Falha "recusa do banco" na liquidação. Foi inventada para dar o caso de reprocessar com motivo de recusa (U4); a
+  M00015 tem a liquidação recusada. Não está no DOC-MOCK (Pedro e o professor).
+- H4. Quem registrou o pedido de antecipação não o executa (segregação). O mock não guarda o canal de origem do pedido
+  (dev 7), então o código só confere o `id_solicitante` do chamado (Milene e Brenno).
+- H5. O coordenador financeiro não executa antecipação: o §8.2 dá isso só ao N2 de atendimento e o cargo não tem a
+  categoria `chamado` (Milene).
+- H6. "Contato verificado" não é gravado em lugar nenhum; por isso só `suspeita_fraude` bloqueia a resposta ao lojista
+  num chamado (Brenno).
+- H7. U12: o financeiro (cobrança, disputas e recebíveis) não lê chamados, pois o §8.2 não permite. Se for preciso, a
+  mudança é em `mock/regras.py` e é do Pedro com a Milene.
+- H8. U20, segunda metade: listar o argumento que falhou na mensagem de erro conflita com os ataques de resposta
+  uniforme (a07 e a21). Pergunta para o Brenno e o Enrico.
+- H9. Dev 8: antecipação acima de R$ 10 mil com dupla aprovação (Milene). Hoje só o N2 executa, uma pessoa só.
+- H10. Dev 14: a identidade da pessoa na plataforma é `Funcionario.id` (F0001...). Premissa; o back-end pode ter outro id
+  (Marcelo e Isabel).
+- H11. Dev 15: anexos do chat são por pessoa, não por conversa (Marcelo e Larissa).
+- H12. Dev 22: o coordenador aprova o acordo que ele mesmo pediu quando está na alçada dele (AC0004). A segregação do
+  §8.1 diz o contrário para outros casos (Milene).
+- H13. O DOC-MOCK fala em 15 funcionários e há só um coordenador financeiro; sem segundo aprovador, o acordo fora da
+  alçada dele fica parado até `retirar_acordo` ou a expiração.
+- H14. `registrar_defesa_chargeback` é só de Disputas (analista e coordenador); o N2 e o supervisor de atendimento só
+  leem as contestações. Ampliar é decisão da Milene.
+- H15. `listar_meus_chamados` fica fora do agente de atendimento até o Christopher e o Isack decidirem (KAN-55).
+- H16. Dev 23: validar o domínio da conta conectada e o tenant da Microsoft dependem de um app real e são itens do `.env`
+  do Pedro.
+
+Sugestões de ferramenta só registradas, sem código (precisam de decisão de negócio): `alterar_conta_recebimento` (N2,
+§6.6), `reatribuir_chamado`, `isentar_tarifa` com alçada, `contestar_devolucao_pix`, reter e liberar valor, e prévia em
+lote da régua de cobrança.

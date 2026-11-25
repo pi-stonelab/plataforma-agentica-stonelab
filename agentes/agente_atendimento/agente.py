@@ -37,23 +37,52 @@ SEGUNDOS_MAXIMOS_POR_TURNO = 1000
 NOME_EMPRESA = "Stone"
 AGENTE_ID = "agente_atendimento"
 
-# Ferramentas que este agente pode usar. O catálogo ainda confere o nível e a área do funcionário.
-# Da sexta à décima primeira: leitura e cálculo dos cenários 1, 3 e 7 do gabarito da KAN-58. O enviar_email
-# é a única escrita, em duas fases: o agente monta a prévia e quem pediu confirma fora dele (KAN-52, passo 7).
+# Ferramentas que este agente pode usar: as de atendimento ao lojista (decisão F1 em docs/decisoes.md). O catálogo
+# ainda confere o cargo, a área, a categoria de dado e a carteira de quem usa (DOC-MOCK §8.2): lista de agente não
+# é permissão. Ficam de fora os indicadores gerenciais, o dicionário de dados, Jira, Slack, Telegram e a agenda,
+# planilhas e documentos do Google ou da Microsoft (o agente geral tem todas), e o que é de outro papel
+# (`aprovar_acordo`, `reprocessar_liquidacao`). `test_agente_atendimento_ferramentas.py` classifica cada ferramenta do
+# catálogo: ferramenta nova precisa de decisão (entra aqui ou na lista de fora do teste).
 # [A FAZER (Christopher e Isack, agentes, KAN-55): ler esta lista da configuração do agente]
 FERRAMENTAS_DO_AGENTE = (
+    # o lojista: cadastro, contatos, identidade, chamados, conversas e dúvidas frequentes
+    "buscar_clientes",
     "consultar_cliente",
-    "consultar_transacoes_cliente",
-    "calcular_multa_atraso",
-    "consultar_endereco_cep",
-    "solicitar_ferramenta_ausente",
-    "consultar_liquidacoes_cliente",
-    "listar_chamados_cliente",
-    "consultar_historico_contato",
-    "listar_faturas_em_atraso",
-    "calcular_parcelas",
     "consultar_contatos_lojista",
+    "verificar_identidade_contato",
+    "listar_chamados_cliente",
+    "consultar_chamado",
+    "consultar_historico_contato",
+    "consultar_base_conhecimento",
+    "buscar_emails",
+    # vendas, depósitos, agenda de recebíveis, faturas, acordos e contestações
+    "consultar_transacoes_cliente",
+    "consultar_liquidacoes_cliente",
+    "conferir_liquidacoes",
+    "consultar_agenda_recebiveis",
+    "consultar_saldo_agenda",
+    "listar_faturas_em_atraso",
+    "listar_acordos",
+    "listar_contestacoes_cliente",
+    "consultar_taxa_contestacao_cliente",
+    # contas
+    "calcular_multa_atraso",
+    "calcular_parcelas",
+    "simular_antecipacao",
+    "consultar_endereco_cep",
+    "consultar_cotacao_moeda",
+    # escritas, todas em duas fases (o agente monta a prévia e quem pediu confirma fora dele, KAN-52, passo 7)
+    "abrir_chamado",
+    "adicionar_nota_chamado",
+    "atualizar_situacao_chamado",
+    "registrar_pedido_antecipacao",
+    "executar_antecipacao",
+    "registrar_acordo",
     "enviar_email",
+    # anexos do chat e arquivo para baixar; pedido de ferramenta nova
+    "ler_arquivo_anexado",
+    "entregar_arquivo",
+    "solicitar_ferramenta_ausente",
 )
 
 # ---------- PROTOCOLO DO AGENTE ----------
@@ -78,7 +107,8 @@ Regras de trabalho (siga esta ordem):
 5. Se nenhuma ferramenta servir ao pedido, diga isso no FINAL, cite só as ferramentas que você viu e sugira a mais próxima. Antes de encerrar, use PERGUNTAR para oferecer o registro de um pedido de ferramenta nova. Se o funcionário aceitar, leia e use plataforma/solicitar_ferramenta_ausente e informe só o código do pedido, sem prometer aviso, prazo ou resposta de ninguém.
 6. Se uma ferramenta devolver permissao_negada, ou se um caminho não for encontrado, diga no FINAL que você não tem acesso a isso. Não sugira outro jeito de obter o mesmo dado e nunca peça ao funcionário que adivinhe nomes de ferramentas.
 7. Se a ferramenta devolver erro de parâmetro ou "não encontrado" para um dado (ex.: cliente inexistente), corrija o que for seu ou use PERGUNTAR. Nunca invente dados de clientes, valores ou prazos; use somente o que as ferramentas devolverem.
-8. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
+8. A data de hoje vem antes da pergunta do funcionário; não use outra. Ao citar uma cotação, uma consulta ou um valor que depende do dia, diga sempre a data a que ele se refere (a que a ferramenta devolveu) e não só "hoje".
+9. Nunca escreva "Observação:" você mesmo; o sistema a fornecerá."""
 SISTEMA = SISTEMA.replace("{EMPRESA}", NOME_EMPRESA)
 # O modelo deve parar aqui, senão inventa o resultado da ferramenta. Todo `chamar_modelo` (inclusive o
 # `LLMClient` do back-end e o `chamar_llm` do terminal) precisa passar isto como "stop" ao Ollama.
@@ -228,6 +258,7 @@ def montar_prompt(pergunta, historico, atendimento):
     if len(texto) > MAX_CHARS_PERGUNTA:
         logger.info("pergunta cortada tamanho=%d limite=%d", len(texto), MAX_CHARS_PERGUNTA)
         texto = texto[:MAX_CHARS_PERGUNTA] + " [pergunta cortada pelo sistema]"
+    partes.append(catalogo.data_de_hoje())  # o modelo não tem relógio: sem isso ele chuta o dia
     partes.append(f"Pergunta do funcionário: {texto}")
     return "\n\n".join(partes)
 

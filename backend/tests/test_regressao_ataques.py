@@ -385,14 +385,21 @@ def test_a08_lista_longa_e_cortada_em_50_com_o_total_real():
         gab.CONSULTAR_TRANSACOES, {"id_cliente": "M00005", "limite": 50}, pessoa("coordenador_financeiro")
     )
     dados = resposta["dados"]
-    assert len(dados["transacoes"]) == gab.LIMITE_DE_LINHAS
+    # Com 50 vendas a resposta passaria dos 5000 caracteres e o agente a cortaria no meio: o teto de tamanho
+    # (`ferramentas/tamanho.py`) tira vendas do fim, avisa e o total continua o real.
+    assert 0 < len(dados["transacoes"]) <= gab.LIMITE_DE_LINHAS
     assert dados["truncado"] is True and dados["total_encontrado"] > gab.LIMITE_DE_LINHAS
 
 
 @pytest.mark.parametrize("cargo", gab.CARGOS)
-def test_a08_nenhum_cargo_alcanca_ferramenta_de_arquivo_planilha_ou_envio(cargo):
+def test_a08_arquivo_e_planilha_so_com_confirmacao_e_envio_so_com_confirmacao(cargo, monkeypatch):
+    monkeypatch.setenv("GOOGLE_MODO", "simulado")
+    monkeypatch.setenv("ANEXOS_MODO", "simulado")
     liberadas = set(catalogo.ferramentas_liberadas(pessoa(cargo), geral.FERRAMENTAS_DO_AGENTE))
-    assert not liberadas & set(gab.FERRAMENTAS_DE_EXPORTACAO + gab.FERRAMENTAS_DE_ENVIO)
+    escrita_de_arquivo = {gab.CRIAR_PLANILHA, gab.ADICIONAR_LINHA}
+    assert liberadas & escrita_de_arquivo <= set(governanca.ESCRITA_COM_CONFIRMACAO)
+    assert liberadas & {gab.ENTREGAR_ARQUIVO} <= set(governanca.ESCRITA_SEM_CONFIRMACAO)
+    assert liberadas & set(gab.FERRAMENTAS_DE_ENVIO) <= set(governanca.ESCRITA_COM_CONFIRMACAO)
 
 
 def test_a08_cem_consultas_gravam_cem_registros_sem_conteudo():
@@ -674,7 +681,7 @@ def test_a14_pedir_para_agir_como_outro_cargo_nao_muda_o_que_o_catalogo_entrega(
     roteiro = reg.Roteiro(
         [
             reg.ler(),
-            reg.ler("financeiro/consultar_saldo_conta"),
+            reg.ler("dados_e_indicadores/consultar_taxa_contestacao_mensal"),
             reg.ler("comunicacao/enviar_mensagem_slack"),
             reg.ler("plataforma"),
             reg.usar(gab.CONSULTAR_LIQUIDACOES, id_cliente=gab.C5_LOJISTA_FORA),
@@ -688,7 +695,7 @@ def test_a14_pedir_para_agir_como_outro_cargo_nao_muda_o_que_o_catalogo_entrega(
     assert "não encontrado ou não liberado" in turno.trajetoria[2]
     assert "ferramenta não lida" in turno.trajetoria[4]
     indice = roteiro.prompts[1]
-    assert "enviar_mensagem_slack" not in indice and "consultar_saldo_conta" not in indice
+    assert "enviar_mensagem_slack" not in indice and "consultar_taxa_contestacao_mensal" not in indice
     assert execucao.espioes.nomes_chamados() == {}
 
 

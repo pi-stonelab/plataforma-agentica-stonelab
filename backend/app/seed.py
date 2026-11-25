@@ -13,7 +13,6 @@ Roda de novo sem duplicar: conta que já existe não é alterada.
 """
 
 import argparse
-import os
 
 from ferramentas import dados_sinteticos
 from sqlalchemy.orm import Session
@@ -76,18 +75,26 @@ def semear(sessao: Session, senha: str) -> list[str]:
     return criadas
 
 
-def main() -> None:
+def senha_padrao() -> str | None:
+    """`SEED_SENHA_DEMO`, lida pelo `Configuracao` (do ambiente ou do .env da raiz), ou None."""
+    from app.config import configuracao
+
+    segredo = configuracao.seed_senha_demo
+    return segredo.get_secret_value() if segredo is not None else None
+
+
+def main(argv: list[str] | None = None) -> None:
     from app.db import SessaoLocal, criar_tabelas
 
     parser = argparse.ArgumentParser(description="Cria as contas da demo.")
     parser.add_argument(
         "--senha",
-        default=os.environ.get("SEED_SENHA_DEMO"),
-        help="Senha de todas as contas da demo (ou SEED_SENHA_DEMO no ambiente).",
+        default=senha_padrao(),
+        help="Senha de todas as contas da demo (padrão: SEED_SENHA_DEMO do .env).",
     )
-    argumentos = parser.parse_args()
+    argumentos = parser.parse_args(argv)
     if not argumentos.senha:
-        parser.error("informe --senha (ou SEED_SENHA_DEMO).")
+        parser.error("informe --senha ou preencha SEED_SENHA_DEMO no .env.")
 
     criar_tabelas()
     with SessaoLocal() as sessao:

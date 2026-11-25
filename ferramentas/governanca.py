@@ -31,9 +31,28 @@ PARAMETROS_RESERVADOS = (
     "ferramentas_do_agente",
     "contexto",
 )
-ESCRITA_SEM_CONFIRMACAO = ("solicitar_ferramenta_ausente",)
+ESCRITA_SEM_CONFIRMACAO = ("solicitar_ferramenta_ausente", "entregar_arquivo")
 # Escrita em duas fases (ferramentas/confirmacoes.py): o agente só monta a prévia; quem pediu confirma.
-ESCRITA_COM_CONFIRMACAO = ("enviar_email",)
+ESCRITA_COM_CONFIRMACAO = (
+    "enviar_email",
+    "enviar_mensagem_slack",
+    "enviar_aviso_telegram",
+    "abrir_chamado_jira",
+    "comentar_chamado_jira",
+    "abrir_chamado",
+    "adicionar_nota_chamado",
+    "atualizar_situacao_chamado",
+    "registrar_pedido_antecipacao",
+    "executar_antecipacao",
+    "reprocessar_liquidacao",
+    "registrar_acordo",
+    "aprovar_acordo",
+    "retirar_acordo",
+    "registrar_defesa_chargeback",
+    "criar_evento_agenda",
+    "adicionar_linha_planilha",
+    "criar_planilha",
+)
 ESCRITAS_LIBERADAS = ESCRITA_SEM_CONFIRMACAO + ESCRITA_COM_CONFIRMACAO
 LIMITE_LINHAS = regras.LIMITE_MAXIMO
 CAMPOS_REGISTRO = (
@@ -50,6 +69,9 @@ CAMPOS_REGISTRO = (
     "tipo_erro",
     "camada_bloqueio",
     "duracao_ms",
+    # Id neutro do que a escrita criou fora da plataforma (a chave KAN-123 do Jira), para ir do chamado até quem
+    # confirmou. Nunca conteúdo; None em toda chamada que não criou nada lá fora.
+    "referencia_externa",
 )
 LIMITE_REGISTROS = 1000
 
@@ -171,7 +193,12 @@ def inicio_da_janela(usuario):
 
 
 def adicionar_destino(funcao):
-    """Liga um destino (back-end, monitoramento) que recebe cada registro como dict."""
+    """Liga um destino (back-end, monitoramento) que recebe cada registro como dict.
+
+    [A FAZER (Marcelo e Isabel, back-end, KAN-60): chamar esta função uma vez no `lifespan` com uma `gravar_execucao`
+    que grava o registro (só `CAMPOS_REGISTRO`, sem conteúdo) na tabela `execucoes_ferramenta`, com sessão própria; se
+    a gravação falhar, levantar erro, e a ferramenta não responde (O9)]
+    """
     if callable(funcao):
         DESTINOS.append(funcao)
 

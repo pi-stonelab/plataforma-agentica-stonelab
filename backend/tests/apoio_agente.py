@@ -2,7 +2,7 @@
 
 import importlib
 
-from ferramentas import dados_sinteticos, governanca
+from ferramentas import dados_sinteticos, escritas_sinteticas, governanca
 from mock.gerar import recriar
 
 from .apoio_ferramentas import (
@@ -23,6 +23,7 @@ def mundo():
         _MUNDO["engine"] = novo_engine_do_mock()
         recriar(_MUNDO["engine"])
     dados_sinteticos.configurar(_MUNDO["engine"])
+    escritas_sinteticas.configurar(_MUNDO["engine"])  # a prévia ensaia a gravação (e a desfaz) no mesmo mundo
     return _MUNDO["engine"]
 
 

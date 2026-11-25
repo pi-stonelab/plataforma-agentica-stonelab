@@ -12,6 +12,8 @@ Segurança:
 - Erros e logs levam só a etapa e o tipo da falha: nada de host, usuário, senha, endereço ou texto.
 - Falha antes de a mensagem seguir vira `EnvioIndisponivel` (nada foi enviado). Falha depois de o texto ir ao
   servidor, sem resposta dele, vira `EfeitoIncerto`: o e-mail pode ter saído.
+- Assunto e corpo passam por `assunto_valido` e `corpo_valido` na prévia e no envio: a pessoa nunca confirma um
+  texto que o envio recusaria.
 
 Teste manual com um endereço seu (com `MODO_TERMINAL=1`):
     python -m ferramentas.email_smtp --testar <seu endereço>
@@ -24,6 +26,7 @@ import re
 import secrets
 import smtplib
 import ssl
+import unicodedata
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -42,9 +45,15 @@ PORTA_PADRAO = {"starttls": 587, "ssl": 465, "nenhuma": 1025}
 HOSTS_LOCAIS = ("localhost", "127.0.0.1", "::1")  # só neles vale `nenhuma` (ex.: o Mailpit)
 TEMPO_LIMITE = 15  # segundos por operação de rede
 RECUSAS = (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused, smtplib.SMTPDataError)
+# Metade de par substituto ("\ud800", que um JSON do modelo pode trazer) não vira UTF-8: a mensagem não sai.
+CATEGORIAS_FORA_DO_CORPO = ("Cs",)
+# No assunto, também os controles (inclui \n, \r e \x85) e os separadores de linha e de parágrafo do Unicode
+# (\u2028, \u2029): tudo o que o `str.splitlines`, usado pelo EmailMessage para recusar cabeçalho, trata como quebra.
+CATEGORIAS_FORA_DO_ASSUNTO = (*CATEGORIAS_FORA_DO_CORPO, "Cc", "Zl", "Zp")
 
 ENDERECO_RE = re.compile(r"[^@\s,;<>()\"']+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
 HOST_RE = re.compile(r"[A-Za-z0-9.-]+|[0-9A-Fa-f:]+")
+PORTA_RE = re.compile(r"[0-9]{1,5}")  # só dígitos ASCII: "²" passa no isdigit e quebra no int
 NOME_EXIBIDO = "Stone"
 PREFIXO_TESTE = "[TESTE] "
 AVISO_TESTE = "Mensagem de teste. Destinatário original no cadastro: "
@@ -76,11 +85,36 @@ class ConfiguracaoSmtp:
     destino_teste: str = ""
 
 
+# Só letras: com dígito, um id como MSG-A12345678901 passaria pela máscara de texto livre como se fosse CPF.
+LETRAS_DO_ID = "BCDFGHJKLMNPQRSTVWXZ"
+TAMANHO_DO_ID = 12
+
+
 def endereco_valido(texto):
     return isinstance(texto, str) and ENDERECO_RE.fullmatch(texto) is not None
 
 
-MENSAGEM_DESLIGADO = "Envio de e-mail não configurado. Defina EMAIL_SMTP_HOST no .env."
+def _sem_categoria(texto, categorias):
+    return not any(unicodedata.category(caractere) in categorias for caractere in texto)
+
+
+def assunto_valido(assunto):
+    """Uma linha só, sem caractere de controle. A mesma regra vale na prévia e no envio."""
+    return _sem_categoria(assunto, CATEGORIAS_FORA_DO_ASSUNTO)
+
+
+def corpo_valido(corpo):
+    """Texto que vira UTF-8. A mesma regra vale na prévia e no envio."""
+    return _sem_categoria(corpo, CATEGORIAS_FORA_DO_CORPO)
+
+
+MENSAGEM_DESLIGADO = "O envio de e-mail não está ligado nesta plataforma. Nada foi enviado."
+MENSAGEM_DESLIGADO_NO_TERMINAL = "Envio de e-mail desligado: defina EMAIL_SMTP_HOST no .env (veja o .env.example)."
+MENSAGEM_LOGIN_RECUSADO = (
+    "O servidor SMTP recusou o usuário e a senha. No Gmail, use uma senha de app (não a senha da conta)."
+)
+MENSAGEM_ASSUNTO_INVALIDO = "O assunto deve ter uma linha só."
+MENSAGEM_CORPO_INVALIDO = "O corpo tem um caractere inválido."
 
 
 def descricao_do_envio(ambiente=os.environ):
@@ -106,7 +140,12 @@ def configuracao(ambiente=os.environ):
     if seguranca not in SEGURANCAS or (seguranca == "nenhuma" and host.lower() not in HOSTS_LOCAIS):
         raise _invalida("EMAIL_SMTP_SEGURANCA")
     porta_texto = ambiente.get("EMAIL_SMTP_PORTA", "").strip()
-    porta = int(porta_texto) if porta_texto.isdigit() else PORTA_PADRAO[seguranca] if not porta_texto else 0
+    if not porta_texto:
+        porta = PORTA_PADRAO[seguranca]
+    elif PORTA_RE.fullmatch(porta_texto):
+        porta = int(porta_texto)
+    else:
+        raise _invalida("EMAIL_SMTP_PORTA")
     if not 0 < porta < 65536:
         raise _invalida("EMAIL_SMTP_PORTA")
     remetente = ambiente.get("EMAIL_REMETENTE", "").strip()
@@ -116,6 +155,11 @@ def configuracao(ambiente=os.environ):
     senha = ambiente.get("EMAIL_SMTP_SENHA", "")
     if bool(usuario) != bool(senha):
         raise _invalida("EMAIL_SMTP_USUARIO e EMAIL_SMTP_SENHA")
+    # O login do smtplib manda usuário e senha em ASCII: acento ou "ç" quebraria todo envio.
+    if not usuario.isascii():
+        raise _invalida("EMAIL_SMTP_USUARIO")
+    if not senha.isascii():
+        raise _invalida("EMAIL_SMTP_SENHA")
     destino_teste = ambiente.get("EMAIL_DESTINO_TESTE", "").strip()
     if destino_teste and not endereco_valido(destino_teste):
         raise _invalida("EMAIL_DESTINO_TESTE")
@@ -131,7 +175,7 @@ def exigir_configuracao(ambiente=os.environ):
 
 
 def enviar(para, assunto, corpo, config, funcionario=None):
-    """Envia um e-mail de texto puro e devolve o id dele (como `MSG-3F9A2C71B0D4`).
+    """Envia um e-mail de texto puro e devolve o id dele (como `MSG-KBTQXWRMFZHD`).
 
     `para` é o endereço do cadastro. Com `config.destino_teste`, a mensagem vai para ele, com o aviso
     de teste. `funcionario` ({"nome", "email"}, de quem confirmou) vira o nome exibido e o Reply-To; sem ele,
@@ -140,7 +184,11 @@ def enviar(para, assunto, corpo, config, funcionario=None):
     falhas.verificar("email")
     if not endereco_valido(para):
         raise ErroFerramenta("nao_encontrado", "O contato do lojista não tem um e-mail válido.")
-    id_mensagem = f"MSG-{secrets.token_hex(6).upper()}"
+    if not assunto_valido(assunto):
+        raise ErroFerramenta("parametro_invalido", MENSAGEM_ASSUNTO_INVALIDO)
+    if not corpo_valido(corpo):
+        raise ErroFerramenta("parametro_invalido", MENSAGEM_CORPO_INVALIDO)
+    id_mensagem = "MSG-" + "".join(secrets.choice(LETRAS_DO_ID) for _ in range(TAMANHO_DO_ID))
     mensagem = _montar_mensagem(config, para, assunto, corpo, id_mensagem, funcionario or {})
     servidor = _abrir(config)
     try:
@@ -148,6 +196,19 @@ def enviar(para, assunto, corpo, config, funcionario=None):
     finally:
         _fechar(servidor)
     return id_mensagem
+
+
+def explicar_falha(erro):
+    """A falha de `EnvioIndisponivel` em português, para o terminal de quem configura (nunca para o agente)."""
+    if erro.tipo == "SMTPAuthenticationError":
+        return MENSAGEM_LOGIN_RECUSADO
+    return f"Não enviou: falha na etapa {erro.etapa} ({erro.tipo})."
+
+
+def verificar_conexao(config):
+    """Conecta, cifra e faz o login, sem mandar nada (o `testar` da integração). Falha: `EnvioIndisponivel`."""
+    falhas.verificar("email")
+    _fechar(_abrir(config))
 
 
 def _de(config, funcionario):
@@ -202,11 +263,13 @@ def _abrir(config):
 
 
 def _entregar(servidor, mensagem):
-    """Manda a mensagem. Recusa do servidor: nada saiu. Queda sem resposta: pode ter saído."""
+    """Manda a mensagem. Recusa do servidor ou falta de suporte: nada saiu. Queda sem resposta: pode ter saído."""
     try:
         servidor.send_message(mensagem)
     except RECUSAS as erro:
         raise _indisponivel("recusa", erro) from None
+    except smtplib.SMTPNotSupportedError as erro:  # endereço com acento e servidor sem SMTPUTF8: antes do MAIL
+        raise _indisponivel("suporte", erro) from None
     except (OSError, smtplib.SMTPException) as erro:
         logger.warning("envio por smtp incerto: tipo=%s", type(erro).__name__)
         raise EfeitoIncerto() from None
@@ -235,14 +298,16 @@ def principal(argumentos=None, ambiente=os.environ, escrever=print):
     if not endereco_valido(destino):
         raise SystemExit("Endereço de teste inválido.")
     try:
-        config = exigir_configuracao(ambiente)
+        config = configuracao(ambiente)
+        if config is None:
+            raise SystemExit(MENSAGEM_DESLIGADO_NO_TERMINAL)
         id_mensagem = enviar(destino, ASSUNTO_DO_TESTE_MANUAL, CORPO_DO_TESTE_MANUAL, replace(config, destino_teste=""))
     except ConfiguracaoInvalida as erro:
         raise SystemExit(str(erro)) from None
     except ErroFerramenta as erro:
         raise SystemExit(erro.mensagem) from None
     except EnvioIndisponivel as erro:
-        raise SystemExit(f"Não enviou: falha na etapa {erro.etapa} ({erro.tipo}).") from None
+        raise SystemExit(explicar_falha(erro)) from None
     except EfeitoIncerto:
         raise SystemExit("O servidor não confirmou: o e-mail pode ter saído. Confira a caixa de entrada.") from None
     except ConnectionError:

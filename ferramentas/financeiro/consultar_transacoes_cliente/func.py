@@ -4,6 +4,7 @@ from ferramentas.base import ErroFerramenta, Ferramenta
 
 class ConsultarTransacoesCliente(Ferramenta):
     nome = "consultar_transacoes_cliente"
+    descricao_para_pessoa = "Lista as vendas mais recentes de um cliente (lojista), com filtro opcional por período."
     area = "financeiro"
     acesso = "leitura"
     integracoes = ("sql",)
