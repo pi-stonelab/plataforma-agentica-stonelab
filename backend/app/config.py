@@ -2,7 +2,8 @@
 
 from typing import Literal
 
-from pydantic import SecretStr
+from agentes.agente_atendimento.agente import SEGUNDOS_MAXIMOS_POR_TURNO
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +26,7 @@ class Configuracao(BaseSettings):
     llm_timeout_segundos: float = 300.0
     llm_tentativas: int = 3
     llm_max_simultaneas: int = 8
+    turno_segundos: float | None = Field(default=None, gt=0, le=SEGUNDOS_MAXIMOS_POR_TURNO)
 
     # Login: segredo que assina o token (obrigatório para subir a API) e validade do token.
     jwt_segredo: SecretStr | None = None

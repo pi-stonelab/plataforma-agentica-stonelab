@@ -16,8 +16,7 @@ from seguranca import permissoes as seg
 from seguranca.envelope import exige_permissao
 
 from app.llm_client import RespostaLLM
-
-PRECO_SIMULADO_POR_MIL_TOKENS = 0.01  # R$; o modelo é local (custo real zero). SEM FONTE: o mesmo do mock do front
+from app.registro import custo_simulado
 
 
 @dataclass
@@ -38,13 +37,12 @@ class Uso:
         self.latencia_ms += resposta.duracao_ms
 
     def como_dict(self) -> dict:
-        tokens = self.tokens_entrada + self.tokens_saida
         return {
             "chamadas_modelo": self.chamadas_modelo,
             "tokens_entrada": self.tokens_entrada,
             "tokens_saida": self.tokens_saida,
             "latencia_ms": self.latencia_ms,
-            "custo": round(tokens / 1000 * PRECO_SIMULADO_POR_MIL_TOKENS, 4),
+            "custo": round(custo_simulado(self.tokens_entrada, self.tokens_saida), 4),
         }
 
 
@@ -75,6 +73,7 @@ def executar_agente(
     chamar_modelo: Callable[..., str],
     historico: Sequence[tuple[str, str]] = (),
     estado: dict | None = None,
+    segundos_por_turno: float | None = None,
 ) -> Turno:
     """Um turno do agente com as permissões de quem pediu (primeira checagem já feita pelo decorator).
 
@@ -88,6 +87,10 @@ def executar_agente(
         chamar_modelo=chamar_modelo,
         historico=historico,
         estado=estado,
-        contexto={"execucao_id": execucao_id, "agente_id": str(agente.id)},
+        contexto={
+            "execucao_id": execucao_id,
+            "agente_id": str(agente.id),
+            "segundos_por_turno": segundos_por_turno,
+        },
         prompt_sistema=prompt_sistema,
     )

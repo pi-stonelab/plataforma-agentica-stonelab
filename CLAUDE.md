@@ -42,12 +42,12 @@ Interface ──REST──► API e login ─► Permissões ─► Orquestrador
 - **`governanca.adicionar_destino(funcao)`**: recebe cada registro de chamada (só metadados). O back-end liga aqui a gravação em `execucoes_ferramenta`. Se algum destino falhar, a ferramenta não responde (falha fechada, O9).
 - **`governanca.Usuario(id_usuario, nivel, area, carteiras, cargo)`**: o back-end monta este objeto por `governanca.usuario_do_cargo(id_usuario, cargo, carteiras)`, com cargo e carteiras do diretório do mock, e entrega ao agente. Nunca com dado da requisição.
 - **`dados_sinteticos.py`**: fachada do banco do mock (`buscar_funcionario`, `buscar_cliente`, `buscar_transacoes`, `buscar_liquidacoes`, `buscar_chamados`...). Lê por `mock/consultas.py`. Os dados vivem no banco de `mock/` (`MOCK_DATABASE_URL`), não nas tabelas da plataforma.
-- **`rodar_turno(pergunta, usuario, ferramentas_do_agente, chamar_modelo, historico, estado, contexto, prompt_sistema)`**: um turno, de até `MAX_PASSOS = 10` passos e 120 s, protocolo em texto `LER / USAR / PERGUNTAR / FINAL`. Devolve um `Turno(resposta, tipo, trajetoria, estado, motivo)`. A `trajetoria` é o **rastro** pedido na KAN-60. O `LLMClient` entra pelo parâmetro `chamar_modelo(prompt_sistema, prompt)`. O `agente(...)` antigo, que devolve `(resposta, trajetoria)`, ficou para testes e terminal. Detalhes em `agentes/CLAUDE.md`.
+- **`rodar_turno(pergunta, usuario, ferramentas_do_agente, chamar_modelo, historico, estado, contexto, prompt_sistema)`**: um turno, de até `MAX_PASSOS = 10` passos e 300 s, protocolo em texto `LER / USAR / PERGUNTAR / FINAL`. Devolve um `Turno(resposta, tipo, trajetoria, estado, motivo)`. A `trajetoria` é o **rastro** pedido na KAN-60. O `LLMClient` entra pelo parâmetro `chamar_modelo(prompt_sistema, prompt)`. O `agente(...)` antigo, que devolve `(resposta, trajetoria)`, ficou para testes e terminal. Detalhes em `agentes/CLAUDE.md`.
 
 ### Ajustes pedidos às outras frentes (situação atual)
 - **Frente 3 (agente), feitos:** (a) `PERGUNTAR` devolve a pergunta e encerra o turno, sem `input()`; (b) lista de ferramentas e histórico entram por parâmetro; (c) `BASE_URL` e `MODELO` saíram do motor (o terminal lê `LLM_URL` e `LLM_MODELO` do `.env`); (d) `print` virou log sem conteúdo.
 - **Frente 6 (Brenno), feitos:** (a) gancho de auditoria: `Plataforma(ao_registrar=funcao)`; (b) correspondência entre perfis e níveis de ferramenta: o nível vem do cargo (seção abaixo).
-- **Frente 7:** testes do back-end ficam no repositório (`backend/tests/`). O CI de hoje (`.github/workflows/ci.yml`) só roda gitleaks e ruff; ainda não roda pytest.
+- **Frente 7:** testes do back-end ficam no repositório (`backend/tests/`). O CI (`.github/workflows/ci.yml`) roda gitleaks, ruff e o pytest de `backend/`.
 
 ## Modelo de acesso: duas camadas
 Perfil do usuário **vem do token JWT + banco**, nunca do corpo da requisição nem do prompt.
@@ -104,7 +104,7 @@ Ferramentas de escrita ficam inativas até existir confirmação em duas etapas 
 Decisões tomadas:
 - **Sem Alembic na Sprint 2.** Tabelas criadas com `Base.metadata.create_all()` ao subir; dados sintéticos recriados por um script de seed. Mudou tabela → apaga o banco e roda o seed. Reavaliar na Sprint 3.
 - **Rotas síncronas (`def`)**, não `async`. O agente e as ferramentas são síncronos; o FastAPI roda cada rota numa thread.
-- **Docker Compose só para o Postgres** por enquanto. O back-end roda com `uvicorn` direto. Vai para o Docker na semana da demo.
+- **Docker Compose:** `docker compose up -d` sobe só o Postgres; com `--profile app`, sobe também o back-end (`backend/Dockerfile`). No desenvolvimento ele pode rodar com `uvicorn` direto.
 - **SSE na Sprint 3.** Sprint 2 entrega REST com resposta completa + rastro. SSE virá com um evento por passo do agente.
 - **Fora de propósito:** Alembic (por ora), Keycloak, Redis/Celery, LiteLLM, Prometheus/Grafana. Observabilidade = logs + tabelas.
 - **Onde roda:** máquina pessoal primeiro; meta final Raspberry Pi 4. As imagens oficiais `python:3.11-slim` e `postgres:16-alpine` têm versão ARM64 (conferido). Nenhuma biblioteca pesada de IA no back-end.
@@ -144,6 +144,7 @@ GET  /agentes                    → agentes que posso usar
 POST /conversas                  → abre conversa com um agente
 POST /conversas/{id}/mensagens   → {resposta, tipo: "final"|"pergunta", trajetoria: [...]}
 GET  /conversas/{id}             → histórico
+GET  /auditoria                  → trilha de acesso (só Auditor)
 ```
 
 ## Caminho de uma mensagem
@@ -151,7 +152,7 @@ GET  /conversas/{id}             → histórico
 2. API valida o token e busca o usuário no banco → monta `seguranca.Usuario` (camada 1) e `governanca.Usuario` (camada 2).
 3. Permissões conferem acesso ao agente com `@exige_permissao(Acao.EXECUTAR)` numa `Plataforma` criada para este pedido (primeira checagem). Negado → 403.
 4. Orquestrador carrega o agente (ferramentas permitidas), o histórico e o estado da conversa, e chama `rodar_turno(...)` com `chamar_modelo = LLMClient`.
-5. O agente lê/usa ferramentas pelo catálogo, que reconfere permissão (segunda checagem) e o lojista (carteira, janela). Máximo de 10 passos e 120 s por turno.
+5. O agente lê/usa ferramentas pelo catálogo, que reconfere permissão (segunda checagem) e o lojista (carteira, janela). Máximo de 10 passos e 300 s por turno (`TURNO_SEGUNDOS` troca).
 6. Back-end grava mensagem, rastro, execuções e uso do modelo e responde.
 
 ## Como as quatro pastas se encaixam
@@ -181,7 +182,7 @@ Lista tirada de `pesquisa/arquitetura.md`, das auditorias e de `agentes/CLAUDE.m
 4. **Registro e gancho de auditoria.** `governanca.adicionar_destino(gravar_execucao)` uma vez no `lifespan`, e `Plataforma(ao_registrar=gravar_evento)` por pedido, cada um com sessão própria. Se a gravação falhar, levante erro (sem rastro, sem ação). O mesmo `execucao_id` vai para `contexto` das ferramentas e para o evento.
 5. **`LLMClient` com `(prompt_sistema, prompt)`.** O motor chama `chamar_modelo(prompt_sistema, prompt)`. Envie o primeiro como `system`. Credenciais do Cloudflare só no back-end.
 6. **`PARADA_DO_MODELO`.** Importe `PARADA_DO_MODELO` (`"Observação:"`) de `agentes.agente_atendimento.agente` e passe ao Ollama como `stop`. Sem isso o modelo inventa o resultado da ferramenta. Temperatura 0, `think` falso, tire os blocos `<think>`.
-7. **`tempo_limite`.** Se o `LLMClient` declarar o parâmetro `tempo_limite` (segundos), o motor passa o tempo que sobra do turno (120 s por padrão, `contexto["segundos_por_turno"]` troca). Use como timeout da chamada. Falha do modelo: levante `ModeloIndisponivel` com mensagem genérica, sem a URL.
+7. **`tempo_limite`.** Se o `LLMClient` declarar o parâmetro `tempo_limite` (segundos), o motor passa o tempo que sobra do turno (300 s por padrão, `contexto["segundos_por_turno"]` troca). Use como timeout da chamada. Falha do modelo: levante `ModeloIndisponivel` com mensagem genérica, sem a URL.
 8. **Estado no servidor.** Guarde por conversa o `historico` (pares pergunta e resposta) e o `Turno.estado` do último turno de tipo `pergunta`. Nunca aceite `estado` vindo do cliente.
 9. **Motivos de `Turno`.** `tipo` é `final`, `pergunta` ou `limite`. No `limite`, `motivo` é `max_passos`, `repeticao`, `tempo` ou `modelo_indisponivel`. Guarde o `tipo` em `mensagens` (a tabela do plano só prevê `final` e `pergunta`) e a `trajetoria` como rastro.
 10. **`MOCK_DATABASE_URL`.** Declare no `.env`, diferente de `DATABASE_URL`, e rode `python -m mock.gerar` antes. O `create_all` do back-end não cria as tabelas do mock. Os testes usam `criar_engine("sqlite://")`.
@@ -213,10 +214,11 @@ backend/
     llm_client.py    # Ollama + mock
     orquestrador.py  # chama o agente
     registro.py      # destino do governanca, gancho de auditoria da Plataforma e uso_modelo
-    rotas/           # auth, agentes, conversas
+    rotas/           # auth, agentes, conversas, ferramentas, auditoria, saude
   tests/
   requirements.txt
-docker-compose.yml   # só o Postgres
+  Dockerfile
+docker-compose.yml   # Postgres; back-end no perfil app
 .env.example
 ```
 `agentes/` e `ferramentas/` ficam na raiz e são importados pelo back-end.
@@ -242,7 +244,8 @@ SSE por passo, CRUD de agentes com `agente_historico` e convites, rotas do `Gest
 ## Em aberto
 - Decisões e perguntas do Pedro e do grupo estão em `docs/decisoes.md` (inclui as divergências com a KAN-69).
 - Aprovação do PR #10 (`seguranca/`).
-- Gravar a auditoria no banco pelo gancho `ao_registrar` e ler a tabela para o Auditor (back-end).
+- Rodar no Raspberry Pi e medir memória (`backend/README.md`).
+- Forma de abrir a interface na banca: `/app/?mock=0` ou `/docs` (Larissa).
 - Limite de gasto por pessoa (Milene).
 - Lista de ferramentas do agente de atendimento (KAN-55): hoje fixa em 5, sem as 6 novas.
 - Eventos que a QA quer receber (Enrico).

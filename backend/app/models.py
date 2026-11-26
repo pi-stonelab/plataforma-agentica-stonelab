@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -98,3 +98,50 @@ class Mensagem(Base):
     # mostra. Os argumentos reais ficam na fila de `ferramentas/confirmacoes.py`, nunca aqui.
     confirmacao: Mapped[dict | None] = mapped_column(Json)
     criada_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora)
+
+
+class Auditoria(Base):
+    __tablename__ = "auditoria"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    quando: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    id_usuario: Mapped[str] = mapped_column(Text, index=True)
+    acao: Mapped[str] = mapped_column(Text)
+    alvo: Mapped[str] = mapped_column(Text)
+    permitido: Mapped[bool] = mapped_column(Boolean)
+    execucao_id: Mapped[str | None] = mapped_column(String(64), index=True)
+
+
+class ExecucaoFerramenta(Base):
+    __tablename__ = "execucoes_ferramenta"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    momento: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    execucao_id: Mapped[str | None] = mapped_column(Text, index=True)
+    passo: Mapped[int | None] = mapped_column(Integer)
+    agente_id: Mapped[str | None] = mapped_column(Text)
+    ferramenta: Mapped[str] = mapped_column(Text)
+    id_usuario: Mapped[str | None] = mapped_column(Text, index=True)
+    integracoes: Mapped[list] = mapped_column(Json)
+    acesso: Mapped[str | None] = mapped_column(Text)
+    categorias_dados: Mapped[list] = mapped_column(Json)
+    status: Mapped[str] = mapped_column(Text)
+    tipo_erro: Mapped[str | None] = mapped_column(Text)
+    camada_bloqueio: Mapped[str | None] = mapped_column(Text)
+    duracao_ms: Mapped[int] = mapped_column(Integer)
+    referencia_externa: Mapped[str | None] = mapped_column(Text)
+
+
+class UsoModelo(Base):
+    __tablename__ = "uso_modelo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    momento: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora, index=True)
+    usuario_id: Mapped[str] = mapped_column(String(32), index=True)
+    conversa_id: Mapped[str] = mapped_column(String(40), index=True)
+    execucao_id: Mapped[str] = mapped_column(String(64), index=True)
+    modelo: Mapped[str] = mapped_column(Text)
+    tokens_entrada: Mapped[int] = mapped_column(Integer)
+    tokens_saida: Mapped[int] = mapped_column(Integer)
+    latencia_ms: Mapped[int] = mapped_column(Integer)
+    custo_simulado: Mapped[float] = mapped_column(Float)

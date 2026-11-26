@@ -14,6 +14,8 @@ import ipaddress
 import socket
 from datetime import datetime, time
 
+import pytest
+
 # Proxy do sistema fica de fora: com HTTPS_PROXY no loopback, um pedido para fora passaria pela trava abaixo.
 for _variavel in [v for v in os.environ if v.lower() in ("http_proxy", "https_proxy", "all_proxy")]:
     del os.environ[_variavel]
@@ -42,6 +44,7 @@ os.environ.update(
     )
 )
 
+from ferramentas import governanca
 from ferramentas.dados_sinteticos import HOJE_DO_MOCK
 from ferramentas.integracoes.apis_publicas.conector import CONECTOR as _APIS_PUBLICAS
 from ferramentas.integracoes.apis_publicas.conector import FUSO_DA_COTACAO
@@ -85,3 +88,10 @@ def _so_local_ex(sock, endereco):
 # Trava de segurança: nenhum teste conecta fora do 127.0.0.1 (nem por engano, nem pelo .env de quem roda).
 socket.socket.connect = _so_local
 socket.socket.connect_ex = _so_local_ex
+
+
+@pytest.fixture(autouse=True)
+def _destinos_de_registro_limpos():
+    governanca.DESTINOS.clear()
+    yield
+    governanca.DESTINOS.clear()

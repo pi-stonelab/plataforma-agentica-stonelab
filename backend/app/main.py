@@ -10,13 +10,14 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from ferramentas import catalogo
+from ferramentas import catalogo, governanca
 from seguranca.permissoes import AcessoNegado
 
 from app.auth import segredo_do_token
 from app.db import criar_tabelas
 from app.llm_client import criar_cliente
-from app.rotas import agentes, auth, conversas, ferramentas, saude
+from app.registro import gravar_execucao
+from app.rotas import agentes, auditoria, auth, conversas, ferramentas, saude
 
 PASTA_DO_FRONT = Path(__file__).resolve().parents[2] / "frontend"
 MENSAGEM_ACESSO_NEGADO = "Acesso negado."
@@ -27,7 +28,8 @@ async def ciclo_de_vida(app: FastAPI):
     segredo_do_token()  # sem JWT_SEGREDO a API não sobe (melhor que falhar no primeiro login)
     criar_tabelas()
     catalogo.nomes()  # carrega o catálogo na subida (só pelo nome: carregar() é de uso interno)
-    # [A FAZER (Marcelo e Isabel, back-end, KAN-60): governanca.adicionar_destino(gravar_execucao)]
+    if gravar_execucao not in governanca.DESTINOS:
+        governanca.adicionar_destino(gravar_execucao)
     app.state.llm = criar_cliente()
     yield
 
@@ -46,6 +48,7 @@ app.include_router(auth.router)
 app.include_router(agentes.router)
 app.include_router(conversas.router)
 app.include_router(ferramentas.router)
+app.include_router(auditoria.router)
 
 
 @app.get("/", include_in_schema=False)
