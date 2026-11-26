@@ -534,6 +534,14 @@ def executar_antecipacao(
             raise EscritaRecusada(
                 "permissao_negada", "Quem registrou o pedido do lojista não o executa: peça a outro N2."
             )
+        # Um pedido, uma antecipação: outra prévia no mesmo chamado anteciparia o que o lojista não pediu.
+        ja_feita = sessao.scalar(select(Antecipacao.codigo).where(Antecipacao.id_chamado == chamado.codigo).limit(1))
+        if ja_feita is not None:
+            raise EscritaRecusada(
+                "parametro_invalido",
+                f"Este pedido já foi atendido pela antecipação {ja_feita}. Para antecipar de novo, registre um "
+                "pedido novo do lojista.",
+            )
         motivos = _motivos_de_recusa(sessao, lojista)
         if motivos:
             rotulos = ", ".join(regras.ROTULOS_DOS_MOTIVOS_DE_RECUSA_DA_ANTECIPACAO[m] for m in motivos)

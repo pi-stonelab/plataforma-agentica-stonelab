@@ -439,7 +439,7 @@ def test_executar_antecipacao_bate_com_a_simulacao_do_cenario_4(engine):
         nota = sessao.scalars(select(Interacao).where(Interacao.id_chamado == chamado)).one()
     assert marcadas == 25 and (nota.canal, nota.id_funcionario) == ("interno", BRUNO)
     tipo, mensagem = _recusa(escritas.executar_antecipacao, engine, "M00004", chamado, BRUNO)
-    assert tipo == "parametro_invalido" and "parcelas" in mensagem  # o que dava já foi antecipado
+    assert tipo == "parametro_invalido" and "AN0001" in mensagem  # o pedido já foi atendido
 
 
 @pytest.mark.parametrize(
