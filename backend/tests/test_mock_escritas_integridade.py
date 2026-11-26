@@ -223,3 +223,15 @@ def test_quem_registrou_o_pedido_nao_executa_a_antecipacao(engine):
     erro = _recusa(escritas.executar_antecipacao, engine, "M00004", chamado, BRUNO)
     assert erro.tipo_erro == "permissao_negada"
     assert _contar(engine, Antecipacao) == 0
+
+
+def test_mesmo_pedido_nao_antecipa_duas_vezes(engine):
+    """Outra prévia (outra chave) no mesmo chamado anteciparia o resto da agenda, que o lojista não pediu."""
+    chamado = _pedido(engine)
+    with escritas.com_chave("confirmacao-1"):
+        feito = escritas.executar_antecipacao(engine, "M00004", chamado, BRUNO, valor_maximo_centavos=300000)
+    with escritas.com_chave("confirmacao-2"):
+        erro = _recusa(escritas.executar_antecipacao, engine, "M00004", chamado, BRUNO)
+    assert erro.tipo_erro == "parametro_invalido"
+    assert feito["codigo"] in erro.mensagem
+    assert _contar(engine, Antecipacao) == 1
